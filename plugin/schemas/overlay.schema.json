@@ -1,0 +1,424 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://system2.dev/schemas/overlay.schema.json",
+  "title": "System2 Overlay Manifest",
+  "description": "Canonical manifest structure for System2 overlay authors. The composer implements a limited stdlib-only validator that checks required fields, value types, enum constraints, and pattern constraints against this structure. Full JSON Schema draft compliance is not required and is not promised.",
+  "type": "object",
+  "required": ["name", "version", "description", "schema_version", "contributions"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique identifier for the overlay. Must be kebab-case.",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the overlay (e.g., \"1.0.0\")."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line summary of what the overlay provides."
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Version of the overlay manifest schema this manifest conforms to. The composer validates that it supports this version before proceeding."
+    },
+    "tags": {
+      "type": "array",
+      "description": "Semantic categorization tags (e.g., \"architecture-policy\", \"evidence-source\", \"distributed-systems\").",
+      "items": {
+        "type": "string"
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "description": "Declares inter-overlay compatibility information used by the composer for conflict detection and semantic tension warnings.",
+      "properties": {
+        "known_conflicts": {
+          "type": "array",
+          "description": "Overlay names that structurally conflict with this overlay. The composer refuses to compose when a listed overlay is present.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tested_with": {
+          "type": "array",
+          "description": "Overlay names that have been tested for correct co-composition with this overlay.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "review_when_combined_with_tags": {
+          "type": "array",
+          "description": "Tag strings. When another overlay shares one of these tags, the composer emits a semantic tension warning.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "contributions": {
+      "type": "object",
+      "description": "Typed contribution declarations organized by target surface. All contribution types are additive; no type expresses deletion, replacement, or override of base System2 content.",
+      "properties": {
+        "orchestrator": {
+          "type": "object",
+          "description": "Contributions targeting the orchestrator (CLAUDE.md).",
+          "properties": {
+            "principles": {
+              "type": "array",
+              "description": "Operating principles appended to the orchestrator's principles section. Inlined in composed CLAUDE.md by default.",
+              "items": {
+                "type": "object",
+                "required": ["id", "content_file"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Unique identifier within this overlay."
+                  },
+                  "content_file": {
+                    "type": "string",
+                    "description": "Relative path to a markdown file within the overlay directory. Must not be absolute or contain \"..\"."
+                  },
+                  "after": {
+                    "type": ["string", "null"],
+                    "description": "ID of another principle to order after within this scope. null or omitted means no ordering constraint."
+                  }
+                }
+              }
+            },
+            "gates": {
+              "type": "object",
+              "description": "Gate consultation contributions keyed by gate number (\"1\" through \"5\").",
+              "propertyNames": {
+                "enum": ["1", "2", "3", "4", "5"]
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "consultation": {
+                    "type": "array",
+                    "description": "Consultation steps added to this gate.",
+                    "items": {
+                      "type": "object",
+                      "required": ["id", "content_file", "phase"],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "Unique identifier within this overlay."
+                        },
+                        "content_file": {
+                          "type": "string",
+                          "description": "Relative path to a markdown file within the overlay directory."
+                        },
+                        "phase": {
+                          "type": "string",
+                          "description": "When this consultation runs relative to the gate's primary delegation.",
+                          "enum": ["pre-delegation", "post-completion"]
+                        },
+                        "after": {
+                          "type": ["string", "null"],
+                          "description": "ID of another consultation in this gate to order after."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "delegation": {
+          "type": "object",
+          "description": "Contributions targeting the delegation contract.",
+          "properties": {
+            "advisory_sources": {
+              "type": "array",
+              "description": "Advisory sources the orchestrator should consult when delegating. Names and descriptions are inlined in composed CLAUDE.md.",
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "description", "resolution"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Unique identifier within this overlay."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Human-readable label for this advisory source."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "What this source provides."
+                  },
+                  "resolution": {
+                    "type": "string",
+                    "description": "How the orchestrator obtains findings from this source.",
+                    "enum": ["orchestrator-relay", "bash-cli", "mcp"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "agents": {
+          "type": "object",
+          "description": "Contributions targeting pipeline agents, keyed by agent name. Valid agent names: code-reviewer, design-architect, docs-release, eval-engineer, executor, mcp-toolsmith, postmortem-scribe, repo-governor, requirements-engineer, security-sentinel, spec-coordinator, task-planner, test-engineer.",
+          "propertyNames": {
+            "enum": [
+              "code-reviewer",
+              "design-architect",
+              "docs-release",
+              "eval-engineer",
+              "executor",
+              "mcp-toolsmith",
+              "postmortem-scribe",
+              "repo-governor",
+              "requirements-engineer",
+              "security-sentinel",
+              "spec-coordinator",
+              "task-planner",
+              "test-engineer"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "description": "Per-agent contribution block.",
+            "properties": {
+              "prompt_sections": {
+                "type": "object",
+                "description": "Prompt section contributions keyed by anchor name. Valid anchor names vary per agent; see anchor-map.json for the full mapping. In Phase 1, prompt sections flow through composed CLAUDE.md delegation instructions (summary inline, full text as file pointer). Phase 2 may materialize them into agent system prompts.",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "content_file"],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "description": "Unique identifier within this overlay."
+                      },
+                      "content_file": {
+                        "type": "string",
+                        "description": "Relative path to a markdown file within the overlay directory."
+                      },
+                      "after": {
+                        "type": ["string", "null"],
+                        "description": "ID of another contribution at this anchor to order after."
+                      },
+                      "inline": {
+                        "type": "boolean",
+                        "description": "Controls whether full content is inlined in composed CLAUDE.md (true) or referenced as a file pointer (false).",
+                        "default": false
+                      },
+                      "summary": {
+                        "type": "string",
+                        "description": "Concise behavioral directive visible in composed CLAUDE.md. Required when inline is false (the default). The orchestrator sees this summary and reads the full content file when delegating."
+                      }
+                    }
+                  }
+                }
+              },
+              "tools": {
+                "type": "array",
+                "description": "Tools to add to this agent's tool list. Deferred in Phase 1: declared contributions are validated but not registered in agent frontmatter until Phase 3.",
+                "items": {
+                  "type": "object",
+                  "required": ["tool_name", "justification"],
+                  "properties": {
+                    "tool_name": {
+                      "type": "string",
+                      "description": "The tool to add to the agent's tool list."
+                    },
+                    "justification": {
+                      "type": "string",
+                      "description": "Why this agent needs this tool."
+                    }
+                  }
+                }
+              },
+              "hooks": {
+                "type": "array",
+                "description": "Hooks to add to this agent's hook configuration. Deferred in Phase 1: declared hooks are security-validated at composition time but not registered in agent frontmatter until Phase 3. Hook scripts must use Python 3.8+ stdlib only.",
+                "items": {
+                  "type": "object",
+                  "required": ["event", "command"],
+                  "properties": {
+                    "event": {
+                      "type": "string",
+                      "description": "The hook event type.",
+                      "enum": ["PreToolUse", "PostToolUse", "SubagentStop"]
+                    },
+                    "matcher": {
+                      "type": "string",
+                      "description": "Regex matching tool names. Required for PreToolUse and PostToolUse events."
+                    },
+                    "command": {
+                      "type": "string",
+                      "description": "The hook command to execute. Path must be relative to the overlay directory."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "spec": {
+          "type": "object",
+          "description": "Contributions targeting spec artifacts, keyed by artifact name.",
+          "propertyNames": {
+            "enum": ["context", "requirements", "design", "tasks"]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "required_sections": {
+                "type": "array",
+                "description": "Sections that must appear in this spec artifact when the overlay is active.",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "section_heading", "description"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Unique identifier within this overlay."
+                    },
+                    "section_heading": {
+                      "type": "string",
+                      "description": "The heading to require in the spec artifact."
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "What the section should contain."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "auxiliary_agents": {
+          "type": "array",
+          "description": "Auxiliary agents contributed by this overlay. These are NOT pipeline agents: they do not participate in the 13-agent pipeline, do not appear in the delegation map or gate checklist, and cannot spawn subagents. The orchestrator may optionally delegate to them.",
+          "items": {
+            "type": "object",
+            "required": ["name", "role", "pipeline", "delegation_policy", "agent_file"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Agent name. Must be kebab-case and must not collide with any pipeline agent name.",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "role": {
+                "type": "string",
+                "description": "Human-readable purpose of this agent."
+              },
+              "pipeline": {
+                "type": "boolean",
+                "description": "Must be false. Auxiliary agents are not pipeline agents.",
+                "const": false
+              },
+              "delegation_policy": {
+                "type": "string",
+                "description": "How the orchestrator should treat this agent for delegation.",
+                "enum": ["orchestrator_optional", "orchestrator_recommended"]
+              },
+              "agent_file": {
+                "type": "string",
+                "description": "Relative path to the agent's .md definition file within the overlay directory. Must follow the same format as pipeline agent files (markdown with YAML frontmatter)."
+              }
+            }
+          }
+        },
+        "mcp_servers": {
+          "type": "array",
+          "description": "MCP server suggestions. The composer includes these in composed CLAUDE.md for the user to configure in .mcp.json.",
+          "items": {
+            "type": "object",
+            "required": ["name", "description", "config", "required_by"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "MCP server name."
+              },
+              "description": {
+                "type": "string",
+                "description": "What this MCP server provides."
+              },
+              "config": {
+                "type": "object",
+                "description": "MCP server configuration suitable for .mcp.json (e.g., type, command, args)."
+              },
+              "required_by": {
+                "type": "array",
+                "description": "Contribution IDs from this overlay that depend on this MCP server.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "permissions": {
+          "type": "array",
+          "description": "Permission suggestions. The composer includes these in composed CLAUDE.md for the user to add to .claude/settings.json.",
+          "items": {
+            "type": "object",
+            "required": ["tool", "reason", "required_by"],
+            "properties": {
+              "tool": {
+                "type": "string",
+                "description": "The tool name or pattern (e.g., \"Bash(node \\\"${VIEWER_PATH}\\\"*)\")."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why this permission is needed."
+              },
+              "required_by": {
+                "type": "array",
+                "description": "Contribution IDs from this overlay that depend on this permission.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "_meta": {
+    "valid_pipeline_agents": [
+      "code-reviewer",
+      "design-architect",
+      "docs-release",
+      "eval-engineer",
+      "executor",
+      "mcp-toolsmith",
+      "postmortem-scribe",
+      "repo-governor",
+      "requirements-engineer",
+      "security-sentinel",
+      "spec-coordinator",
+      "task-planner",
+      "test-engineer"
+    ],
+    "valid_anchor_names_by_agent": {
+      "executor": ["safety_rules", "implementation_discipline", "verification_rules"],
+      "code-reviewer": ["review_criteria", "surface_area_delta", "simplification_criteria"],
+      "design-architect": ["design_constraints", "required_output_sections"],
+      "spec-coordinator": ["required_context_sections", "style_requirements"],
+      "requirements-engineer": ["guardrails", "required_req_sections"],
+      "task-planner": ["planning_rules", "task_fields"],
+      "test-engineer": ["verification_workflow", "test_authoring_rules"],
+      "security-sentinel": ["threat_model_scope"],
+      "eval-engineer": ["eval_guidance"],
+      "docs-release": ["writing_rules"],
+      "repo-governor": ["discovery_process"],
+      "postmortem-scribe": ["postmortem_guardrails"],
+      "mcp-toolsmith": ["design_rules"]
+    },
+    "valid_spec_artifacts": ["context", "requirements", "design", "tasks"],
+    "valid_gate_numbers": ["1", "2", "3", "4", "5"]
+  }
+}

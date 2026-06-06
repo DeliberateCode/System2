@@ -65,23 +65,25 @@ These artifacts serve as the contract between planning and execution.
 ### Step 1: Add the System2 Marketplace
 
 ```
-/plugin marketplace add jamesnordlund/System2
+/plugin marketplace add DeliberateCode/System2
 ```
 
 ### Step 2: Install the Plugin
 
 ```
-/plugin install system2@jamesnordlund-system2
+/plugin install system2@DeliberateCode-system2
 ```
 
-This installs all 13 agents, hooks, allowlists, and the `/system2:init` command.
+This installs all 13 agents, hooks, allowlists, and the `/system2:init`, `/system2:compose`, and `/system2:doctor` commands.
 
 ```
 System2 Plugin
 ├── agents/              # 13 subagent definitions
-├── skills/              # Skills (including /system2:init)
+├── skills/              # Skills (/system2:init, /system2:compose, /system2:doctor)
 ├── hooks/               # Validation and quality hook scripts
 ├── allowlists/          # Per-agent file restriction patterns
+├── schemas/             # Overlay manifest schema and anchor map
+├── scripts/             # Overlay composer and shared validation helpers
 └── .claude-plugin/      # Plugin identity and marketplace metadata
 ```
 
@@ -101,6 +103,37 @@ To overwrite an existing CLAUDE.md:
 /system2:init --force
 ```
 
+### Optional: Compose Overlays
+
+System2 includes an opt-in overlay mechanism for extending the base workflow without forking the plugin. Overlays are local directories with a `system2.overlay.json` manifest and referenced content files.
+
+Preview an overlay composition without writing files:
+
+```
+/system2:compose --dry-run /path/to/my-overlay
+```
+
+Apply an overlay after preview and approval:
+
+```
+/system2:compose /path/to/my-overlay
+```
+
+`/system2:compose` validates manifests, detects structural conflicts, reports warnings, then writes project-local composed artifacts:
+
+- `CLAUDE.md` with base System2 instructions plus overlay-contributed sections
+- `.system2/overlays/<overlay-name>/` with local copies of overlay content
+- `.claude/agents/<auxiliary-agent>.md` for overlay-contributed auxiliary agents
+- `spec/overlay-manifest.lock` with versions, hashes, and applied contributions
+
+The lock file records the overlay source paths used during composition. On subsequent updates, `--from-lock` reads those paths so you don't need to retype them:
+
+```
+/system2:compose --from-lock
+```
+
+Overlay composition is explicit. `/system2:init` remains base-only and produces the same orchestrator instructions regardless of installed or available overlays.
+
 ## Updating
 
 System2 updates are handled by the Claude Code plugin system. No manual update commands are needed.
@@ -111,20 +144,19 @@ To check plugin status:
 /plugin list
 ```
 
-## Migrating from Manual Installation
+Plugin updates do not automatically rewrite composed overlay artifacts in your project. After a plugin update, check whether your composed overlays need refreshing:
 
-If you previously installed System2 by copying files manually, remove the old files before installing the plugin:
+```
+/system2:doctor
+```
 
-1. Delete `.claude/agents/` System2 agent files (all 13 `.md` files)
-2. Delete `.claude/hooks/` System2 hook files (all `.py` and `.regex` files)
-3. Delete `.claude/allowlists/` (entire directory)
-4. Delete `.system2/` (entire directory)
-5. Delete `manifest.json` from the project root
-6. If installed at user level, delete the System2 update command file from `~/.claude/commands/`
+If the doctor reports drift (stale base or stale overlay), recompose using the locked overlay paths:
 
-**Important:** Project-level `.claude/agents/` files take priority over plugin agents. Failing to remove old agent files will cause version skew where the outdated project-level agents are used instead of the plugin versions.
+```
+/system2:compose --from-lock
+```
 
-After cleanup, follow the Installation steps above.
+This reads the overlay source paths recorded in `spec/overlay-manifest.lock` and runs the normal compose flow (dry-run preview, approval, write).
 
 ## Usage
 

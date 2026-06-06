@@ -1,0 +1,44 @@
+{
+  "name": "skipped-anchor-injection",
+  "version": "1.0.0",
+  "description": "Fixture: unknown anchor with injection text should not block composition",
+  "schema_version": "1.0.0",
+  "tags": ["test"],
+
+  "compatibility": {
+    "known_conflicts": [],
+    "tested_with": [],
+    "review_when_combined_with_tags": []
+  },
+
+  "contributions": {
+    "orchestrator": {
+      "principles": [
+        {
+          "id": "safe-principle",
+          "content_file": "contributions/safe-principle.md",
+          "after": null
+        }
+      ]
+    },
+
+    "agents": {
+      "executor": {
+        "prompt_sections": {
+          "missing_anchor": [
+            {
+              "id": "bad-anchor-entry",
+              "content_file": "contributions/agents/bad-anchor.md",
+              "inline": false,
+              "summary": "This targets a nonexistent anchor"
+            }
+          ]
+        }
+      }
+    },
+
+    "auxiliary_agents": [],
+    "mcp_servers": [],
+    "permissions": []
+  }
+}

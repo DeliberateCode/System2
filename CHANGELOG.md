@@ -5,6 +5,25 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-05
+
+### Added
+
+- `/system2:compose` skill for opt-in overlay composition. The command validates overlay manifests, previews applied/deferred contributions, detects structural conflicts and semantic tensions, asks for approval, and writes composed project-local artifacts.
+- `/system2:compose --from-lock` mode for recomposing using overlay source paths recorded in `spec/overlay-manifest.lock`, enabling graceful updates after plugin or overlay changes without requiring users to remember overlay paths.
+- `/system2:doctor` skill for read-only drift and status checking of composed projects. Reports whether base plugin and overlay compositions are current, stale, or broken relative to the lock file. Detects version drift, manifest changes, source content changes, local copy mutations, and missing files.
+- Overlay manifest schema at `plugin/schemas/overlay.schema.json` and anchor map at `plugin/schemas/anchor-map.json`.
+- Overlay composition engine at `plugin/scripts/composer.py` with stdlib-only manifest validation, deterministic additive ordering, conflict detection, prompt-injection warnings, content copying, lock generation, and atomic write/rollback behavior.
+- Shared hook security helper at `plugin/scripts/hook_security.py`, reused by evals and overlay hook validation.
+- Overlay eval coverage for schema presence, anchor-map integrity, dry-run composition, composed `CLAUDE.md` preservation, skipped unknown anchors, conflict detection, deterministic ordering, semantic tensions, hook security, rollback cleanup, and drift checking.
+- Test overlay fixtures and unit tests for lock generation, content copying, output writing, idempotency, CLI behavior, and doctor drift detection.
+
+### Changed
+
+- Plugin version is now `1.0.0`.
+- Installed command surface now includes `/system2:compose`, `/system2:doctor`, and `/system2:compose --from-lock` in addition to `/system2:init`.
+- Base System2 behavior remains unchanged unless `/system2:compose` is explicitly invoked. `/system2:init` remains base-only and the 13 pipeline agents, hooks, allowlists, and orchestrator template are preserved.
+
 ## [0.4.1] - 2026-04-11
 
 ### Fixed
