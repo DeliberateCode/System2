@@ -1,0 +1,87 @@
+{
+  "name": "test-overlay",
+  "version": "1.0.0",
+  "description": "Test overlay for composition fixture evals",
+  "schema_version": "1.0.0",
+  "tags": ["test"],
+
+  "compatibility": {
+    "known_conflicts": [],
+    "tested_with": [],
+    "review_when_combined_with_tags": []
+  },
+
+  "contributions": {
+    "orchestrator": {
+      "principles": [
+        {
+          "id": "test-principle-1",
+          "content_file": "contributions/orchestrator/principles.md",
+          "after": null
+        }
+      ],
+      "gates": {
+        "3": {
+          "consultation": [
+            {
+              "id": "test-gate3-consultation",
+              "content_file": "contributions/orchestrator/gate-3-consultation.md",
+              "phase": "pre-delegation"
+            }
+          ]
+        }
+      }
+    },
+
+    "delegation": {
+      "advisory_sources": [
+        {
+          "id": "test-advisory-1",
+          "name": "Test Advisory Source",
+          "description": "A test advisory source",
+          "resolution": "orchestrator-relay"
+        }
+      ]
+    },
+
+    "agents": {
+      "executor": {
+        "prompt_sections": {
+          "implementation_discipline": [
+            {
+              "id": "test-executor-discipline",
+              "content_file": "contributions/agents/executor-discipline.md",
+              "inline": false,
+              "summary": "Test executor discipline summary for aggregate boundaries."
+            }
+          ]
+        }
+      }
+    },
+
+    "spec": {
+      "context": {
+        "required_sections": [
+          {
+            "id": "test-spec-section",
+            "section_heading": "Test Section",
+            "description": "A test required section for context"
+          }
+        ]
+      }
+    },
+
+    "auxiliary_agents": [
+      {
+        "name": "test-scout",
+        "role": "Test auxiliary agent for evidence queries",
+        "pipeline": false,
+        "delegation_policy": "orchestrator_optional",
+        "agent_file": "agents/test-scout.md"
+      }
+    ],
+
+    "mcp_servers": [],
+    "permissions": []
+  }
+}

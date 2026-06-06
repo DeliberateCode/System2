@@ -34,7 +34,7 @@
     },
     {
       "id": "no-req-ids-in-agents",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "plugin/agents/",
       "description": "No requirement IDs in agent files (except requirements-engineer.md instructional example)",
       "exclude_files": [
@@ -43,39 +43,55 @@
     },
     {
       "id": "no-req-ids-in-commands",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "plugin/skills/",
       "description": "No requirement IDs in skill files"
     },
     {
       "id": "no-req-ids-in-hooks",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "plugin/hooks/",
       "description": "No requirement IDs in hook files"
     },
     {
       "id": "no-req-ids-in-allowlists",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "plugin/allowlists/",
       "description": "No requirement IDs in allowlist files"
     },
     {
       "id": "no-req-ids-in-plugin-manifests",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "plugin/.claude-plugin/",
       "description": "No requirement IDs in plugin manifest files"
     },
     {
       "id": "no-req-ids-in-readme",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "README.md",
       "description": "No requirement IDs in README"
     },
     {
       "id": "no-req-ids-in-claudemd",
-      "pattern": "REQ-[0-9]{3}",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
       "scope": "CLAUDE.md",
       "description": "No requirement IDs in CLAUDE.md"
+    },
+    {
+      "id": "no-req-ids-in-schemas",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/schemas/",
+      "description": "No requirement IDs in schema files"
+    },
+    {
+      "id": "no-req-ids-in-scripts",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/scripts/",
+      "description": "No requirement IDs in scripts (traceability comments allowed in composer/hook_security)",
+      "exclude_files": [
+        "plugin/scripts/composer.py",
+        "plugin/scripts/hook_security.py"
+      ]
     }
   ]
 }
