@@ -122,6 +122,7 @@ Maintenance execution rules:
 - Justify every new function, class, or configuration layer in present tense: state what breaks or becomes untestable without it.
 - After tests go green, perform a removal pass: ask "what can I delete and still pass?" Remove anything that fails this test.
 - Do not add comments that restate what the code already expresses.
+- Do not embed spec artifact IDs (REQ-xxx, TASK-xxx, DES-xxx) in production code comments or docstrings. Traceability lives in spec/ artifacts and git history, not in code annotations that go stale on first refactor.
 - When tempted to add an abstraction, verify that no existing symbol already serves the purpose.
 
 ## Slop catalog

@@ -5,6 +5,13 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-06-07
+
+### Changed
+
+- `executor`: added explicit prohibition against embedding spec artifact IDs (REQ-xxx, TASK-xxx, DES-xxx) in production code comments or docstrings. Traceability belongs in spec/ artifacts and git history, not in code annotations that go stale on first refactor.
+- `code-reviewer`: minimality checklist now flags spec artifact IDs leaking into code comments. Simplification mode's "removable comments" category expanded to include spec ID annotations.
+
 ## [1.0.0] - 2026-06-05
 
 ### Added

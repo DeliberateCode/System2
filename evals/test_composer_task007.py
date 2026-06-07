@@ -349,7 +349,7 @@ class TestCompose(unittest.TestCase):
         result = composer.compose(
             _BASE_PATH, [_FIXTURE_DIR], self.project_dir
         )
-        self.assertEqual(result["lock"]["system2_version"], "1.0.0")
+        self.assertEqual(result["lock"]["system2_version"], "1.0.1")
 
     def test_compose_returns_files_to_write(self):
         result = composer.compose(
