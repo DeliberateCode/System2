@@ -1997,6 +1997,445 @@ def _generate_lock(
 
 
 # ---------------------------------------------------------------------------
+# Base template reader
+# ---------------------------------------------------------------------------
+
+def _read_base_template(init_skill_path: str, fallback_path: str) -> str:
+    """Read the base System2 CLAUDE.md template.
+
+    Tries the init skill template block first, then falls back to a plain
+    file read of *fallback_path*.  Returns empty string if both fail.
+    """
+    base_claude_md = ""
+
+    if os.path.isfile(init_skill_path):
+        try:
+            with open(init_skill_path, "r", encoding="utf-8") as fh:
+                skill_content = fh.read()
+            begin = skill_content.find("---BEGIN TEMPLATE---")
+            end = skill_content.find("---END TEMPLATE---")
+            if begin != -1 and end != -1:
+                begin += len("---BEGIN TEMPLATE---\n")
+                base_claude_md = skill_content[begin:end].rstrip("\n") + "\n"
+        except OSError:
+            pass
+
+    if not base_claude_md and os.path.isfile(fallback_path):
+        try:
+            with open(fallback_path, "r", encoding="utf-8") as fh:
+                base_claude_md = fh.read()
+        except OSError:
+            pass
+
+    return base_claude_md
+
+
+def _compute_stale_artifacts(
+    project_path: str, overlay_name: str, lock_data: dict
+) -> List[str]:
+    """Return absolute paths of artifacts to remove for *overlay_name*.
+
+    Inspects the overlay's cached content directory and the lock file's
+    ``contributions_applied.auxiliary_agents`` to determine which files and
+    directories belong to the target overlay.
+
+    Only paths that exist on disk are included.
+
+    Args:
+        project_path: Absolute path to the project root.
+        overlay_name: Kebab-case overlay name to uninstall.
+        lock_data: Parsed lock file dict (``spec/overlay-manifest.lock``).
+
+    Returns:
+        List of absolute paths (directories and files) to remove.
+    """
+    if not _KEBAB_RE.match(overlay_name):
+        return []
+
+    stale: List[str] = []
+
+    # 1. Overlay cached content directory.
+    overlay_dir = os.path.join(
+        project_path, ".system2", "overlays", overlay_name
+    )
+    if os.path.isdir(overlay_dir):
+        stale.append(overlay_dir)
+
+    # 2. Auxiliary agent files contributed by this overlay.
+    #    Determine ownership by checking whether the agent's source file
+    #    exists in the overlay's cached directory (agents/<name>.md).
+    aux_names = (
+        lock_data
+        .get("contributions_applied", {})
+        .get("auxiliary_agents", [])
+    )
+    agents_dir = os.path.join(project_path, ".claude", "agents")
+    for agent_name in aux_names:
+        if not isinstance(agent_name, str) or not _KEBAB_RE.match(agent_name):
+            continue
+        cached_agent = os.path.join(overlay_dir, "agents", f"{agent_name}.md")
+        if os.path.isfile(cached_agent):
+            deployed_agent = os.path.join(agents_dir, f"{agent_name}.md")
+            if os.path.isfile(deployed_agent):
+                stale.append(deployed_agent)
+
+    return stale
+
+
+def _uninstall_last_overlay(
+    base_path: str,
+    project_path: str,
+    overlay_entry: dict,
+    lock_data: dict,
+    dry_run: bool = False,
+) -> dict:
+    """Handle uninstall when zero overlays remain after removal.
+
+    Reads the base System2 template, computes stale artifacts, and (unless
+    *dry_run*) atomically writes the base template to ``CLAUDE.md``, removes
+    the lock file, removes stale artifacts, and cleans up the empty
+    ``.system2/overlays/`` directory.
+
+    All mutations are wrapped in a try/except that restores backups on any
+    failure, so the project is never left in a half-written state.
+
+    Args:
+        base_path: Path to the System2 plugin root (e.g. ``plugin/``).
+        project_path: Absolute path to the target project root.
+        overlay_entry: Lock-file dict for the overlay being removed.
+        lock_data: Full parsed lock-file dict.
+        dry_run: If True, return a preview without touching the filesystem.
+
+    Returns:
+        Standard result dict with keys ``claude_md``, ``lock``,
+        ``auxiliary_agents``, ``files_to_write``, ``report``, ``errors``.
+    """
+    overlay_name = overlay_entry["name"]
+    overlay_version = overlay_entry.get("version", "unknown")
+
+    # 1. Read base template.
+    init_skill_path = os.path.join(base_path, "skills", "init", "SKILL.md")
+    repo_claude_path = os.path.join(os.path.dirname(base_path), "CLAUDE.md")
+    base_claude_md = _read_base_template(init_skill_path, repo_claude_path)
+
+    if not base_claude_md:
+        return {
+            "claude_md": "",
+            "lock": {},
+            "auxiliary_agents": [],
+            "files_to_write": [],
+            "report": {},
+            "errors": [
+                f"Cannot read base CLAUDE.md template: checked "
+                f"{init_skill_path} and {repo_claude_path}"
+            ],
+        }
+
+    # 2. Compute artifacts to remove.
+    artifacts_to_remove = _compute_stale_artifacts(
+        project_path, overlay_name, lock_data
+    )
+
+    # 3. Build report.
+    report: Dict[str, Any] = {
+        "uninstall": {
+            "removed": {"name": overlay_name, "version": overlay_version},
+            "remaining": [],
+            "artifacts_removed": artifacts_to_remove,
+        },
+        "overlays": [],
+        "contributions_applied": {},
+        "composed_lines": base_claude_md.count("\n") + 1,
+        "files_to_write": [os.path.join(project_path, "CLAUDE.md")],
+    }
+
+    files_to_write = [os.path.join(project_path, "CLAUDE.md")]
+    files_to_remove = [
+        os.path.join(project_path, "spec", "overlay-manifest.lock")
+    ]
+
+    # 4. Dry-run: return preview without writing.
+    if dry_run:
+        return {
+            "claude_md": base_claude_md,
+            "lock": {},
+            "auxiliary_agents": [],
+            "files_to_write": files_to_write + [
+                "(remove) " + f
+                for f in files_to_remove + artifacts_to_remove
+            ],
+            "report": report,
+            "errors": [],
+        }
+
+    # 5. Atomic write-and-cleanup.
+    claude_path = os.path.join(project_path, "CLAUDE.md")
+    lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+
+    backups: List[Tuple[str, str]] = []
+    dir_backups: List[Tuple[str, str]] = []
+
+    try:
+        # Back up CLAUDE.md.
+        if os.path.exists(claude_path):
+            dir_name = os.path.dirname(claude_path)
+            fd, bak = tempfile.mkstemp(
+                prefix=".CLAUDE.md.", suffix=".bak", dir=dir_name
+            )
+            os.close(fd)
+            shutil.copy2(claude_path, bak)
+            backups.append((claude_path, bak))
+
+        # Back up lock file.
+        if os.path.exists(lock_path):
+            dir_name = os.path.dirname(lock_path)
+            fd, bak = tempfile.mkstemp(
+                prefix=".overlay-manifest.lock.",
+                suffix=".bak",
+                dir=dir_name,
+            )
+            os.close(fd)
+            shutil.copy2(lock_path, bak)
+            backups.append((lock_path, bak))
+
+        # Back up stale artifacts before removal.
+        for artifact_path in artifacts_to_remove:
+            if os.path.isdir(artifact_path):
+                parent = os.path.dirname(artifact_path)
+                bak = tempfile.mkdtemp(
+                    prefix=f".{os.path.basename(artifact_path)}.",
+                    suffix=".bak",
+                    dir=parent,
+                )
+                shutil.rmtree(bak)
+                shutil.copytree(artifact_path, bak)
+                dir_backups.append((artifact_path, bak))
+            elif os.path.isfile(artifact_path):
+                dir_name = os.path.dirname(artifact_path)
+                fd, bak = tempfile.mkstemp(
+                    prefix=f".{os.path.basename(artifact_path)}.",
+                    suffix=".bak",
+                    dir=dir_name,
+                )
+                os.close(fd)
+                shutil.copy2(artifact_path, bak)
+                backups.append((artifact_path, bak))
+
+        # Write base template to CLAUDE.md via temp + os.replace().
+        dir_name = os.path.dirname(claude_path)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(base_claude_md)
+            os.replace(tmp_path, claude_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+
+        # Remove lock file.
+        if os.path.exists(lock_path):
+            os.unlink(lock_path)
+
+        # Remove stale artifacts.
+        for artifact_path in artifacts_to_remove:
+            if os.path.isdir(artifact_path):
+                shutil.rmtree(artifact_path)
+            elif os.path.isfile(artifact_path):
+                os.unlink(artifact_path)
+
+    except Exception:
+        # Rollback: restore all file backups.
+        for orig, bak in backups:
+            if os.path.exists(bak):
+                shutil.copy2(bak, orig)
+                os.unlink(bak)
+        # Rollback: restore all directory backups.
+        for orig, bak in dir_backups:
+            if os.path.exists(bak):
+                if os.path.exists(orig):
+                    shutil.rmtree(orig)
+                shutil.move(bak, orig)
+        raise
+
+    # Success: clean up backup files.
+    for _, bak in backups:
+        try:
+            if os.path.exists(bak):
+                os.unlink(bak)
+        except OSError:
+            pass
+    for _, bak in dir_backups:
+        try:
+            if os.path.exists(bak):
+                shutil.rmtree(bak)
+        except OSError:
+            pass
+
+    # Remove empty .system2/overlays/ parent directory (after backup
+    # cleanup so the backup dirs no longer occupy the parent).
+    overlays_parent = os.path.join(project_path, ".system2", "overlays")
+    try:
+        os.rmdir(overlays_parent)
+    except OSError:
+        pass
+
+    return {
+        "claude_md": base_claude_md,
+        "lock": {},
+        "auxiliary_agents": [],
+        "files_to_write": [claude_path],
+        "report": report,
+        "errors": [],
+    }
+
+
+def _uninstall(
+    base_path: str,
+    project_path: str,
+    overlay_name: str,
+    dry_run: bool = False,
+    allow_newer_schema: bool = False,
+) -> dict:
+    """Orchestrate overlay uninstallation.
+
+    Reads the lock file, validates the overlay name, and dispatches to
+    ``_uninstall_last_overlay()`` (zero remaining) or ``compose()`` (one
+    or more remaining).
+
+    Args:
+        base_path: Path to the System2 plugin root (e.g. ``plugin/``).
+        project_path: Absolute path to the target project root.
+        overlay_name: Kebab-case name of the overlay to remove.
+        dry_run: If True, return a preview without touching the filesystem.
+        allow_newer_schema: Passed through to ``compose()`` for the
+            multi-overlay path.
+
+    Returns:
+        Standard result dict with keys ``claude_md``, ``lock``,
+        ``auxiliary_agents``, ``files_to_write``, ``report``, ``errors``.
+    """
+    _err = {
+        "claude_md": "",
+        "lock": {},
+        "auxiliary_agents": [],
+        "files_to_write": [],
+        "report": {},
+        "errors": [],
+    }
+
+    # 1. Validate overlay_name format (kebab-case).
+    if not _KEBAB_RE.match(overlay_name):
+        _err["errors"] = [
+            f"Invalid overlay name {overlay_name!r}: must be kebab-case "
+            f"(lowercase alphanumeric, hyphens only)"
+        ]
+        return _err
+
+    # 2. Read lock file.
+    lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+    if not os.path.isfile(lock_path):
+        _err["errors"] = ["No lock file found; no overlays are composed"]
+        return _err
+    try:
+        with open(lock_path, "r", encoding="utf-8") as fh:
+            lock_data = json.load(fh)
+    except json.JSONDecodeError:
+        _err["errors"] = ["Lock file is malformed (invalid JSON)"]
+        return _err
+    except OSError as exc:
+        _err["errors"] = [f"Cannot read lock file: {exc}"]
+        return _err
+
+    # 3. Validate lock structure.
+    overlays = lock_data.get("overlays", [])
+    if not isinstance(overlays, list):
+        _err["errors"] = ["Lock file is malformed: 'overlays' is not a list"]
+        return _err
+
+    # 4. Validate each overlay entry has required fields.
+    for ov in overlays:
+        if not isinstance(ov, dict) or "name" not in ov:
+            _err["errors"] = [
+                "Lock file overlay entry missing 'name' field"
+            ]
+            return _err
+
+    # 5. Find and remove the target overlay.
+    target_entry = None
+    remaining = []
+    for ov in overlays:
+        if ov["name"] == overlay_name:
+            target_entry = ov
+        else:
+            remaining.append(ov)
+
+    if target_entry is None:
+        installed = [ov["name"] for ov in overlays]
+        _err["errors"] = [
+            f"Overlay {overlay_name!r} is not installed. "
+            f"Installed: {installed}"
+        ]
+        return _err
+
+    # 6. Validate remaining overlay names (security).
+    for ov in remaining:
+        if not _KEBAB_RE.match(ov.get("name", "")):
+            _err["errors"] = [
+                f"Lock file contains invalid overlay name: "
+                f"{ov.get('name')!r}"
+            ]
+            return _err
+
+    # 7. Dispatch based on remaining count.
+    if len(remaining) == 0:
+        return _uninstall_last_overlay(
+            base_path, project_path, target_entry, lock_data, dry_run,
+        )
+
+    # 8. Multi-overlay path: extract source_paths, call compose().
+    remaining_paths = []
+    for ov in remaining:
+        sp = ov.get("source_path", "")
+        if not sp:
+            _err["errors"] = [
+                f"Overlay {ov['name']!r} has no source_path in lock file"
+            ]
+            return _err
+        remaining_paths.append(sp)
+
+    result = compose(
+        base_path, remaining_paths, project_path,
+        dry_run=dry_run, allow_newer_schema=allow_newer_schema,
+    )
+
+    # If compose returned errors, augment with remediation hint.
+    if result["errors"]:
+        result["errors"].append(
+            "Remediation: verify that all remaining overlay source paths "
+            "are accessible, then retry. If an overlay source has moved, "
+            "update the lock file with /system2:compose --from-lock after "
+            "correcting the paths."
+        )
+        return result
+
+    # 9. Augment result with uninstall metadata.
+    target_version = target_entry.get("version", "unknown")
+    result["report"]["uninstall"] = {
+        "removed": {"name": overlay_name, "version": target_version},
+        "remaining": [
+            {"name": ov["name"], "version": ov.get("version", "")}
+            for ov in remaining
+        ],
+        "artifacts_removed": _compute_stale_artifacts(
+            project_path, overlay_name, lock_data,
+        ),
+    }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Drift check (read-only)
 # ---------------------------------------------------------------------------
 
@@ -3066,6 +3505,12 @@ def main() -> None:
         action="store_true",
         help="Read overlay source paths from the existing lock file",
     )
+    parser.add_argument(
+        "--uninstall",
+        metavar="NAME",
+        default="",
+        help="Remove a named overlay from the current composition",
+    )
 
     args = parser.parse_args()
 
@@ -3080,6 +3525,171 @@ def main() -> None:
         else:
             _print_doctor_report(result)
         sys.exit(0 if result["status"] == "current" else 1)
+
+    # Uninstall mode.
+    if args.uninstall:
+        if args.overlays or args.from_lock:
+            _emit_error(
+                "--uninstall is mutually exclusive with --overlays and --from-lock",
+                args.format,
+            )
+            sys.exit(1)
+
+        try:
+            result = _uninstall(
+                base_path,
+                project_path,
+                args.uninstall,
+                dry_run=args.dry_run,
+                allow_newer_schema=args.allow_newer_schema,
+            )
+        except OSError as exc:
+            _emit_error(f"I/O error during uninstall: {exc}", args.format)
+            sys.exit(3)
+
+        if result["errors"]:
+            errors = result["errors"]
+            exit_code = 1
+            if any("Structural conflict" in e for e in errors):
+                exit_code = 2
+            elif any("Cannot" in e or "I/O" in e for e in errors):
+                exit_code = 3
+            if args.format == "json":
+                sys.stdout.write(json.dumps({
+                    "status": "error",
+                    "errors": errors,
+                    "report": result.get("report", {}),
+                }, indent=2) + "\n")
+            else:
+                for err in errors:
+                    sys.stderr.write(f"ERROR: {err}\n")
+            sys.exit(exit_code)
+
+        report = result["report"]
+        uninstall_meta = report.get("uninstall", {})
+
+        _emit_stderr_warnings(report)
+
+        if args.dry_run:
+            if args.format == "json":
+                sys.stdout.write(json.dumps({
+                    "status": "success",
+                    "report": report,
+                }, indent=2) + "\n")
+            else:
+                sys.stdout.write("Composition Report\n")
+                sys.stdout.write("=" * 40 + "\n")
+                for ov in report.get("overlays", []):
+                    sys.stdout.write(f"  Overlay: {ov['name']}@{ov['version']}\n")
+                sys.stdout.write(
+                    f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
+                )
+                contribs = report.get("contributions_applied", {})
+                if contribs:
+                    sys.stdout.write("\nContributions applied:\n")
+                    for scope, ids in contribs.items():
+                        sys.stdout.write(f"  {scope}: {ids}\n")
+                removed = uninstall_meta.get("removed", {})
+                sys.stdout.write(
+                    f"\nUninstall: {removed.get('name', '')}@"
+                    f"{removed.get('version', '')}\n"
+                )
+                remaining = uninstall_meta.get("remaining", [])
+                if remaining:
+                    remaining_str = ", ".join(
+                        f"{r['name']}@{r.get('version', '')}" for r in remaining
+                    )
+                    sys.stdout.write(f"Remaining overlays: {remaining_str}\n")
+                else:
+                    sys.stdout.write("Remaining overlays: (none)\n")
+                artifacts = uninstall_meta.get("artifacts_removed", [])
+                if artifacts:
+                    sys.stdout.write("Files/directories to remove:\n")
+                    for a in artifacts:
+                        sys.stdout.write(f"  {a}\n")
+                sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
+                preview_lines = result["claude_md"].split("\n")[:20]
+                for pl in preview_lines:
+                    sys.stdout.write(pl + "\n")
+                if len(result["claude_md"].split("\n")) > 20:
+                    sys.stdout.write("... (truncated)\n")
+                sys.stdout.write(f"\nFiles that would be written:\n")
+                for fp in result["files_to_write"]:
+                    sys.stdout.write(f"  {fp}\n")
+            sys.exit(0)
+
+        injection_warns = report.get("injection_warnings", [])
+        if injection_warns and not args.allow_injection:
+            if args.format == "json":
+                sys.stdout.write(json.dumps({
+                    "status": "injection_blocked",
+                    "injection_warnings": injection_warns,
+                    "report": report,
+                    "message": (
+                        "Prompt injection warnings detected. "
+                        "Re-run with --allow-injection to proceed."
+                    ),
+                }, indent=2) + "\n")
+            else:
+                sys.stderr.write(
+                    "\nERROR: Prompt injection warnings detected in overlay "
+                    "content files. Composition blocked in write mode. Review "
+                    "the warnings above, then re-run with --allow-injection to "
+                    "proceed, or fix the overlay content files.\n"
+                )
+            sys.exit(4)
+
+        is_last_overlay = not result["lock"]
+
+        if not is_last_overlay:
+            try:
+                written = _write_outputs(
+                    project_path,
+                    result["claude_md"],
+                    result["lock"],
+                    result["auxiliary_agents"],
+                    pending_content_copies=result.get("pending_content_copies", []),
+                    overlay_info_for_lock=result.get("overlay_info_for_lock", []),
+                    valid_anchors_by_agent=result.get("valid_anchors_by_agent"),
+                )
+            except OSError as exc:
+                _emit_error(f"I/O error writing outputs: {exc}", args.format)
+                sys.exit(3)
+        else:
+            written = result["files_to_write"]
+
+        removed = uninstall_meta.get("removed", {})
+        remaining = uninstall_meta.get("remaining", [])
+        artifacts = uninstall_meta.get("artifacts_removed", [])
+
+        if args.format == "json":
+            report["files_written"] = written
+            sys.stdout.write(json.dumps({
+                "status": "success",
+                "report": report,
+            }, indent=2) + "\n")
+        else:
+            sys.stdout.write("Uninstall complete.\n")
+            sys.stdout.write(
+                f"  Removed: {removed.get('name', '')}@"
+                f"{removed.get('version', '')}\n"
+            )
+            if remaining:
+                remaining_str = ", ".join(
+                    f"{r['name']}@{r.get('version', '')}" for r in remaining
+                )
+                sys.stdout.write(f"  Remaining: {remaining_str}\n")
+            else:
+                sys.stdout.write("  Remaining: (none)\n")
+            sys.stdout.write("  Files written:\n")
+            for fp in written:
+                sys.stdout.write(f"    {fp}\n")
+            if artifacts:
+                sys.stdout.write("  Files/directories removed:\n")
+                for a in artifacts:
+                    sys.stdout.write(f"    {a}\n")
+
+        sys.exit(0)
 
     # Resolve overlay paths: --from-lock reads from the lock file.
     if args.from_lock:

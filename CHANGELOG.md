@@ -5,6 +5,15 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-06-12
+
+### Added
+
+- `/system2:compose --uninstall <name>` for removing a single named overlay from a composed project. Recomposes with remaining overlays (multi-overlay case) or reverts to base System2 (last-overlay case). Includes dry-run preview, atomic rollback on failure, and stale artifact cleanup.
+- Four new internal functions in `composer.py`: `_read_base_template`, `_compute_stale_artifacts`, `_uninstall_last_overlay`, `_uninstall`.
+- Uninstall argument handling and UX flow section in compose `SKILL.md`.
+- 38 tests in `evals/test_uninstall.py` covering argument validation, multi-overlay uninstall, last-overlay uninstall, rollback, security (path traversal rejection), and output format compliance.
+
 ## [1.0.1] - 2026-06-07
 
 ### Changed
