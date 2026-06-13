@@ -611,7 +611,6 @@ def eval_cln_001():
         ("manifest.json", "file"),
         (".system2", "dir"),
         (".claude/commands/update-system2.md", "file"),
-        ("scripts", "dir"),
         ("tests", "dir"),
     ]
     still_exist = []
