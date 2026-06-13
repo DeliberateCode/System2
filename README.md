@@ -140,6 +140,14 @@ The lock file records the overlay source paths used during composition. On subse
 /system2:compose --from-lock
 ```
 
+To remove an overlay without affecting others, use `--uninstall` with the overlay's name (not its path):
+
+```
+/system2:compose --uninstall my-overlay
+```
+
+This recomposes the project with the remaining overlays and cleans up the removed overlay's cached content, auxiliary agents, and lock file entries. If the removed overlay was the last one, the project reverts to base System2. A dry-run preview is always shown before any files are modified.
+
 Overlay composition is explicit. `/system2:init` remains base-only and produces the same orchestrator instructions regardless of installed or available overlays.
 
 ## Updating

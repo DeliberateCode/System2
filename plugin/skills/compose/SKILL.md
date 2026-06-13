@@ -1,7 +1,7 @@
 ---
 name: compose
 description: Compose overlay contributions onto the project. Reads overlay manifests, validates, detects conflicts, and materializes a composed CLAUDE.md with overlay-contributed sections. Use when integrating third-party overlays into a System2 project.
-argument-hint: "<overlay_path> [overlay_path...] [--dry-run] [--from-lock]"
+argument-hint: "<overlay_path> [overlay_path...] [--dry-run] [--from-lock] [--uninstall <name>]"
 ---
 
 # /system2:compose -- Compose Overlay Contributions
@@ -12,7 +12,7 @@ You are executing the /system2:compose skill. Follow these steps exactly.
 
 Parse the arguments provided after the command name:
 
-1. Collect all arguments that are NOT `--dry-run`, NOT `--allow-injection`, NOT `--allow-newer-schema`, and NOT `--from-lock` as overlay directory paths (space-separated, absolute or relative).
+1. Collect all arguments that are NOT `--dry-run`, NOT `--allow-injection`, NOT `--allow-newer-schema`, NOT `--from-lock`, and NOT `--uninstall` as overlay directory paths (space-separated, absolute or relative).
 2. Check if `--dry-run` is present among the arguments. Store this as a boolean.
 3. Check if `--from-lock` is present among the arguments. Store this as a boolean.
 4. If `--from-lock` is set, overlay paths are read from the existing lock file (the composer handles this). Skip to step 1 of Steps below.
@@ -22,6 +22,10 @@ Parse the arguments provided after the command name:
    Or: `/system2:compose --from-lock` to recompose using locked overlay paths.
    Alternatively, list overlay paths in `.system2/overlays.json`."
    and stop.
+7. Check if `--uninstall` is present among the arguments. If so, collect the next argument as the overlay name to uninstall.
+8. If `--uninstall` is combined with overlay paths or `--from-lock`, tell the user: "`--uninstall` is mutually exclusive with overlay paths and `--from-lock`. Use `--uninstall` alone with the overlay name." and stop.
+9. If `--uninstall` is present without a name argument, tell the user: "Usage: `/system2:compose --uninstall <overlay-name> [--dry-run]`" and stop.
+10. If `--uninstall` is present with a valid overlay name, skip to the "Uninstall Steps" section below.
 
 ## Steps
 
@@ -186,6 +190,74 @@ Present the injection warnings from the output and tell the user:
 
 Tell the user: "The composition engine exited with unexpected code N. Check the output above for details."
 
+## Uninstall Steps
+
+These steps apply when `--uninstall` was detected in the Arguments section (step 10).
+
+### U1. Run dry-run preview first (always)
+
+**Always** run the composer in dry-run mode first, regardless of whether the user passed `--dry-run`:
+
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --uninstall "<overlay-name>" \
+  --dry-run \
+  [--allow-newer-schema] \
+  --format text
+```
+
+Include `--allow-newer-schema` if the user passed it. Capture stdout, stderr, and the exit code. If the exit code is not 0, skip to step U5 to handle the error. Otherwise, continue.
+
+### U2. Present the uninstall preview
+
+Present the uninstall report from stdout to the user. The report includes:
+- Overlay being removed (name and version)
+- Remaining overlays after removal (names and versions), or "none" if this is the last overlay
+- Files and directories to be removed (stale artifacts from the uninstalled overlay)
+- CLAUDE.md preview (first 20 lines of the resulting CLAUDE.md)
+
+### U3. Gate: user approval
+
+If the user passed `--dry-run`, tell them:
+"Dry run complete. No files were written. To apply the uninstall, run `/system2:compose --uninstall <overlay-name>` without `--dry-run`."
+Stop here.
+
+If the user did NOT pass `--dry-run`, ask for explicit approval before writing:
+"The preview above shows what will change when the overlay is removed. Approve to proceed with the uninstall, or cancel."
+
+Wait for user approval. If the user declines, stop without writing.
+
+### U4. Execute uninstall in write mode
+
+After user approval, run the composer in write mode (same command without `--dry-run`). Forward any flags that were used in the dry-run (`--allow-injection` if injection warnings were approved, `--allow-newer-schema` if the user opted into degraded mode):
+
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --uninstall "<overlay-name>" \
+  [--allow-injection] \
+  [--allow-newer-schema] \
+  --format text
+```
+
+Capture stdout, stderr, and the exit code. If exit code is 0, tell the user:
+"Uninstall complete. The overlay has been removed and the project artifacts have been updated."
+
+If the exit code is not 0, handle it per step U5.
+
+### U5. Handle errors
+
+Handle errors using the same exit code mapping as step 4 of the compose flow:
+
+- **Exit 1** -- Validation errors (e.g., invalid overlay name, overlay not found in lock file, no lock file). Present the error details and suggest fixes.
+- **Exit 2** -- Structural conflicts during recomposition of remaining overlays. Present conflicts and suggest resolutions.
+- **Exit 3** -- I/O error during file operations. Present the error and suggest checking permissions and disk space.
+- **Exit 4** -- Prompt injection blocked during recomposition of remaining overlays. Present warnings and offer to re-run with `--allow-injection` after explicit approval.
+- **Any other exit code** -- Tell the user: "The composition engine exited with unexpected code N. Check the output above for details."
+
 ## Usage Examples
 
 Initialize a project with a single overlay:
@@ -218,6 +290,16 @@ Preview a lock-based recomposition:
 /system2:compose --from-lock --dry-run
 ```
 
+Remove an overlay:
+```
+/system2:compose --uninstall overlay-a
+```
+
+Preview overlay removal without writing files:
+```
+/system2:compose --uninstall overlay-a --dry-run
+```
+
 ## Notes
 
 - This skill invokes `composer.py` for all validation, conflict detection, and composition logic. Do not reimplement any of that logic.
@@ -228,3 +310,4 @@ Preview a lock-based recomposition:
 - Auxiliary agent files are copied to `.claude/agents/` in the project.
 - Re-running `/system2:compose` with the same overlays produces identical output (idempotent).
 - To update after changing an overlay, re-run `/system2:compose` with the same arguments.
+- When the last overlay is uninstalled, the project reverts to base System2 (same as `/system2:init` output) and the lock file is removed.
