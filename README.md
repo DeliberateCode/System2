@@ -68,7 +68,12 @@ These artifacts serve as the contract between planning and execution.
 /plugin marketplace add DeliberateCode/System2
 ```
 
+This only **registers** the System2 catalog — you'll see a confirmation that the
+marketplace was added. It does **not** install the plugin yet; that's Step 2.
+
 ### Step 2: Install the Plugin
+
+Now install the `system2` plugin from the catalog you just added:
 
 ```
 /plugin install system2@system2-marketplace
