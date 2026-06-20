@@ -155,6 +155,49 @@ This recomposes the project with the remaining overlays and cleans up the remove
 
 Overlay composition is explicit. `/system2:init` remains base-only and produces the same orchestrator instructions regardless of installed or available overlays.
 
+### Optional: Overlay Profiles
+
+A profile is a named, reusable set of overlays. Once you have settled on a useful combination of overlays, you can save it as a profile and activate it by name in any project instead of retyping overlay paths. Profiles are stored at `~/.system2/profiles.json` (user-level, shared across every project on your machine) and are independent of the per-project `.system2/overlays.json`.
+
+The `/system2:compose` namespace creates, activates, and changes profiles. Activate a profile to compose its overlay set in the current project (a dry-run preview is shown before any files are written):
+
+```
+/system2:compose --profile backend-stack
+```
+
+Capture the project's current composed overlay set as a profile, with no paths typed:
+
+```
+/system2:compose --save-profile backend-stack
+```
+
+Define a profile explicitly from overlay paths:
+
+```
+/system2:compose create backend-stack /path/to/overlay-a /path/to/overlay-b
+```
+
+Adjust a profile by adding paths or removing overlays by name (flags are repeatable):
+
+```
+/system2:compose edit backend-stack --add /path/to/overlay-c --remove OverlayA
+```
+
+Remove a profile:
+
+```
+/system2:compose delete backend-stack
+```
+
+The `/system2:profile` namespace is strictly read-only. List every saved profile, or inspect one to see its ordered overlay set with resolved names and stale annotations:
+
+```
+/system2:profile list
+/system2:profile list --profile backend-stack
+```
+
+Activation never composes a partial set. If a profile references an overlay path that is missing or no longer valid, activation fails cleanly, names the offending path, and writes nothing.
+
 ## Updating
 
 System2 updates are handled by the Claude Code plugin system. No manual update commands are needed.
