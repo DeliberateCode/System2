@@ -30,6 +30,7 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
 from hook_security import check_hook_security  # noqa: E402
+import profiles  # noqa: E402
 
 SUPPORTED_SCHEMA_VERSIONS = frozenset({"1.0.0"})
 
@@ -3452,6 +3453,160 @@ def compose(
 
 
 # ---------------------------------------------------------------------------
+# Profile activation
+# ---------------------------------------------------------------------------
+
+def _activate_profile(
+    base_path: str,
+    project_path: str,
+    name: str,
+    dry_run: bool = False,
+    allow_newer_schema: bool = False,
+) -> dict:
+    """Activate a named profile by composing its resolved overlay set.
+
+    Resolves *name* to ordered absolute paths via ``profiles.resolve_profile``,
+    then feeds them to the unchanged ``compose()`` engine. Hard-fails (returns
+    an engine-shaped error dict, no compose, writes nothing) when the profile
+    is unknown or any resolved overlay path is stale. On success the compose
+    result is returned unchanged except for an added ``report["profile"]`` note.
+    """
+    try:
+        result = profiles.resolve_profile(name)
+    except profiles.ProfileError as exc:
+        return {
+            "claude_md": "",
+            "lock": {},
+            "auxiliary_agents": [],
+            "files_to_write": [],
+            "report": {},
+            "errors": [exc.message],
+            "exit_code": exc.exit_code,
+        }
+
+    if result.unknown:
+        message = profiles.unknown_profile_message(name)
+        return {
+            "claude_md": "",
+            "lock": {},
+            "auxiliary_agents": [],
+            "files_to_write": [],
+            "report": {},
+            "errors": [message],
+            "exit_code": 1,
+        }
+
+    if result.stale:
+        errors = [
+            f"Profile {name!r} cannot be activated: overlay path is stale "
+            f"({entry.reason}): {entry.path}"
+            for entry in result.stale
+        ]
+        errors.append(
+            f"Fix the missing overlay sources, or update profile {name!r} "
+            f"with /system2:compose edit (re-add the corrected paths), then "
+            f"retry activation. No files were written."
+        )
+        return {
+            "claude_md": "",
+            "lock": {},
+            "auxiliary_agents": [],
+            "files_to_write": [],
+            "report": {},
+            "errors": errors,
+            "exit_code": 1,
+        }
+
+    if not result.ordered_paths:
+        return {
+            "claude_md": "",
+            "lock": {},
+            "auxiliary_agents": [],
+            "files_to_write": [],
+            "report": {},
+            "errors": [
+                f"Profile {name!r} has no overlays to compose. "
+                "No files were written."
+            ],
+            "exit_code": 1,
+        }
+
+    composed = compose(
+        base_path,
+        result.ordered_paths,
+        project_path,
+        dry_run=dry_run,
+        allow_newer_schema=allow_newer_schema,
+    )
+    if not composed.get("errors"):
+        composed["report"]["profile"] = {
+            "activated": name,
+            "source_paths": result.ordered_paths,
+        }
+    return composed
+
+
+def _run_profile_mutation(
+    project_path: str,
+    op: str,
+    name: str,
+    paths: Optional[List[str]] = None,
+    adds: Optional[List[str]] = None,
+    removes: Optional[List[str]] = None,
+    force: bool = False,
+) -> dict:
+    """Dispatch a profile mutation to the ``profiles.py`` write API.
+
+    Maps *op* to ``create``/``edit``/``delete``/``save`` and returns a summary
+    dict plus an ``active_in_project`` signal. The signal is the PRE-mutation
+    active state: "was *name* the profile this project is currently composed
+    from, before this mutation changed it?" It is computed BEFORE the mutation
+    via ``profiles.active_profile_for_lock`` so editing the active profile
+    away from the lock still fires the recompose prompt, and editing a
+    non-active profile to coincidentally match the lock does not. ``delete``
+    yields False (nothing to recompose). Never recomposes and never touches a
+    project artifact: the only write is ``~/.system2/profiles.json`` (performed
+    inside ``profiles.py``). On ``profiles.ProfileError`` an engine-shaped error
+    dict is returned carrying the original ``exit_code`` so ``main()`` exits with
+    it (the carried code is authoritative for mutations).
+    """
+    base_cwd = os.getcwd()
+    try:
+        was_active = (
+            False if op == "delete"
+            else profiles.active_profile_for_lock(project_path, name)
+        )
+        if op == "save":
+            summary = profiles.save_profile_from_lock(
+                name, project_path, force=force
+            )
+        elif op == "create":
+            summary = profiles.create_profile(
+                name, paths or [], base_cwd, force=force
+            )
+        elif op == "edit":
+            if not (adds or removes):
+                raise profiles.ProfileError(
+                    "Nothing to do: --profile-op edit requires at least one "
+                    "--profile-add or --profile-remove.",
+                    exit_code=1,
+                )
+            summary = profiles.edit_profile(
+                name, adds or [], removes or [], base_cwd
+            )
+        elif op == "delete":
+            summary = profiles.delete_profile(name)
+        else:
+            raise profiles.ProfileError(
+                f"Unknown profile operation {op!r}.", exit_code=1
+            )
+    except profiles.ProfileError as exc:
+        return {"errors": [exc.message], "exit_code": exc.exit_code}
+
+    return {"errors": [], "summary": summary, "active_in_project": was_active}
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -3511,6 +3666,53 @@ def main() -> None:
         default="",
         help="Remove a named overlay from the current composition",
     )
+    parser.add_argument(
+        "--profile",
+        metavar="NAME",
+        default="",
+        help="Activate (compose) the named profile's overlay set",
+    )
+    parser.add_argument(
+        "--save-profile",
+        metavar="NAME",
+        default="",
+        help="Save the project's current composition (from the lock) as a profile",
+    )
+    parser.add_argument(
+        "--profile-op",
+        choices=["create", "edit", "delete"],
+        default="",
+        help="Profile mutation operation",
+    )
+    parser.add_argument(
+        "--profile-name",
+        metavar="NAME",
+        default="",
+        help="Profile name for the mutation operation",
+    )
+    parser.add_argument(
+        "--profile-paths",
+        metavar="PATHS",
+        default="",
+        help="Comma-separated overlay source paths (create)",
+    )
+    parser.add_argument(
+        "--profile-add",
+        action="append",
+        default=None,
+        help="Overlay source path to add (edit); repeatable",
+    )
+    parser.add_argument(
+        "--profile-remove",
+        action="append",
+        default=None,
+        help="Overlay NAME to remove (edit); repeatable",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing profile on create/save-profile",
+    )
 
     args = parser.parse_args()
 
@@ -3519,6 +3721,20 @@ def main() -> None:
 
     # Doctor mode: read-only drift check.
     if args.doctor:
+        if (
+            args.overlays
+            or args.from_lock
+            or args.uninstall
+            or args.profile
+            or args.save_profile
+            or args.profile_op
+        ):
+            _emit_error(
+                "--doctor is mutually exclusive with --overlays, --from-lock, "
+                "--uninstall, --profile, --save-profile, and --profile-op",
+                args.format,
+            )
+            sys.exit(1)
         result = drift_check(base_path, project_path)
         if args.format == "json":
             sys.stdout.write(json.dumps(result, indent=2) + "\n")
@@ -3528,9 +3744,9 @@ def main() -> None:
 
     # Uninstall mode.
     if args.uninstall:
-        if args.overlays or args.from_lock:
+        if args.overlays or args.from_lock or args.profile or args.save_profile or args.profile_op:
             _emit_error(
-                "--uninstall is mutually exclusive with --overlays and --from-lock",
+                "--uninstall is mutually exclusive with --overlays, --from-lock, --profile, --save-profile, and --profile-op",
                 args.format,
             )
             sys.exit(1)
@@ -3691,50 +3907,222 @@ def main() -> None:
 
         sys.exit(0)
 
-    # Resolve overlay paths: --from-lock reads from the lock file.
-    if args.from_lock:
-        lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
-        if not os.path.isfile(lock_path):
+    # Profile activation and mutation dispatch. Reached only when neither the
+    # doctor nor uninstall block fired (both sys.exit above). Each branch ends
+    # in sys.exit so control never falls through to overlay-path resolution.
+    if args.profile:
+        if (
+            args.overlays
+            or args.from_lock
+            or args.uninstall
+            or args.save_profile
+            or args.profile_op
+        ):
             _emit_error(
-                "No lock file found at spec/overlay-manifest.lock; "
-                "cannot use --from-lock",
+                "--profile is mutually exclusive with --overlays, --from-lock, "
+                "--uninstall, --save-profile, and --profile-op",
                 args.format,
             )
             sys.exit(1)
-        try:
-            with open(lock_path, "r", encoding="utf-8") as fh:
-                lock_data = json.load(fh)
-        except (OSError, json.JSONDecodeError) as exc:
-            _emit_error(f"Cannot read lock file: {exc}", args.format)
-            sys.exit(1)
-        overlay_paths = [
-            ov["source_path"]
-            for ov in lock_data.get("overlays", [])
-            if ov.get("source_path")
-        ]
-        if not overlay_paths:
+        _reject_inapplicable_subflags(
+            args,
+            "--profile activation",
+            [
+                "--profile-name",
+                "--profile-paths",
+                "--profile-add",
+                "--profile-remove",
+                "--force",
+            ],
+        )
+
+    if args.save_profile or args.profile_op:
+        if args.save_profile and args.profile_op:
             _emit_error(
-                "Lock file contains no overlay source paths", args.format,
+                "--save-profile and --profile-op are mutually exclusive",
+                args.format,
             )
             sys.exit(1)
-    elif args.overlays:
-        overlay_paths = [
-            os.path.abspath(p.strip())
-            for p in args.overlays.split(",")
-            if p.strip()
-        ]
-    else:
-        _emit_error(
-            "Either --overlays or --from-lock is required", args.format,
-        )
-        sys.exit(1)
+        if args.overlays or args.from_lock or args.uninstall or args.profile:
+            _emit_error(
+                "--save-profile/--profile-op are mutually exclusive with "
+                "--overlays, --from-lock, --uninstall, and --profile",
+                args.format,
+            )
+            sys.exit(1)
 
-    # Run the full composition pipeline.
-    result = compose(
-        base_path, overlay_paths, project_path,
-        dry_run=args.dry_run,
-        allow_newer_schema=args.allow_newer_schema,
-    )
+        if args.dry_run:
+            _emit_error(
+                "--dry-run is not supported with profile mutations "
+                "(--save-profile / --profile-op); these never write project "
+                "artifacts and apply immediately.",
+                args.format,
+            )
+            sys.exit(1)
+
+        if args.save_profile:
+            op = "save"
+            mut_name = args.save_profile
+            _reject_inapplicable_subflags(
+                args,
+                "--save-profile",
+                [
+                    "--profile-name",
+                    "--profile-paths",
+                    "--profile-add",
+                    "--profile-remove",
+                ],
+            )
+        else:
+            op = args.profile_op
+            mut_name = args.profile_name
+            if op == "create":
+                _reject_inapplicable_subflags(
+                    args, "--profile-op create",
+                    ["--profile-add", "--profile-remove"],
+                )
+            elif op == "edit":
+                _reject_inapplicable_subflags(
+                    args, "--profile-op edit",
+                    ["--profile-paths", "--force"],
+                )
+            elif op == "delete":
+                _reject_inapplicable_subflags(
+                    args, "--profile-op delete",
+                    [
+                        "--profile-paths",
+                        "--profile-add",
+                        "--profile-remove",
+                        "--force",
+                    ],
+                )
+        paths = [p.strip() for p in args.profile_paths.split(",") if p.strip()]
+
+        result = _run_profile_mutation(
+            project_path,
+            op,
+            mut_name,
+            paths=paths,
+            adds=args.profile_add or [],
+            removes=args.profile_remove or [],
+            force=args.force,
+        )
+
+        if result["errors"]:
+            # The carried exit_code is authoritative for mutations (it comes
+            # straight from profiles.ProfileError, bypassing main()'s
+            # substring-based classifier).
+            exit_code = result.get("exit_code", 1)
+            if args.format == "json":
+                sys.stdout.write(json.dumps({
+                    "status": "error",
+                    "errors": result["errors"],
+                }, indent=2) + "\n")
+            else:
+                for err in result["errors"]:
+                    sys.stderr.write(f"ERROR: {err}\n")
+            sys.exit(exit_code)
+
+        summary = result["summary"]
+        active = result["active_in_project"]
+        if args.format == "json":
+            sys.stdout.write(json.dumps({
+                "status": "success",
+                "operation": op,
+                "summary": summary,
+                "active_in_project": active,
+            }, indent=2) + "\n")
+        else:
+            sys.stdout.write(f"Profile '{summary['name']}' {op} complete.\n")
+            sys.stdout.write(f"  Stored in: {summary['store_path']}\n")
+            for overlay in summary["overlays"]:
+                label = overlay.get("name") or "(unresolved)"
+                sys.stdout.write(f"  {overlay['path']} -- {label}\n")
+            if active:
+                sys.stdout.write(
+                    f"Profile {summary['name']} is currently active in this "
+                    "project.\n"
+                )
+        sys.exit(0)
+
+    # Profile activation reuses the engine verbatim: resolve the profile to
+    # ordered paths and compose them. The result then flows through the exact
+    # same error/preview/injection/write plumbing as the --overlays path below.
+    if args.profile:
+        result = _activate_profile(
+            base_path,
+            project_path,
+            args.profile,
+            dry_run=args.dry_run,
+            allow_newer_schema=args.allow_newer_schema,
+        )
+        if result["errors"]:
+            # Activation errors carry an explicit, authoritative exit_code
+            # (unknown/stale -> 1, corrupt store -> ProfileError.exit_code).
+            # Prefer it over main()'s substring classifier; fall back to the
+            # classifier only if no explicit code is present.
+            if "exit_code" in result:
+                if args.format == "json":
+                    sys.stdout.write(json.dumps({
+                        "status": "error",
+                        "errors": result["errors"],
+                        "report": result.get("report", {}),
+                    }, indent=2) + "\n")
+                else:
+                    for err in result["errors"]:
+                        sys.stderr.write(f"ERROR: {err}\n")
+                sys.exit(result["exit_code"])
+        elif args.format == "text":
+            prof = result.get("report", {}).get("profile", {})
+            sys.stdout.write(
+                f"Activating profile '{prof.get('activated', args.profile)}' "
+                f"({len(prof.get('source_paths', []))} overlay(s)).\n"
+            )
+    else:
+        # Resolve overlay paths: --from-lock reads from the lock file.
+        if args.from_lock:
+            lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
+            if not os.path.isfile(lock_path):
+                _emit_error(
+                    "No lock file found at spec/overlay-manifest.lock; "
+                    "cannot use --from-lock",
+                    args.format,
+                )
+                sys.exit(1)
+            try:
+                with open(lock_path, "r", encoding="utf-8") as fh:
+                    lock_data = json.load(fh)
+            except (OSError, json.JSONDecodeError) as exc:
+                _emit_error(f"Cannot read lock file: {exc}", args.format)
+                sys.exit(1)
+            overlay_paths = [
+                ov["source_path"]
+                for ov in lock_data.get("overlays", [])
+                if ov.get("source_path")
+            ]
+            if not overlay_paths:
+                _emit_error(
+                    "Lock file contains no overlay source paths", args.format,
+                )
+                sys.exit(1)
+        elif args.overlays:
+            overlay_paths = [
+                os.path.abspath(p.strip())
+                for p in args.overlays.split(",")
+                if p.strip()
+            ]
+        else:
+            _emit_error(
+                "Either --overlays or --from-lock is required", args.format,
+            )
+            sys.exit(1)
+
+        # Run the full composition pipeline.
+        result = compose(
+            base_path, overlay_paths, project_path,
+            dry_run=args.dry_run,
+            allow_newer_schema=args.allow_newer_schema,
+        )
 
     # Handle errors — classify by type for exit code.
     if result["errors"]:
@@ -3964,6 +4352,31 @@ def _emit_error(msg: str, fmt: str) -> None:
         sys.stdout.write(json.dumps({"status": "error", "message": msg}) + "\n")
     else:
         sys.stderr.write(f"ERROR: {msg}\n")
+
+
+def _reject_inapplicable_subflags(args, mode: str, offenders) -> None:
+    """Exit 1 if any profile sub-flag in *offenders* is present for *mode*.
+
+    Presence is per-flag: --profile-name/--profile-paths default "" (present =
+    truthy non-empty), --profile-add/--profile-remove default None (present =
+    a non-empty list), --force is store_true (present = True). *offenders* is
+    the set of flags that are NOT valid for the selected operation.
+    """
+    present = {
+        "--profile-name": bool(args.profile_name),
+        "--profile-paths": bool(args.profile_paths),
+        "--profile-add": bool(args.profile_add),
+        "--profile-remove": bool(args.profile_remove),
+        "--force": bool(args.force),
+    }
+    bad = [flag for flag in offenders if present.get(flag)]
+    if bad:
+        _emit_error(
+            f"{', '.join(bad)} {'is' if len(bad) == 1 else 'are'} not "
+            f"applicable to {mode}.",
+            args.format,
+        )
+        sys.exit(1)
 
 
 def _print_doctor_report(result: dict) -> None:

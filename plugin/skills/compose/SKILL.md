@@ -1,7 +1,7 @@
 ---
 name: compose
 description: Compose overlay contributions onto the project. Reads overlay manifests, validates, detects conflicts, and materializes a composed CLAUDE.md with overlay-contributed sections. Use when integrating third-party overlays into a System2 project.
-argument-hint: "<overlay_path> [overlay_path...] [--dry-run] [--from-lock] [--uninstall <name>]"
+argument-hint: "<overlay_path> [overlay_path...] [--dry-run] [--from-lock] [--uninstall <name>] | [--profile <name>] [--save-profile <name>] | create <name> <paths...> | edit <name> --add <path> --remove <OverlayName> | delete <name>"
 ---
 
 # /system2:compose -- Compose Overlay Contributions
@@ -26,6 +26,19 @@ Parse the arguments provided after the command name:
 8. If `--uninstall` is combined with overlay paths or `--from-lock`, tell the user: "`--uninstall` is mutually exclusive with overlay paths and `--from-lock`. Use `--uninstall` alone with the overlay name." and stop.
 9. If `--uninstall` is present without a name argument, tell the user: "Usage: `/system2:compose --uninstall <overlay-name> [--dry-run]`" and stop.
 10. If `--uninstall` is present with a valid overlay name, skip to the "Uninstall Steps" section below.
+
+### Profile arguments
+
+A profile is a named, reusable set of overlay source paths stored outside any single project. The composer manages profiles; this skill only detects which profile operation is requested and routes to the matching section below. Detect the following, in this order:
+
+11. Check if `--profile <name>` is present. If so, collect the next argument as the profile name and skip to the "Profile Activation Steps" section below. `--profile` activates (composes) a saved profile into the current project.
+12. Check if `--save-profile <name>` is present. If so, collect the next argument as the profile name and skip to the "Profile Mutation Steps" section below. `--save-profile` captures the project's current composition (read from the lock file) as a new profile.
+13. Check if the first argument is one of the verbs `create`, `edit`, or `delete`. If so, this is a profile mutation:
+    - `create <name> <path> [<path>...]` -- record the name and the remaining paths.
+    - `edit <name> --add <path> --remove <OverlayName>` -- record the name; collect every `--add <path>` value and every `--remove <OverlayName>` value (each repeatable).
+    - `delete <name>` -- record the name.
+    Then skip to the "Profile Mutation Steps" section below.
+14. The profile forms are mutually exclusive with overlay paths, `--from-lock`, and `--uninstall`, and with each other. You do not need to enforce this yourself — the composer rejects conflicting combinations with a clear error. If the user mixes them, build the command as requested and relay the composer's mutual-exclusion error verbatim.
 
 ## Steps
 
@@ -258,6 +271,135 @@ Handle errors using the same exit code mapping as step 4 of the compose flow:
 - **Exit 4** -- Prompt injection blocked during recomposition of remaining overlays. Present warnings and offer to re-run with `--allow-injection` after explicit approval.
 - **Any other exit code** -- Tell the user: "The composition engine exited with unexpected code N. Check the output above for details."
 
+## Profile Activation Steps
+
+These steps apply when `--profile <name>` was detected in the Arguments section (step 11). Activation composes the profile's saved overlay set into the current project using the same preview-then-approve flow as a normal compose. The composer resolves the profile to its ordered overlay paths and reuses the composition engine; it hard-fails (without writing anything) if the profile is unknown or if any of its overlay paths is missing or unresolvable.
+
+### P1. Run dry-run preview first (always)
+
+**Always** run the composer in dry-run mode first, regardless of whether the user passed `--dry-run`:
+
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --profile "<name>" \
+  --dry-run \
+  [--allow-newer-schema] \
+  --format text
+```
+
+Include `--allow-newer-schema` if the user passed it. Capture stdout, stderr, and the exit code. If the exit code is not 0, handle it using the exit-code mapping in step 4 of the compose flow (an unknown profile or an unresolvable/missing overlay path surfaces there as a validation error naming the offending profile or path) and stop. Otherwise, continue.
+
+### P2. Present the activation preview
+
+Present the composition report from stdout exactly as in step 3a of the compose flow: overlays composed (name and version), contributions applied, composed CLAUDE.md line count, files that would be written, plus any deferred contributions, semantic tension warnings, size warning, and prompt injection warnings. Treat prompt injection warnings as a security gate the same way the compose flow does.
+
+### P3. Gate: user approval
+
+If the user passed `--dry-run`, tell them:
+"Dry run complete. No files were written. To activate the profile, run `/system2:compose --profile <name>` without `--dry-run`."
+Stop here.
+
+If the user did NOT pass `--dry-run`, ask for explicit approval before writing:
+"The preview above shows what will be composed for profile `<name>`. Approve to write the composed artifacts to the project, or cancel."
+
+If prompt injection warnings were present, call them out in the approval prompt exactly as in step 3b of the compose flow.
+
+Wait for user approval. If the user declines, stop without writing.
+
+### P4. Write composed artifacts
+
+After user approval, re-invoke the same command WITHOUT `--dry-run` to write. Forward any flags that were used in the dry-run (`--allow-injection` if injection warnings were approved, `--allow-newer-schema` if the user opted into degraded mode):
+
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --profile "<name>" \
+  [--allow-injection] \
+  [--allow-newer-schema] \
+  --format text
+```
+
+Capture stdout, stderr, and the exit code. If exit code is 0, tell the user:
+"Activation complete. Profile `<name>` has been composed into the project."
+Surface the one-line activation note from the report naming the profile that was activated.
+
+If the exit code is not 0, handle it using the exit-code mapping in step 4 of the compose flow.
+
+## Profile Mutation Steps
+
+These steps apply when `--save-profile`, `create`, `edit`, or `delete` was detected in the Arguments section (steps 12-13). Mutations change only the stored profile definition; they never write project artifacts and never recompose on their own. The composer REJECTS `--dry-run` with mutations (it exits 1 with a clear error), so never pass `--dry-run` for `--save-profile`, `create`, `edit`, or `delete`, and do not run a dry-run preview for them.
+
+### M1. Build and run the mutation command
+
+Build the command that matches the requested operation:
+
+Save the project's current composition as a profile:
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --save-profile "<name>" \
+  [--force] \
+  --format text
+```
+
+Create a profile from explicit overlay paths:
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --profile-op create \
+  --profile-name "<name>" \
+  --profile-paths "<path1,path2,...>" \
+  [--force] \
+  --format text
+```
+
+Edit a profile (add paths and/or remove overlays by name; both repeatable, combinable in one call):
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --profile-op edit \
+  --profile-name "<name>" \
+  [--profile-add "<path>" ...] \
+  [--profile-remove "<OverlayName>" ...] \
+  --format text
+```
+
+Delete a profile:
+```
+python3 "${PLUGIN_ROOT}/scripts/composer.py" \
+  --base "${PLUGIN_ROOT}" \
+  --project "${PROJECT_ROOT}" \
+  --profile-op delete \
+  --profile-name "<name>" \
+  --format text
+```
+
+Add `--force` only for save/create when the user wants to overwrite an existing profile. Capture stdout, stderr, and the exit code.
+
+If the exit code is not 0, present the error to the user. Exit 1 means a validation error (for example: the profile name is invalid, the profile already exists without `--force`, there is no current composition to capture, an overlay to remove is not in the profile, or the profile is unknown). Exit 3 means an I/O error writing the profile store. Suggest the matching fix and stop.
+
+### M2. Present the mutation summary
+
+On success, present the mutation summary from the output: the profile name, where it is stored, and its resulting overlay set (with resolved overlay names where available). For a delete, confirm the profile was removed.
+
+### M3. Recompose prompt (only when the profile is active here)
+
+After presenting the summary, read the active-profile signal from the same output: in `--format text` it is the one-line "Profile `<name>` is currently active in this project." note; in `--format json` it is the `active_in_project` boolean field. This signal reports whether the just-mutated profile's overlay set matches what is currently composed in this project's lock.
+
+- If the signal indicates the profile is NOT active in this project, you are done. The mutation changed only the stored profile definition.
+- If the signal indicates the profile IS active in this project, the project's composed artifacts no longer match the updated profile. Ask the user:
+  "Profile `<name>` is active in this project. Recompose now?"
+  - On approval: run the standard "Profile Activation Steps" above for `--profile <name>` (P1 dry-run preview -> P3 approval gate -> P4 write). Do not invent a separate write path; recomposition goes through the exact same preview-then-approve activation flow.
+  - On decline: tell the user "No changes were made to this project's composed artifacts." and stop.
+
+Never recompose automatically. Recomposition only ever happens through the standard activation flow above and only after the user explicitly approves it here.
+
 ## Usage Examples
 
 Initialize a project with a single overlay:
@@ -300,6 +442,31 @@ Preview overlay removal without writing files:
 /system2:compose --uninstall overlay-a --dry-run
 ```
 
+Activate a saved profile (composes its overlay set into the project, preview first):
+```
+/system2:compose --profile backend-stack
+```
+
+Save the project's current composition as a profile:
+```
+/system2:compose --save-profile backend-stack
+```
+
+Create a profile from explicit overlay paths:
+```
+/system2:compose create backend-stack /path/to/overlay-a /path/to/overlay-b
+```
+
+Edit a profile, adding one overlay and removing another by name:
+```
+/system2:compose edit backend-stack --add /path/to/overlay-c --remove overlay-a
+```
+
+Delete a profile:
+```
+/system2:compose delete backend-stack
+```
+
 ## Notes
 
 - This skill invokes `composer.py` for all validation, conflict detection, and composition logic. Do not reimplement any of that logic.
@@ -311,3 +478,5 @@ Preview overlay removal without writing files:
 - Re-running `/system2:compose` with the same overlays produces identical output (idempotent).
 - To update after changing an overlay, re-run `/system2:compose` with the same arguments.
 - When the last overlay is uninstalled, the project reverts to base System2 (same as `/system2:init` output) and the lock file is removed.
+- Activating a profile reuses the same composition engine and preview-then-approve flow as a normal compose; it never writes without your approval. Profile mutations (`--save-profile`, `create`, `edit`, `delete`) change only the stored profile definition and never recompose the project on their own.
+- To list profiles or inspect a single profile's overlay set, use `/system2:profile` — that is the read-only listing and inspection namespace. It never composes or mutates anything.

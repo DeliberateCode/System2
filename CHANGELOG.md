@@ -5,6 +5,22 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-20
+
+### Added
+
+- **Overlay Profiles**: named, reusable, user-level sets of overlays. A domain-specific set of overlays can now be activated by name instead of by remembering and retyping overlay paths. Profiles are stored at `~/.system2/profiles.json` (user-level, shared across projects) and are independent of the per-project `.system2/overlays.json`.
+- `/system2:compose --profile <name>` activates a profile, composing its overlay set through the existing composition engine. Includes the standard dry-run preview then approval flow, and produces artifacts byte-identical to composing those overlay paths directly.
+- `/system2:compose --save-profile <name>` captures a project's currently composed overlay set as a profile, with no paths typed.
+- `/system2:compose create <name> <pathA> <pathB> …` defines a profile explicitly from overlay paths.
+- `/system2:compose edit <name> --add <path> --remove <OverlayName>` incrementally adds or removes overlays; flags are repeatable and combinable in a single call.
+- `/system2:compose delete <name>` removes a profile.
+- `/system2:profile list` (and `/system2:profile list --profile <name>`) read-only inspection namespace for listing and examining profiles. It is strictly read-only and never mutates a profile or composes a project.
+- Hard-fail-on-stale activation: activating a profile whose overlay path is missing or invalid refuses the entire activation, names the offending path, and writes nothing.
+- When a mutation targets the profile currently active in a project, the compose skill prompts whether to recompose now; recomposition is never automatic.
+- New `profiles.py` module (stdlib-only) implementing the profile store, path resolution, read-only CLI, and importable mutation API; new read-only `profile` `SKILL.md`; new profile flags in `composer.py` (`--profile`, `--save-profile`, `--profile-op`, `--profile-name`, `--profile-paths`, `--profile-add`, `--profile-remove`, `--force`); and additive profile sections in the compose `SKILL.md`. Existing compose, `--from-lock`, `--uninstall`, and `.system2/overlays.json` behavior is unchanged.
+- New unit suite `evals/test_profiles.py` and integration suite `evals/test_profile_activation.py` covering profile storage, resolution, mutation, activation byte-identity, hard-fail-on-stale, and read-only/independence guarantees.
+
 ## [1.0.2] - 2026-06-12
 
 ### Added
