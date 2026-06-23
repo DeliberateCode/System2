@@ -16,12 +16,48 @@ from-lock recompose path arrives as a recomposed IR). This module imports only t
 IR graph type and stdlib typing (module-boundaries).
 """
 
+import os
 from dataclasses import dataclass
 from typing import List, Protocol, runtime_checkable
 
 from ir.graph import System2Graph
 
-__all__ = ["Backend", "UninstallResult", "DoctorReport"]
+__all__ = [
+    "Backend",
+    "UninstallResult",
+    "DoctorReport",
+    "lock_sources_outside_project",
+]
+
+
+def lock_sources_outside_project(sources: List[str], project_path: str) -> List[dict]:
+    """Advisory findings for lock-recorded overlay sources resolving OUTSIDE *project_path*.
+
+    A lock's overlay ``source_path[]`` that resolves outside the project dir is
+    legitimate — it is user-equivalent to having composed with an explicit
+    ``--overlays`` path pointing elsewhere — but worth surfacing on a read-only
+    drift check (security F-P5-1): a recompose/uninstall path will re-read those
+    out-of-tree sources. Each returned finding is INFORMATIONAL only; callers must
+    NOT let it change ``status`` or the exit code. Symlinks are resolved
+    (``realpath``) on both sides so a source that merely points back into the
+    project does not trip the advisory.
+    """
+    findings: List[dict] = []
+    proj_real = os.path.realpath(project_path)
+    prefix = proj_real + os.sep
+    for s in sources:
+        if not s:
+            continue
+        src_real = os.path.realpath(s)
+        if src_real != proj_real and not src_real.startswith(prefix):
+            findings.append({
+                "kind": "source_outside_project",
+                "message": (
+                    f"lock-recorded overlay source resolves outside the project "
+                    f"directory (informational; recompose will read it): {s}"
+                ),
+            })
+    return findings
 
 
 @dataclass(frozen=True)
@@ -56,11 +92,13 @@ class DoctorReport:
     claude-code ports ``composer.drift_check``. ``details`` is the per-finding list,
     ``system2_version`` the ``{installed, locked}`` pair, ``overlays`` the per-overlay
     match flags, ``composed`` the CLAUDE.md-composed probe, ``exit_code`` the
-    oracle's rule (0 when ``current`` and the validator ran, else 1).
-    ``validator_available`` is ``True`` for claude-code (no external validator);
-    goose/pi set it ``False`` with a LOUD ``validator_unavailable`` finding when their
-    real validator (``goose recipe validate`` / ``pi`` load) is absent — never a
-    silent ``current``.
+    oracle's rule (0 when ``status == current``, else 1). An absent validator does
+    NOT force a non-zero exit (OQ-5.2): it is surfaced LOUDLY via
+    ``validator_available = False`` plus a ``validator_unavailable`` finding, but the
+    exit code still tracks ``status`` alone. ``validator_available`` is ``True`` for
+    claude-code (no external validator); goose/pi set it ``False`` with that LOUD
+    ``validator_unavailable`` finding when their real validator (``goose recipe
+    validate`` / ``pi`` load) is absent — never a silent ``current``.
     """
 
     status: str
@@ -92,7 +130,12 @@ class Backend(Protocol):
         ...
 
     def uninstall(
-        self, project_path: str, overlay_name: str, *, dry_run: bool = False
+        self,
+        project_path: str,
+        overlay_name: str,
+        *,
+        dry_run: bool = False,
+        allow_newer_schema: bool = False,
     ) -> UninstallResult:
         ...
 

@@ -36,7 +36,7 @@ from ir.graph import System2Graph
 
 from . import _degradation
 from . import _yaml
-from .base import DoctorReport, UninstallResult
+from .base import DoctorReport, UninstallResult, lock_sources_outside_project
 
 __all__ = ["GooseBackend"]
 
@@ -844,7 +844,12 @@ class GooseBackend:
     # -----------------------------------------------------------------------
 
     def uninstall(
-        self, project_path: str, overlay_name: str, *, dry_run: bool = False
+        self,
+        project_path: str,
+        overlay_name: str,
+        *,
+        dry_run: bool = False,
+        allow_newer_schema: bool = False,
     ) -> UninstallResult:
         """Remove a named overlay from the composed Goose tree.
 
@@ -856,7 +861,10 @@ class GooseBackend:
         (``system2.recipe.yaml`` / ``agents/*.recipe.yaml`` /
         ``goose/permission.yaml`` / ``system2.goose.lock.json`` / ``run-system2.sh``)
         and clean empty dirs, all under the atomic backup/restore (REQ-044). Writes
-        only under ``project_path``.
+        only under ``project_path``. ``allow_newer_schema`` is threaded into the
+        remaining-set recompose (matching the oracle's uninstall -> compose
+        forwarding), so a remaining overlay declaring a newer schema is accepted
+        exactly as on a direct compose.
         """
         def _err(errors: List[str]) -> UninstallResult:
             return UninstallResult(
@@ -908,6 +916,7 @@ class GooseBackend:
         compose_fn = self._require_compose_fn("uninstall")
         result = compose_fn(
             base_path, remaining_sources, project_path, dry_run=dry_run,
+            allow_newer_schema=allow_newer_schema,
         )
         if getattr(result, "errors", None):
             errors = list(result.errors)
@@ -1044,8 +1053,10 @@ class GooseBackend:
         hermetic HOME (the real ``~/.config/goose`` is never touched). When
         ``goose`` is absent the structural checks still run and a LOUD
         ``validator_unavailable`` finding is recorded with ``validator_available =
-        False`` and ``exit_code = 0`` — never a silent ``current`` (OQ-5.2). Exit 0
-        only when ``current`` AND the validator actually ran.
+        False`` — never a silent ``current`` (OQ-5.2). Per OQ-5.2 the exit code
+        tracks ``status`` alone: exit 0 when ``status == current`` (an absent
+        validator is surfaced LOUDLY, not punished with a non-zero exit), exit 1
+        otherwise.
         """
         details: List[dict] = []
         lp = self.lock_path(project_path)
@@ -1140,6 +1151,9 @@ class GooseBackend:
                         })
             finally:
                 shutil.rmtree(env["HOME"], ignore_errors=True)
+
+        # Advisory (does NOT change status/exit): lock sources resolving out-of-tree.
+        details.extend(lock_sources_outside_project(sources, project_path))
 
         locked_version = lock_data.get("goose_version_assumed", "")
         # Exit 0 when nothing is stale/broken. A LOUD validator_unavailable finding

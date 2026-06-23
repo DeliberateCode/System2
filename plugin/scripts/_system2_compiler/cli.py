@@ -543,6 +543,7 @@ def _do_uninstall(args, target: str) -> int:
     try:
         result = backend.uninstall(
             project_path, args.name, dry_run=args.dry_run,
+            allow_newer_schema=args.allow_newer_schema,
         )
     except OSError as exc:
         _emit_error(f"I/O error during uninstall: {exc}", fmt)
@@ -804,7 +805,7 @@ def _reject_inapplicable_subflags(args, mode: str, offenders, fmt: str) -> Optio
     ``--force`` is store_true.
     """
     present = {
-        "--profile-name": bool(getattr(args, "name", "")),
+        "--profile-name": bool(getattr(args, "profile_name", "")),
         "--profile-paths": bool(getattr(args, "paths", "")),
         "--profile-add": bool(getattr(args, "add", None)),
         "--profile-remove": bool(getattr(args, "remove", None)),
@@ -991,6 +992,12 @@ def _do_profile(argv: List[str]) -> int:
         help="Profile operation.",
     )
     parser.add_argument("name", nargs="?", default="", help="Profile name.")
+    # The composer flag surface's separate ``--profile-name`` flag (distinct from
+    # the NAME positional, which is the mutation target). It is only meaningful as
+    # the offender signal for ``save``: present (non-empty) when the user passed
+    # ``--profile-name`` alongside ``--save-profile``. The sub-flag matrix reads
+    # this — NOT the positional — so ``save NAME`` is never self-rejected.
+    parser.add_argument("--profile-name", dest="profile_name", default="", help=argparse.SUPPRESS)
     parser.add_argument("--paths", default="", help="Comma-separated overlay paths (create).")
     parser.add_argument("--add", action="append", default=None, help="Overlay path to add (edit); repeatable.")
     parser.add_argument("--remove", action="append", default=None, help="Overlay NAME to remove (edit); repeatable.")

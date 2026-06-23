@@ -48,7 +48,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from ir.graph import System2Graph
 
 from . import _degradation
-from .base import DoctorReport, UninstallResult
+from .base import DoctorReport, UninstallResult, lock_sources_outside_project
 
 __all__ = ["ClaudeCodeBackend"]
 
@@ -1443,6 +1443,14 @@ def _drift_check(base_path: str, project_path: str) -> dict:
 
         overlay_statuses.append(ov_status)
 
+    # Advisory (security F-P5-1): lock sources resolving OUTSIDE the project dir.
+    # Off by default so the frozen claude-doctor CLI contract stays byte-identical
+    # (the contract's reused fixture source is legitimately out-of-tree); opt in via
+    # SYSTEM2_DOCTOR_ADVISORIES=1. Informational only — never changes status/exit.
+    if os.environ.get("SYSTEM2_DOCTOR_ADVISORIES") == "1":
+        lock_sources = [ov.get("source_path", "") for ov in lock.get("overlays", [])]
+        details.extend(lock_sources_outside_project(lock_sources, project_path))
+
     if any_broken:
         status = "broken"
     elif any_stale_overlay:
@@ -1696,7 +1704,12 @@ class ClaudeCodeBackend:
     # -----------------------------------------------------------------------
 
     def uninstall(
-        self, project_path: str, overlay_name: str, *, dry_run: bool = False
+        self,
+        project_path: str,
+        overlay_name: str,
+        *,
+        dry_run: bool = False,
+        allow_newer_schema: bool = False,
     ) -> UninstallResult:
         """Remove a named overlay (ports ``composer._uninstall``).
 
@@ -1707,7 +1720,10 @@ class ClaudeCodeBackend:
         byte-identity holds — same compose->emit path); on 0 remaining -> revert
         ``CLAUDE.md`` to the base template, remove the lock + stale artifacts, clean
         the empty ``.system2/overlays/`` dir, all under the atomic backup/restore
-        (REQ-044). Returns the neutral ``UninstallResult`` the CLI renders.
+        (REQ-044). ``allow_newer_schema`` is threaded into the remaining-set recompose
+        (matching the oracle's ``_uninstall`` -> ``compose`` forwarding), so a
+        remaining overlay declaring a newer schema is accepted exactly as it would be
+        on a direct compose. Returns the neutral ``UninstallResult`` the CLI renders.
         """
         base_path = self._require_base_path("uninstall")
 
@@ -1791,6 +1807,7 @@ class ClaudeCodeBackend:
         compose_fn = self._require_compose_fn("uninstall")
         result = compose_fn(
             base_path, remaining_paths, project_path, dry_run=dry_run,
+            allow_newer_schema=allow_newer_schema,
         )
 
         artifacts_removed = _compute_stale_artifacts(

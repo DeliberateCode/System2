@@ -123,6 +123,13 @@ def _compile_argv(args) -> List[str]:
 
 def _profile_mutation_argv(args, op: str, name: str) -> List[str]:
     argv = ["profile", op, name]
+    # ``--profile-name`` is the mutation target for create/edit/delete (carried as
+    # the NAME positional here) but an INAPPLICABLE offender for ``save`` (whose
+    # target is ``--save-profile``). Relay the raw ``--profile-name`` flag only for
+    # ``save`` so cli's sub-flag matrix rejects ``--save-profile X --profile-name Y``
+    # while leaving a bare ``save NAME`` valid (composer's exact rule).
+    if op == "save" and args.profile_name:
+        argv += ["--profile-name", args.profile_name]
     if args.profile_paths:
         argv += ["--paths", args.profile_paths]
     for add in args.profile_add or []:
