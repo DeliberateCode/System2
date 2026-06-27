@@ -81,7 +81,10 @@ def _run_bundle(argv) -> int:
     """Delegate the composer flag CLI to the vendored bundle's adapter."""
     if _BUNDLE_DIR not in sys.path:
         sys.path.insert(0, _BUNDLE_DIR)
-    import plugin_adapter  # noqa: E402  (vendored entry; --target pinned claude-code)
+    # The bundle nests the product under ``_system2_compiler/system2_compiler/`` so
+    # the vendored package keeps its installed import name; with _BUNDLE_DIR on the
+    # path, ``system2_compiler`` is importable as a top-level package.
+    from system2_compiler import plugin_adapter  # noqa: E402  (entry; --target pinned claude-code)
 
     return plugin_adapter.main_composer_contract(argv)
 

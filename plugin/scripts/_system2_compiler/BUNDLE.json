@@ -1,6 +1,6 @@
 {
-  "compiler_source_sha256": "0f35d7fd782c8848abdd7edeee26cf597e9fbf70748d480f252ce811398d746b",
+  "compiler_source_sha256": "f672cba1e2f1873659bb1e4b0f23ef02ac32d5a2298236c97793676777037ee9",
   "compiler_version": "0.1.0",
-  "generated_from": "System2-Compiler@872704d",
-  "bundled_at": "2026-06-23T14:39:51.498368+00:00"
+  "generated_from": "System2-Compiler@0dc9f65",
+  "bundled_at": "2026-06-26T21:11:54.657525+00:00"
 }

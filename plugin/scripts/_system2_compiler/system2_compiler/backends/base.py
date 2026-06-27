@@ -20,7 +20,7 @@ import os
 from dataclasses import dataclass
 from typing import List, Protocol, runtime_checkable
 
-from ir.graph import System2Graph
+from system2_compiler.ir.graph import System2Graph
 
 __all__ = [
     "Backend",

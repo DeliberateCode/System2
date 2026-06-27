@@ -37,12 +37,14 @@ __all__ = [
     "format_findings",
 ]
 
-# The vendored members, matching ``tools/build_bundle.py``'s ``_BUNDLE_MEMBERS``.
-# ``ir`` and ``backends`` are package dirs; ``plugin_adapter.py`` is the entry;
-# ``cli.py`` is the adapter's private dispatch dependency. Every relpath below is
+# The vendored member, matching ``tools/build_bundle.py``'s ``_BUNDLE_MEMBERS``:
+# the single ``system2_compiler`` product package (its ``ir``/``backends``
+# subpackages, the ``plugin_adapter`` entry, and ``cli``). Every relpath under it is
 # IDENTICAL on the compiler source side and inside ``_system2_compiler/`` (the
-# bundle is a pure copy), so this digest reproduces the recorded hash exactly.
-_BUNDLE_MEMBERS = ("ir", "backends", "plugin_adapter.py", "cli.py")
+# bundle is a pure copy), so this digest reproduces the recorded hash exactly. NOTE:
+# ``_freshness.py`` itself is a COMPANION (not a member), so it lives at the bundle
+# root alongside this nested package and is correctly excluded from the digest.
+_BUNDLE_MEMBERS = ("system2_compiler",)
 
 # Build/test detritus excluded from the verbatim copy (and so from the hash),
 # matching ``tools/build_bundle.py``'s ``_EXCLUDE_DIRS``.

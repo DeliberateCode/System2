@@ -32,7 +32,7 @@ import subprocess
 import tempfile
 from typing import Callable, List, Optional, Tuple
 
-from ir.graph import System2Graph
+from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation
 from . import _yaml

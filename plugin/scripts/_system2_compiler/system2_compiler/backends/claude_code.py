@@ -45,7 +45,7 @@ import shutil
 import tempfile
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ir.graph import System2Graph
+from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation
 from .base import DoctorReport, UninstallResult, lock_sources_outside_project

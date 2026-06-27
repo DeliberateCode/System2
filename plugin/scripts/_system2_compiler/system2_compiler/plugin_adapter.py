@@ -37,7 +37,7 @@ import argparse
 import sys
 from typing import List, Optional
 
-import cli
+from system2_compiler import cli
 
 __all__ = ["main_composer_contract", "main"]
 

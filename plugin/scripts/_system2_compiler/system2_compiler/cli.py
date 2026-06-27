@@ -37,13 +37,13 @@ import sys
 import tempfile
 from typing import List, Optional, Tuple
 
-import ir
-from ir import profiles as ir_profiles
-from ir.graph import System2Graph
-from backends.base import Backend, DoctorReport, UninstallResult
-from backends.claude_code import ClaudeCodeBackend
-from backends.goose import GooseBackend
-from backends.pi import PiBackend
+from system2_compiler import ir
+from system2_compiler.ir import profiles as ir_profiles
+from system2_compiler.ir.graph import System2Graph
+from system2_compiler.backends.base import Backend, DoctorReport, UninstallResult
+from system2_compiler.backends.claude_code import ClaudeCodeBackend
+from system2_compiler.backends.goose import GooseBackend
+from system2_compiler.backends.pi import PiBackend
 
 __all__ = ["main"]
 

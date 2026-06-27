@@ -5,6 +5,16 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-06-26
+
+### Changed
+
+- **Vendored compiler bundle restructured to the `system2_compiler/` namespace.** The product modules in `plugin/scripts/_system2_compiler/` now live under a nested `system2_compiler/` package (previously top-level `ir/`, `backends/`, `cli.py`, `plugin_adapter.py`), tracking the upstream compiler's pre-publish namespace refactor. The `composer.py` shim's bundle entry was updated to `from system2_compiler import plugin_adapter`. **Composer output is byte-identical** — proven by the bundle-equivalence gate and the plugin's own 55-test suite, which pass against both the bundle and the frozen `composer.py.preflip` baseline. The one-commit backout (`cp composer.py.preflip composer.py && rm -rf _system2_compiler/`) is unchanged.
+
+### Fixed
+
+- **Bundle regeneration can no longer silently drop the tamper check.** `_freshness.py` (the plugin-side bundle integrity check surfaced via `system2:doctor`) is now a re-emitted bundle *companion* with a canonical source in the compiler, so regenerating the vendored bundle always restores it instead of leaving it behind.
+
 ## [1.1.0] - 2026-06-20
 
 ### Added
