@@ -91,6 +91,9 @@
       "exclude_files": [
         "plugin/scripts/composer.py",
         "plugin/scripts/hook_security.py"
+      ],
+      "exclude_dirs": [
+        "plugin/scripts/_system2_compiler/"
       ]
     }
   ]

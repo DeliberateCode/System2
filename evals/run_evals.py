@@ -693,11 +693,14 @@ def eval_doc_002():
         scope = rule["scope"]
         pattern = rule["pattern"]
         exclude_files = set(rule.get("exclude_files", []))
+        exclude_dirs = tuple(rule.get("exclude_dirs", []) or [])
         if scope.endswith("/"):
             hits = grep_dir(scope.rstrip("/"), pattern)
-            # Filter out excluded files
+            # Filter out excluded files and excluded/vendored subtrees
             if exclude_files:
                 hits = [h for h in hits if h[0] not in exclude_files]
+            if exclude_dirs:
+                hits = [h for h in hits if not h[0].startswith(exclude_dirs)]
         else:
             if scope in exclude_files:
                 continue
