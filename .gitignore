@@ -11,6 +11,9 @@ __pycache__/
 # IDE / tool settings
 .sessionbook
 
+# macOS
+.DS_Store
+
 # Project
 spec*/
 
