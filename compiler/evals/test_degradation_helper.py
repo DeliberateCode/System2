@@ -1,4 +1,4 @@
-"""Pi implementation (PG6/the implementation work): direct unit tests for backends/_degradation.py.
+"""Phase 4 (PG6/TASK-402): direct unit tests for backends/_degradation.py.
 
 The shared, descriptor-driven degradation helper is the single source of truth for
 the per-capability report-record assembly + the status->flags rule. These tests

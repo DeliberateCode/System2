@@ -1,6 +1,6 @@
 {
   "description": "Static inventory invariant (13-agent/6-gate + hook/allowlist bindings). Captured by reference to the plugin's read-only structural goldens; the oracle is not invoked for the core cell because it refuses empty overlay sets (design T3).",
-  "base_template_sha256": "127c9affb2331e58e37c5b518fab00ba7cad72803bc77371bc349bdc28ed013c",
+  "base_template_sha256": "bbf92beacc749f37c6f0e3515332d7e000e25832264be0abaa94ba9643ae90f5",
   "structural_goldens": [
     {
       "path": "evals/goldens/agent_inventory.json",

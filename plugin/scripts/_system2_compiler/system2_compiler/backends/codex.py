@@ -97,7 +97,7 @@ _TRUST_ONELINER = (
 )
 
 # The coverage-gap statement (OQ-L, design §4) — carried verbatim in the
-# orchestrator-skill preamble (and the README, the implementation work) and the lock banner.
+# orchestrator-skill preamble (and the README, TASK-023) and the lock banner.
 _COVERAGE_GAP = (
     "Even with hooks trusted, Codex hooks intercept shell commands and "
     "apply_patch-matched edits; they do NOT intercept WebSearch or other "
@@ -608,7 +608,7 @@ def _build_role_skill(ir: System2Graph, role) -> str:
 # Utility skills (G14, adapted from the merged plugin/skills/*/SKILL.md — J2)
 # ---------------------------------------------------------------------------
 
-# Per-skill external-CLI prerequisite (J2 rule 4, the consolidation requirement).
+# Per-skill external-CLI prerequisite (J2 rule 4, CC-REQ-090).
 _UTILITY_SKILL_PREREQUISITES = {
     "codex": "the OpenAI Codex CLI (`codex`) on PATH",
     "gemini": "Google's Antigravity CLI (`agy`) on PATH",
@@ -635,7 +635,7 @@ _UTILITY_SKILL_DESCRIPTIONS = {
     ),
 }
 
-# J2 rule 5 (OA-20/the consolidation requirement): the fresh-non-interactive-codex honesty sentence,
+# J2 rule 5 (OA-20/CC-REQ-081): the fresh-non-interactive-codex honesty sentence,
 # system2-codex ONLY.
 _FRESH_CODEX_HONESTY = (
     "This spawns a NEW non-interactive `codex exec` subprocess — a fresh Codex "
@@ -645,7 +645,7 @@ _FRESH_CODEX_HONESTY = (
 
 
 def _build_utility_skill(name: str) -> str:
-    """Adapted body for one of the three Codex utility skills (J1/J2, the consolidation requirement/077).
+    """Adapted body for one of the three Codex utility skills (J1/J2, CC-REQ-076/077).
 
     Adapted from ``plugin/skills/<name>/SKILL.md`` — see
     spec-consolidation-completion/design.md Group J2; keep the sync-guard invariants
@@ -971,7 +971,7 @@ def _build_utility_skill(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Node command hooks (JavaScript, Node stdlib only — the requirement)
+# Node command hooks (JavaScript, Node stdlib only — REQ-059)
 # ---------------------------------------------------------------------------
 
 # F11 hardening constants shared by every generated enforcement hook.
@@ -1187,14 +1187,7 @@ def _build_shell_hook_js(ir: System2Graph) -> str:
     lines.append("  return mask;")
     lines.append("}")
     lines.append("")
-    lines.append("// True only for a shell IO-number (e.g. `2>log`), not a command name ending in a digit (`cmd2>out`).")
-    lines.append("function isFdRedirect(command, operatorIndex) {")
-    lines.append("  let start = operatorIndex;")
-    lines.append("  while (start > 0 && /[0-9]/.test(command[start - 1])) start--;")
-    lines.append("  return start < operatorIndex && (start === 0 || /[\\s;|&]/.test(command[start - 1]));")
-    lines.append("}")
-    lines.append("")
-    lines.append("// Extract stdout write-redirection / tee targets so the lease can gate shell writes.")
+    lines.append("// Extract write-redirection / tee targets so the lease can gate shell writes.")
     lines.append("function shellWriteTargets(command) {")
     lines.append("  const targets = [];")
     lines.append("  const mask = quoteMask(command);")
@@ -1202,7 +1195,7 @@ def _build_shell_hook_js(ir: System2Graph) -> str:
     lines.append("  let m; let guard = 0;")
     lines.append("  while ((m = re.exec(command)) !== null && guard < 256) {")
     lines.append("    guard++;")
-    lines.append("    if (mask[m.index] || isFdRedirect(command, m.index)) continue;")
+    lines.append("    if (mask[m.index]) continue;")
     lines.append("    let t = m[1];")
     lines.append('    if ((t.startsWith(\'"\') && t.endsWith(\'"\')) || (t.startsWith("\'") && t.endsWith("\'"))) t = t.slice(1, -1);')
     lines.append('    if (t.length > 0 && t !== "/dev/null") targets.push(t);')
@@ -2040,6 +2033,19 @@ def codex_uninstall(codex_home: Optional[str] = None, *, dry_run: bool = False) 
     current_is_system2 = _hooks_json_is_unmodified(
         hooks_json, state.get("hooks_json_sha256"), guard_names
     )
+    if os.path.lexists(hooks_json) and not current_is_system2:
+        return {
+            "status": "refused",
+            "removed": [],
+            "restored_backup": None,
+            "hooks_json_removed": False,
+            "codex_home": home,
+            "message": (
+                "hooks.json changed since System2 installed it; refusing to remove "
+                "the referenced hook scripts or install state"
+            ),
+        }
+
     will_restore_backup = backup_available and current_is_system2
     will_remove_hooks_json = (not backup_available) and current_is_system2
 

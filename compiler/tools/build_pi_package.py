@@ -1,5 +1,5 @@
 """``build_pi_package.py`` — transform the Pi backend's canonical emission into the
-``@deliberatecode/pi-system2`` npm package layout (design §"Pi npm package"; the implementation work).
+``@deliberatecode/pi-system2`` npm package layout (design §"Pi npm package"; TASK-024).
 
     build(staging_emission: str, dest: str, package_version: str = PACKAGE_VERSION) -> None
 
@@ -19,7 +19,7 @@ npm package rooted at *dest*:
 The gate ``extensions/system2.ts`` is copied BYTE-FOR-BYTE from the backend's canonical
 ``.pi/extensions/system2.ts`` (no re-derivation — the package and the backend cannot
 drift). ``package.json`` is stamped from ``templates/pi_package.json`` (name/keywords/pi
-manifest/files whitelist/MIT; NO scripts, NO dependencies, NO postinstall — the requirement/F12)
+manifest/files whitelist/MIT; NO scripts, NO dependencies, NO postinstall — REQ-055/F12)
 with the version substituted. ``extensions/system2-init.ts`` is generated from
 ``templates/system2_init_ts.template`` with the managed-file list (exactly the files
 placed under ``payload/project/``) embedded. ``README.md`` is generated from
@@ -29,7 +29,7 @@ cannot drift from the repo's). Both are entries in the ``package.json`` ``files`
 whitelist, so they are generated here and kept under the regen freshness guard rather
 than hand-committed.
 
-The Pi BACKEND is UNTOUCHED (the requirement): this is pure tooling downstream of its emission.
+The Pi BACKEND is UNTOUCHED (REQ-054): this is pure tooling downstream of its emission.
 Stdlib-only; deterministic (identical emission -> byte-identical package).
 """
 
@@ -112,13 +112,13 @@ def _classify(rel):
 def _write_package_json(dest, version):
     content = _read_template("pi_package.json").replace(_VERSION_PLACEHOLDER, version)
     # Fail closed: the shipped manifest must never carry an install script or a
-    # dependency (the requirement/F12). A template edit that reintroduced one would otherwise
+    # dependency (REQ-055/F12). A template edit that reintroduced one would otherwise
     # publish silently to npm; assert it here at build time.
     obj = json.loads(content)
     for key in _FORBIDDEN_PACKAGE_KEYS:
         if key in obj:
             raise ValueError(
-                f"pi_package.json must not declare {key!r} (the requirement/F12: the package "
+                f"pi_package.json must not declare {key!r} (REQ-055/F12: the package "
                 f"carries no scripts and no dependencies)"
             )
     with open(os.path.join(dest, "package.json"), "w", encoding="utf-8") as fh:

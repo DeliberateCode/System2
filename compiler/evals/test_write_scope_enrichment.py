@@ -1,4 +1,4 @@
-"""the implementation work — OQ-P3 IR-enrichment structural drift guard.
+"""TASK-403 — OQ-P3 IR-enrichment structural drift guard.
 
 Asserts ``ir.build._derive_roles`` populates each pipeline role's ``write_scope``
 from its mapped read-only Claude ``.regex`` path allowlist, so Pi's

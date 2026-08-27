@@ -1,6 +1,6 @@
 """Grep oracle: fail on any LIVE reference to a now-dead source repo.
 
-Enforces AC1/the requirement for the consolidation: the plugin, utilities, compiler and
+Enforces AC1/REQ-002 for the consolidation: the plugin, utilities, compiler and
 distributions now live in ONE repo, so nothing outside a deliberate
 historical-record allowlist may still point at the old standalone repos
 (``System2``-``Compiler`` / ``System2``-``UtilitySkills``). A live pointer means a
@@ -63,10 +63,10 @@ ALLOWLIST = (
     # ``run_goldens._normalize_lock_paths`` redacts before the byte compare — inert
     # test data, not live coupling. Editing would churn goldens (forbidden this cycle).
     "compiler/evals/goldens/",
-    # User doc: the implementation work/039 refreshes its install pointers; allowlisted this cycle
+    # User doc: TASK-031/039 refreshes its install pointers; allowlisted this cycle
     # so the oracle can pass while the historical URLs still stand.
     "compiler/README.md",
-    # User doc (examples): the implementation work/039 refreshes its install pointers.
+    # User doc (examples): TASK-031/039 refreshes its install pointers.
     "compiler/examples/README.md",
     # Migration doc: deliberately names the old standalone utility-skills repo so
     # former standalone-marketplace users can find their origin. CD-1, ADOPTED

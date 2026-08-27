@@ -1,6 +1,6 @@
 """Thin shim over the pre-flip engine OR the vendored compiler bundle.
 
-convergence implementation convergence flip. This file replaces the original ``composer.py`` engine
+Phase 5 convergence flip. This file replaces the original ``composer.py`` engine
 with a thin shim. The original engine is preserved VERBATIM as
 ``composer.py.preflip`` (the immutable equivalence oracle + one-commit backout).
 

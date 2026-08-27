@@ -1,6 +1,6 @@
 """The ``system2`` CLI — full lifecycle parity with the frozen ``composer.py``.
 
-original implementation shipped a single implicit ``compile`` verb. convergence implementation grows this into a
+Phase 1 shipped a single implicit ``compile`` verb. Phase 5 grows this into a
 subcommand dispatcher reaching FULL parity with the plugin's ``composer.py``
 ``main()`` contract:
 
@@ -17,7 +17,7 @@ subcommand dispatcher reaching FULL parity with the plugin's ``composer.py``
                       [--project P] [--force] [--format …]   # harness-neutral; no --target
 
 For back-compat, a leading ``--target`` (or no subcommand) dispatches to
-``compile`` so the legacy ``main(["--target", …])`` invocation is unchanged.
+``compile`` so the Phase-0..4 ``main(["--target", …])`` invocation is unchanged.
 
 The ``claude-code`` path of every verb reproduces the frozen oracle's EXACT arg
 names, exit codes, stdout/stderr report bodies, and JSON envelopes (the contract
@@ -51,7 +51,7 @@ __all__ = ["main"]
 _TARGETS = ("claude-code", "pi", "codex")
 _VERBS = ("compile", "uninstall", "doctor", "from-lock", "profile")
 
-# Static backend registry (the first backend implementation/4 CLI surface): target -> a default-
+# Static backend registry (the Phase-3/4 CLI surface): target -> a default-
 # constructed backend instance. ``emit`` is fully IR-driven and needs no
 # constructor injection, so these defaults serve ``compile`` and the registry
 # tests. The lifecycle verbs build base_path/compose_fn-injected instances via
@@ -64,7 +64,7 @@ _BACKENDS = {
 
 
 def _select_backend(target: str) -> Backend:
-    """Return the registered default backend for *target* (first backend implementation/4 surface)."""
+    """Return the registered default backend for *target* (Phase-3/4 surface)."""
     return _BACKENDS[target]
 
 # Contribution-type suffixes deferred (declared but not applied this phase). The
@@ -207,13 +207,13 @@ def _render_composed_text(graph: System2Graph, backend: Backend) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Shared stderr warning emission (relocated verbatim from the oracle, the requirement)
+# Shared stderr warning emission (relocated verbatim from the oracle, REQ-046)
 # ---------------------------------------------------------------------------
 
 def _emit_stderr_warnings(report: dict) -> None:
     """Emit all warning categories to stderr (verbatim from ``composer._emit_stderr_warnings``).
 
-    Order is load-bearing for byte-identity with the oracle (the requirement):
+    Order is load-bearing for byte-identity with the oracle (REQ-046):
     size_warning, validation_warnings, injection_warnings, then semantic tensions.
     """
     if "size_warning" in report:
@@ -319,7 +319,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
     Reproduces ``composer.main()``'s compose/profile-activation/from-lock branch:
     overlay resolution, refusal classification, stderr warnings, the dry-run
     preview, the injection-block (exit 4), the write, and the success report — all
-    byte-identical for the claude-code target (the requirement/046).
+    byte-identical for the claude-code target (REQ-049/046).
     """
     base_path = os.path.abspath(args.base)
     project_path = os.path.abspath(args.project)
@@ -1168,7 +1168,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Dispatch a ``system2`` subcommand.
 
     A leading ``--target`` (or no args) routes to ``compile`` for back-compat with
-    the legacy ``main(["--target", …])`` invocation.
+    the Phase-0..4 ``main(["--target", …])`` invocation.
     """
     if argv is None:
         argv = sys.argv[1:]

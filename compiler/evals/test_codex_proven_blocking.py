@@ -1,4 +1,4 @@
-"""the implementation work (F8) — END-TO-END generated-hook bypass corpus + F11 fault cases.
+"""TASK-019 (F8) — END-TO-END generated-hook bypass corpus + F11 fault cases.
 
 The single most important enforcement-fidelity guard in the cycle. It drives the
 **actual generated Node hook scripts end-to-end**: for every corpus case it spawns
@@ -11,7 +11,7 @@ NOT protect this new wiring, so this test exercises the wiring, not the regexes.
 
 Decision boundary (matches ``backends/codex.py`` / design §4a.B — the modern Codex
 ``permissionDecision`` schema; the legacy ``{"decision":"block"}`` is REMOVED and no
-longer counts as a block, the requirement):
+longer counts as a block, REQ-078.1):
   * BLOCK   -> stdout ``{"hookSpecificOutput":{"permissionDecision":"deny",
               "permissionDecisionReason":R}}`` (exit 0), OR exit 2 (a fail-closed
               internal error is still a block, never a silent allow);
@@ -30,7 +30,7 @@ the CAPTURED codex-cli 0.142.5 ``PreToolUse`` envelope (``hook_event_name``,
 the test drives the exact stdin shape a real Codex fires. **Pi-corpus parity is asserted
 at the normalized-input boundary** (``test_pi_corpus_parity_zero_uncovered``): every
 Pi proven-blocking corpus case has a Codex-event-shaped counterpart, enumerated with
-ZERO uncovered cases. Happy-path-only coverage is a failed acceptance (the requirement).
+ZERO uncovered cases. Happy-path-only coverage is a failed acceptance (REQ-033).
 
 F11 fault cases are exercised end-to-end via ``node``: an oversized command is capped
 and STILL decided (blocks, never crash-open); an oversized stdin fails closed
@@ -180,7 +180,7 @@ def _run_hook(hooks_dir, hook_kind, stdin_bytes, env_extra=None, timeout=30):
 def _deny_of(obj):
     """The modern-schema deny reason if *obj* is a Codex ``permissionDecision:"deny"``
     block, else None. The legacy ``{"decision":"block"}`` is deliberately NOT honored
-    (the requirement): it returns None here so a hook still emitting it fails the block tests.
+    (REQ-078.1): it returns None here so a hook still emitting it fails the block tests.
     """
     if not isinstance(obj, dict):
         return None
@@ -344,7 +344,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_block_json_is_modern_permission_decision_schema(self):
-        """the requirement: a stdout block is the MODERN Codex schema — an emitted block case
+        """REQ-078.1: a stdout block is the MODERN Codex schema — an emitted block case
         (exit 0) carries ``hookSpecificOutput.permissionDecision == "deny"`` with the
         reason in ``permissionDecisionReason``, and NO legacy top-level ``decision`` key.
         Codex 0.142.5 silently ignores the legacy form, so its presence is a real defect."""
@@ -503,7 +503,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         """Every Pi proven-blocking corpus case has a Codex-event-shaped counterpart —
         enumerated with ZERO uncovered cases. This mechanizes the F8 parity mandate at
         the normalized-input boundary (design line 171): Codex's stdin-JSON event model
-        is new wiring, so happy-path-only coverage is a failed acceptance (the requirement)."""
+        is new wiring, so happy-path-only coverage is a failed acceptance (REQ-033)."""
         pi_names = _pi_corpus_names()
         covered = set()
         for case in self.corpus:

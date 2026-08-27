@@ -43,7 +43,7 @@ overlapping classes). Findings:
 
 Per policy the proven constants are LEFT UNCHANGED here. The mitigation for the
 quadratic worst case is an input-length cap + a match timeout that resolves to BLOCK
-(fail closed) in the CONSUMER — the Codex Node hooks (the implementation work), NOT a constant edit
+(fail closed) in the CONSUMER — the Codex Node hooks (TASK-016), NOT a constant edit
 in this module. The Pi extension already runs these under Pi's own tool_call seam.
 """
 
@@ -237,7 +237,7 @@ def build_lease_gate_source(write_scopes: Dict[str, List[str]]) -> str:
     regex-source list; a role present with an empty list, or absent entirely, blocks
     every write.
 
-    Consumed by the Codex Node hooks (the implementation work); Pi keeps its own inline emission
+    Consumed by the Codex Node hooks (TASK-016); Pi keeps its own inline emission
     (interwoven with Pi's ExtensionAPI event shape) so Pi's TS bytes cannot drift.
     """
     scope_items = ",\n  ".join(

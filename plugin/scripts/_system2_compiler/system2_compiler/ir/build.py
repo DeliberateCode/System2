@@ -3,7 +3,7 @@
 Lifts the front-end half of ``composer.compose()`` (load / validate / conflict /
 index / topological sort / base-template read / version read) and the resolution
 half of ``_activate_profile`` (profile name -> ordered overlay paths). Produces the
-neutral graph **without invoking any backend** (the requirement/013/040): this module
+neutral graph **without invoking any backend** (REQ-010/013/040): this module
 imports no ``backends/`` package and no ``cli``.
 
 The structured inventory fields (``roles``, ``gate_graph``, ``delegation_contract``,
@@ -114,7 +114,7 @@ def _section_offsets(text: str) -> Dict[str, int]:
     """Locate each ``## <Section>`` heading's line index in the base template.
 
     These are the located offsets the Claude backend uses for insertion; the IR
-    carries them but never renders them (that is the backend's job, the implementation work).
+    carries them but never renders them (that is the backend's job, TASK-108).
     """
     offsets: Dict[str, int] = {}
     for idx, line in enumerate(text.splitlines()):
@@ -165,7 +165,7 @@ def _build_ordered_contributions(
     it); ordering cycles surface as a skipped scope (the structural-conflict
     refusal already fired upstream). Contributions in an ``agents.<agent>.
     prompt_sections.<anchor>`` scope carry the resolved ``(agent, anchor)``
-    ``AnchorRef`` identity (the requirement). Returns the ordered contributions plus any
+    ``AnchorRef`` identity (REQ-025). Returns the ordered contributions plus any
     unresolved-after sort warnings.
     """
     index = _contributions.build_contribution_index(
@@ -266,13 +266,13 @@ def _load_write_scope(name: str, base_path: str) -> str:
 def _derive_roles(
     anchor_map: dict, capabilities: CapabilitySet, base_path: str
 ) -> List[Role]:
-    """Derive the 13-agent role inventory from ``anchor-map.json`` (the requirement/050).
+    """Derive the 13-agent role inventory from ``anchor-map.json`` (REQ-009/050).
 
     Roles are an intent inventory: name + the per-agent intent ``capabilities``
-    (IR/capability implementation, from ``capabilities.by_agent``) + ``write_scope`` sourced read-only
+    (Phase 2, from ``capabilities.by_agent``) + ``write_scope`` sourced read-only
     from the mapped Claude per-agent ``.regex`` path allowlist (OQ-P3) so Pi's
     ``enforce-lease`` becomes a genuinely-scoped native lease. ``gate_role`` /
-    ``model_hint`` stay neutral; no Claude mechanism fields appear (the requirement/040).
+    ``model_hint`` stay neutral; no Claude mechanism fields appear (REQ-028/040).
     The claude backend never reads ``write_scope``, so its bytes are unchanged.
     """
     names = sorted(anchor_map.get("agents", {}).keys())
@@ -431,7 +431,7 @@ def _derive_maintenance_loop(base_text: str) -> MaintenanceLoop:
 
 
 def _derive_capabilities(anchor_table: AnchorTable) -> CapabilitySet:
-    """Derive the per-agent intent-capability set (the requirement).
+    """Derive the per-agent intent-capability set (REQ-028).
 
     Every enforced intent capability in ``INTENT_CAPABILITIES`` is native on the
     fully-faithful (Claude) target per the design's mechanism->capability table:
@@ -452,7 +452,7 @@ def _collect_declared_capabilities(validated_manifests: List[dict]) -> List[str]
 
     Overlays may declare capabilities under a top-level ``capabilities`` list or a
     ``contributions.capabilities`` list; both are scanned so an unknown declared
-    capability surfaces a validation warning (the requirement). Absent in today's overlays;
+    capability surfaces a validation warning (REQ-039). Absent in today's overlays;
     deterministic ordering by manifest order then declaration order.
     """
     declared: List[str] = []
@@ -499,10 +499,10 @@ def build_graph(
     """Assemble a ``System2Graph`` from validated inputs.
 
     Builds the ordered contributions, the base template (text + located section
-    offsets), the version, and all structured inventory fields, and (IR/capability implementation)
+    offsets), the version, and all structured inventory fields, and (Phase 2)
     the identity-keyed ``anchors`` table, the per-agent ``capabilities`` set, and
     the ``blocking_semantics`` records. Anchored contributions carry their
-    ``(agent, anchor)`` ``AnchorRef`` identity. Invokes no backend; these IR/capability implementation
+    ``(agent, anchor)`` ``AnchorRef`` identity. Invokes no backend; these Phase-2
     fields are IR-internal and change no emitted bytes this cycle.
     """
     anchor_table = _anchors.build_anchor_table(anchor_map)

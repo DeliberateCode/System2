@@ -1,6 +1,6 @@
 name: Publish Pi package
 
-# the implementation work — publish @deliberatecode/pi-system2 via npm TRUSTED PUBLISHING (OIDC).
+# TASK-035 — publish @deliberatecode/pi-system2 via npm TRUSTED PUBLISHING (OIDC).
 #
 # Reconciles the two security findings the plan put in tension:
 #   * F3 (provenance): `npm publish --provenance` attests build origin via the
@@ -13,7 +13,7 @@ name: Publish Pi package
 # Manual dispatch only — publishing is a deliberate, human-triggered act, never a
 # push/PR side effect. Prereq (one-time, on npmjs.com): configure the package's
 # "Trusted Publisher" to this repo + this workflow filename (see
-# docs/runbooks — the implementation work). First publish also requires the org to allow it.
+# docs/runbooks — TASK-035). First publish also requires the org to allow it.
 
 on:
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
     steps:
       # PR #10 review finding 2: workflow_dispatch has no branch restriction of its
       # own -- any branch carrying this file can be dispatched against by a
-      # write-access user. The plan's "dispatch on main only" rule (the consolidation requirement) was
+      # write-access user. The plan's "dispatch on main only" rule was
       # previously enforced by human discipline alone; fail loudly here instead.
       - name: Refuse dispatch off the main branch
         if: github.ref != 'refs/heads/main'

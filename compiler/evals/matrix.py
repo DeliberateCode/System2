@@ -2,9 +2,9 @@
 
 Each :class:`Cell` records the overlay source paths, the optional profile name,
 the expected artifact classes, and whether the cell is a refusal cell. Cells whose
-fixtures may be introduced after the matrix is declared and are marked
+fixtures land in later tasks (TASK-007/008/009) are declared now and marked
 ``pending=True``; ``assert_complete`` still requires a snapshot dir for every
-declared cell so an incomplete baseline fails loudly.
+declared cell so an incomplete baseline fails loudly (REQ-001).
 """
 
 import os
@@ -22,15 +22,15 @@ _COMPILER_FIXTURES = os.path.join(_THIS_DIR, "fixtures")
 
 TEST_OVERLAY = os.path.join(_PLUGIN_FIXTURES, "test-overlay")
 
-# Profile-store fixture and its profile name.
+# Profile store fixture (TASK-007) and its profile name.
 PROFILE_NAME = "test-profile"
 PROFILE_STORE_FIXTURE = os.path.join(_COMPILER_FIXTURES, "profiles", PROFILE_NAME + ".json")
 
-# Conflict-cell overlays.
+# Conflict-cell overlays (TASK-008).
 CONFLICT_A = os.path.join(_COMPILER_FIXTURES, "conflict-a")
 CONFLICT_B = os.path.join(_COMPILER_FIXTURES, "conflict-b")
 
-# Tension-cell overlays.
+# Tension-cell overlays (TASK-009).
 TENSION_A = os.path.join(_COMPILER_FIXTURES, "tension-a")
 TENSION_B = os.path.join(_COMPILER_FIXTURES, "tension-b")
 
@@ -84,7 +84,7 @@ _CELLS = (
         pending=True,
         notes=(
             "Profile resolving >=1 overlay via the hermetic temp-HOME store. Profile store "
-            "fixture is pending until its snapshot is captured."
+            "fixture lands in TASK-007."
         ),
     ),
     Cell(
@@ -93,7 +93,7 @@ _CELLS = (
         expected_artifacts=ARTIFACTS_REFUSAL,
         refusal=True,
         pending=True,
-        notes="known_conflicts pair -> refusal. Overlay fixtures land in the implementation work",
+        notes="known_conflicts pair -> refusal. Overlay fixtures land in TASK-008.",
     ),
     Cell(
         name="core+tension",
@@ -101,7 +101,7 @@ _CELLS = (
         pending=True,
         notes=(
             "Shared review_when_combined_with_tags tag -> semantic-tension warning (proceeds). "
-            "Overlay fixtures land in the implementation work"
+            "Overlay fixtures land in TASK-009."
         ),
     ),
     Cell(
@@ -129,7 +129,7 @@ def get_cell(name: str) -> Cell:
 
 
 def assert_complete(goldens_dir: str) -> None:
-    """Fail if any declared cell lacks a snapshot dir under ``goldens_dir`` (the requirement)."""
+    """Fail if any declared cell lacks a snapshot dir under ``goldens_dir`` (REQ-001)."""
     missing = [
         cell.name
         for cell in _CELLS

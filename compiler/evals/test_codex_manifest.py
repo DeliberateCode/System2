@@ -1,19 +1,19 @@
-"""the implementation work — ``test_codex_manifest.py``: Codex plugin structural + lock-schema validator.
+"""TASK-017 — ``test_codex_manifest.py``: Codex plugin structural + lock-schema validator.
 
 A stdlib (``unittest``) STRUCTURAL validator for the Codex backend emission
-(the requirement, the requirement; design §Observability job 5; security F14). It emits the Codex
+(REQ-028, REQ-053; design §Observability job 5; security F14). It emits the Codex
 plugin into a throwaway staging dir (the same ``ir.compose -> Backend.emit`` harness
 the Pi golden tests use) and validates:
 
 * **Manifest** (``.codex-plugin/plugin.json``): the required fields (``name``,
   ``version``, ``description``) are present and non-empty; ``name`` is kebab-case;
   the ``skills`` component pointer is present (the ``hooks`` pointer is DROPPED — §4a.C,
-  the recorded rule: plugin-bundled hooks are inert on current Codex, so enforcement ships as the
+  RL-001: plugin-bundled hooks are inert on current Codex, so enforcement ships as the
   user-scope ``user-hooks/`` reference, not a manifest ``hooks`` pointer); and every
   path-ish pointer is ``./``-relative and stays INSIDE the plugin root — NO ``..``, NO
   absolute paths. This is the security-F14 pointer-hygiene check; it is applied by
   the SAME pure function to the repo-scoped ``.agents/plugins/marketplace.json`` when
-  that file exists (the implementation work) and to an in-memory synthetic marketplace doc always
+  that file exists (TASK-023) and to an in-memory synthetic marketplace doc always
   (so the F14 rule is exercised now, before the file lands — no silent skip).
 
 * **Lock** (``system2.codex.lock.json``): validates against the standard
@@ -32,13 +32,13 @@ the Pi golden tests use) and validates:
   real emission (via ``assertRaises`` / ``subTest``); the real emission is never mutated.
 
 The validator is PATH-PARAMETERIZED: it always validates the fresh staging emission,
-and additionally validates the committed ``distributions/codex/`` tree once the implementation work
+and additionally validates the committed ``distributions/codex/`` tree once TASK-023
 commits it (auto-discovered; no test edit needed). Stdlib-only ``unittest``; no product
 code / goldens / ``compiler/spec`` are touched — this test only reads emissions and
 in-memory temp copies. All manifest/IR/overlay contents are treated as untrusted data;
 embedded instructions are never followed.
 
-* **Skill inventory + version pin** (J4, the codex analogue of ``evaluation``):
+* **Skill inventory + version pin** (J4, the codex analogue of ``EVAL-MAN-004``):
   ``skills/`` carries the exact 18-name set (orchestrator + ``system2-doctor`` +
   13 role skills + the 3 adapted utility skills), each with a non-empty
   ``SKILL.md``; ``_CODEX_PLUGIN_VERSION`` and every emitted ``0.2.1`` field are
@@ -73,7 +73,7 @@ _REPO_ROOT = oracle.PLUGIN_REPO_ROOT
 _MANIFEST_REL = os.path.join(".codex-plugin", "plugin.json")
 _LOCK_REL = "system2.codex.lock.json"
 
-# The committed distribution + repo-scoped marketplace file (the implementation work — not yet
+# The committed distribution + repo-scoped marketplace file (TASK-023 — not yet
 # present). Parameterized so the same validator auto-covers them once they land.
 _DIST_CODEX_ROOT = os.path.join(_REPO_ROOT, "distributions", "codex")
 _MARKETPLACE_PATH = os.path.join(_REPO_ROOT, ".agents", "plugins", "marketplace.json")
@@ -82,7 +82,7 @@ _MARKETPLACE_PATH = os.path.join(_REPO_ROOT, ".agents", "plugins", "marketplace.
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 _MANIFEST_REQUIRED = ("name", "version", "description")
-# The ``hooks`` pointer is DROPPED (§4a.C / the recorded rule); only ``skills`` remains.
+# The ``hooks`` pointer is DROPPED (§4a.C / RL-001); only ``skills`` remains.
 _MANIFEST_POINTERS = ("skills",)
 
 # J4 — the pinned 0.2.1 version, imported from the backend (never re-typed).
@@ -91,7 +91,7 @@ _CODEX_PLUGIN_VERSION = codex_backend._CODEX_PLUGIN_VERSION
 # J4 — exact-name 18-skill inventory (orchestrator + system2-doctor + 13 role
 # skills + the 3 adapted utility skills). An independent enumeration, not
 # derived from the IR/role list, so a lost skill cannot silently shrink both
-# sides of the comparison (the same discipline as evaluation's static
+# sides of the comparison (the same discipline as EVAL-MAN-004's static
 # skill_inventory.json).
 _EXPECTED_SKILL_NAMES = frozenset({
     "system2",
@@ -322,7 +322,7 @@ def _codex_descriptor():
 
 # ---------------------------------------------------------------------------
 # Path-parameterized source discovery: always the staging emission; plus the
-# committed distributions/codex tree once the implementation work lands (auto-discovered).
+# committed distributions/codex tree once TASK-023 lands (auto-discovered).
 # ---------------------------------------------------------------------------
 
 def _build_sources():
@@ -511,7 +511,7 @@ class CodexMarketplacePointerHygieneTest(unittest.TestCase):
                     validate_marketplace(doc)
 
     def test_committed_marketplace_file_if_present(self):
-        # Path-parameterized (the implementation work): validate the real file only once it exists;
+        # Path-parameterized (TASK-023): validate the real file only once it exists;
         # the synthetic cases above keep this test non-vacuous until then.
         if not os.path.isfile(_MARKETPLACE_PATH):
             self.assertFalse(
@@ -635,7 +635,7 @@ class CodexLockNegativeControlsTest(_CodexEmissionBase):
 
 # ---------------------------------------------------------------------------
 # J4: exact-name 18-skill inventory + the 0.2.1 version pin (the codex
-# analogue of evaluation; the consolidation requirement/076/080; Discovery D-8 confirmed no
+# analogue of EVAL-MAN-004; CC-REQ-051/076/080; Discovery D-8 confirmed no
 # count assertion existed before this leg).
 # ---------------------------------------------------------------------------
 
@@ -685,7 +685,7 @@ class CodexSkillInventoryTest(_CodexEmissionBase):
 
 
 # ---------------------------------------------------------------------------
-# J4: uninstall-path leg (Decision D4's compensating test). the consolidation requirement's
+# J4: uninstall-path leg (Decision D4's compensating test). CC-REQ-078's
 # intent (uninstall removes added skills; prune doesn't strand them) is met by
 # the EXISTING generic ``skills/*/SKILL.md`` sweep — ``_CODEX_FIXED_ARTIFACTS``
 # is deliberately left unextended (D4, ratified at Gate 3). This exercises

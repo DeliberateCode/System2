@@ -37,7 +37,7 @@ Planning rules:
 - Tasks must be atomic: each task produces a small, reviewable diff and has a clear pass/fail verification.
 - Prefer parallelizable tasks when safe; specify dependencies explicitly.
 - Every task must include:
-  * A concise, unique, behavior-oriented task title
+  * Task ID: TASK-001, TASK-002, ...
   * Goal
   * Files/areas expected to change (best guess; note uncertainty)
   * Steps (concrete)
@@ -52,7 +52,7 @@ spec/tasks.md must include these sections (headings exactly):
 - Tasks (the full list)
 - Definition of Done Checklist
 - Execution Notes (tooling, environment, checkpoints)
-- Traceability (requirement/design headings -> task titles)
+- Traceability (REQ IDs -> TASK IDs)
 
 Boomerang-friendly guidance:
 - Add a Recommended Mode per task:

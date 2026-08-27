@@ -1,7 +1,7 @@
 """Pi lifecycle behavioral tests (code-review #2 + eval gap 1).
 
 The Pi golden harness already covers ``emit``; this module exercises the
-convergence implementation *lifecycle* verbs by actually INVOKING ``doctor`` / ``uninstall`` /
+Phase-5 *lifecycle* verbs by actually INVOKING ``doctor`` / ``uninstall`` /
 ``recompose_from_lock`` against real composed project trees. The real validator
 (the ``node`` + Pi ``discoverAndLoadExtensions`` load probe) is expected to RUN;
 the validator leg is a LOUD SKIP only when the binary is genuinely absent (never

@@ -231,8 +231,8 @@ additive (reached only via `--target pi`).
   drifted / re-vendor required") on any non-sanctioned diff, with a negative
   control proving the guard has teeth.
 - **Eval-breadth tests (`evals/test_breadth.py`).** Asserts argument-ordering
-  determinism (the requirement — composition is independent of `--overlays` order) and
-  anchor-exclusion (the requirement/027 — a contribution to a non-existent
+  determinism (REQ-041 — composition is independent of `--overlays` order) and
+  anchor-exclusion (REQ-025/027 — a contribution to a non-existent
   `(agent, anchor)` is excluded exactly as the oracle excludes it) **directly**,
   not only transitively via the golden byte-diff.
 

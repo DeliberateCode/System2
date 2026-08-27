@@ -161,7 +161,7 @@ def _materialize_profile_home(cell: "matrix.Cell") -> str:
     """Create a hermetic HOME containing ``.system2/profiles.json`` from the store fixture.
 
     The store's ``overlays[].path`` is rewritten to the resolved absolute ``TEST_OVERLAY``
-    so the baseline is root-correct.
+    so the baseline is root-correct (TASK-007 portability note).
     """
     home = tempfile.mkdtemp(prefix="capture-home-")
     os.makedirs(os.path.join(home, ".system2"), exist_ok=True)
@@ -282,7 +282,7 @@ def capture_all(
     """Capture declared matrix cells into ``goldens_dir``.
 
     ``rebaseline`` is accepted for symmetry with the runner; capture always (re)writes the
-    snapshot tree from the oracle, which is the baseline-materialization step (the implementation work).
+    snapshot tree from the oracle, which is the baseline-materialization step (TASK-006).
     ``only`` restricts capture to a single named cell (the rest of the frozen baseline is
     left byte-for-byte untouched); ``assert_complete`` is then skipped so a partial capture
     does not fail on the unbuilt cells.

@@ -32,7 +32,7 @@ don't exist in what ships as 1.2.0.
 - The `profile` skill's description contained invalid YAML (an unquoted `: ` inside
   the frontmatter value), which a strict YAML parser rejects outright — silently
   breaking that skill on any harness that parses frontmatter strictly.
-- `evals/test_composer_core.py`'s `test_backup_and_restore_on_failure` gave a
+- `evals/test_composer_task007.py`'s `test_backup_and_restore_on_failure` gave a
   false pass/fail signal when the test suite is run as root, since root bypasses the
   POSIX permission check the test relies on to force a write failure; it now skips
   under root instead of asserting a premise that doesn't hold there.
@@ -82,7 +82,7 @@ don't exist in what ships as 1.2.0.
 
 ### Changed
 
-- `executor`: added an explicit prohibition against embedding planning-artifact identifiers in production code comments or docstrings. Traceability belongs in specifications and git history, not in code annotations that go stale on first refactor.
+- `executor`: added explicit prohibition against embedding spec artifact IDs (REQ-xxx, TASK-xxx, DES-xxx) in production code comments or docstrings. Traceability belongs in spec/ artifacts and git history, not in code annotations that go stale on first refactor.
 - `code-reviewer`: minimality checklist now flags spec artifact IDs leaking into code comments. Simplification mode's "removable comments" category expanded to include spec ID annotations.
 
 ## [1.0.0] - 2026-06-05
@@ -123,7 +123,7 @@ Anti-additive bias and simplification pass across agents, hooks, and evals to re
 - Module boundary enforcement: `boundary-check.py` PreToolUse hook validates imports against `spec/module-boundaries.json`.
 - Boundary artifact outputs for `design-architect`: emits `spec/interfaces.json` (public exports per module) and `spec/module-boundaries.json` (allowed/forbidden import paths) alongside `spec/design.md`.
 - Anti-slop sequence eval suite (`evals/fixtures/anti-slop-sequence/`): 4-task progressive coding sequence with golden files testing whether the executor avoids unnecessary abstractions across sequential changes.
-- `evaluation` eval validating all allowlist `.regex` files contain compilable patterns.
+- `EVAL-SEC-004` eval validating all allowlist `.regex` files contain compilable patterns.
 - Stale task-lease/budget file cleanup during session bootstrap.
 
 ### Changed
@@ -157,7 +157,7 @@ Add a bounded corrective path for non-local regressions while preserving the exi
 - Maintenance evals for `eval-engineer` — sequential change-sequence authoring with metrics for regression-free completion, diff size growth, interface churn, and corrective cycle count.
 - `spec/regression-ledger.md` as a formal artifact with `allowlists/regression-ledger.regex` and tracked in `agent_allowlist_bindings.json` as an unbound allowlist.
 - `spec/regression-ledger.md` listed in `design-architect` inputs for context when refreshing design after corrective requirements.
-- `evaluation` — validates all allowlist `.regex` files contain compilable regex patterns.
+- `EVAL-SEC-004` — validates all allowlist `.regex` files contain compilable regex patterns.
 - `Maintenance / Regression Loop` added to `template_sections.json` required headings.
 
 ### Changed

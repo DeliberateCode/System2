@@ -1,4 +1,4 @@
-"""the implementation work — Mixed-status Pi degradation tests (the PG6 win, applied to Pi).
+"""TASK-409 — Mixed-status Pi degradation tests (the PG6 win, applied to Pi).
 
 Pure artifact inspection (no node/pi needed). Emits a ``core+overlay`` IR (a
 multi-capability pipeline) into a temp ``project_path`` and asserts the Pi
@@ -179,7 +179,7 @@ class PiDegradationReportTest(unittest.TestCase):
         )
 
     def test_overlay_sources_is_last_additive_key(self):
-        # convergence implementation: emit appends overlay_sources[] as the LAST lock key, recording
+        # Phase 5: emit appends overlay_sources[] as the LAST lock key, recording
         # the producing overlay source set. Stripping it (the only new key) must
         # reproduce the prior degradation-report-only lock bytes byte-for-byte.
         project = tempfile.mkdtemp(prefix="pi-srcs-")

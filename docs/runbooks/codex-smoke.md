@@ -1,8 +1,8 @@
 # Runbook: Codex marketplace-resolution + hook-trust smoke test
 
 **Owner:** James (executed personally with the `codex` CLI).
-**When:** once, before Gate 5 (the implementation work). Resolves ODQ-1 and confirms the advisory-state
-honesty messaging (the requirement) and the F6 canary marker-file protocol on a real Codex install.
+**When:** once, before Gate 5 (TASK-033). Resolves ODQ-1 and confirms the advisory-state
+honesty messaging (REQ-032) and the F6 canary marker-file protocol on a real Codex install.
 **Records to:** `spec/codex-smoke-record.md` (workspace-root cycle home). Paste every command
 and its output there as you go.
 
@@ -120,7 +120,7 @@ The install is advisory-only until you trust the hooks (§5). It is idempotent �
 
 ---
 
-## 4. Unreviewed-hooks advisory check (the requirement — BEFORE trusting anything)
+## 4. Unreviewed-hooks advisory check (REQ-032 — BEFORE trusting anything)
 
 The whole point: right after `init`, the user-scope hooks are installed but untrusted and
 MUST report advisory-only — **nothing may report as enforced.**

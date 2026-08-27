@@ -1,5 +1,5 @@
-"""the implementation work — the regeneration freshness guards have TEETH (the requirement, the requirement,
-the requirement; design §Verification Strategy freshness row; security **F13**).
+"""TASK-022 — the regeneration freshness guards have TEETH (REQ-036, REQ-039,
+REQ-057; design §Verification Strategy freshness row; security **F13**).
 
 ``compiler/tools/regen_all.py`` is the single regeneration entrypoint and freshness
 guard for every committed generated artifact. A guard that can never fail is
@@ -8,7 +8,7 @@ worthless, so this self-test proves both directions for EVERY active builder:
   (a) **Induced divergence.** Regenerate the artifact into a *temp* committed
       location, run ``--check`` -> GREEN; MUTATE a source/emitted input (always in a
       temp copy — never the real repo), run ``--check`` -> RED naming the artifact AND
-      the exact regen command (the the requirement ``stale_message`` string); regenerate ->
+      the exact regen command (the REQ-057 ``stale_message`` string); regenerate ->
       GREEN again.
 
   (b) **Determinism (F13).** Regenerate each artifact TWICE from identical source
@@ -144,11 +144,11 @@ def _build_temp_compiler_root(dest):
 
 
 class RegenGuardContractTest(unittest.TestCase):
-    """The static contract: the the requirement message, the F13 ignore set, and the registry
+    """The static contract: the REQ-057 message, the F13 ignore set, and the registry
     coverage/placeholder tripwires."""
 
     def test_stale_message_names_artifact_and_regen_command(self):
-        """the requirement: the divergence message names the artifact AND the exact command."""
+        """REQ-057: the divergence message names the artifact AND the exact command."""
         for name in ("bundle", "codex", "pi"):
             msg = regen_all.stale_message(name)
             self.assertEqual(
@@ -188,7 +188,7 @@ class RegenGuardContractTest(unittest.TestCase):
         placeholders = [a for a in regen_all.REGISTRY if a.builder is None]
 
         # Tripwire: a newly-activated builder must be acknowledged here. This FAILS the
-        # moment the implementation work/027 set a real builder, forcing a coverage review.
+        # moment TASK-024/027 set a real builder, forcing a coverage review.
         uncovered = active - _COVERED_ACTIVE
         self.assertEqual(
             uncovered, set(),
@@ -239,7 +239,7 @@ class RegenInducedDivergenceTest(unittest.TestCase):
                 os.path.join(tc, "system2_compiler", "**", "*.py"), recursive=True))
             self.assertTrue(members, "temp compiler root has no hashed source members")
             with open(members[0], "ab") as fh:
-                fh.write(b"\n# the implementation work induced divergence\n")
+                fh.write(b"\n# TASK-022 induced divergence\n")
 
             rc, _out, err = self._run_check(art, ctx)
             self.assertEqual(rc, 1, "a mutated hashed source member must go RED")

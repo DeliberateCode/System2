@@ -217,14 +217,7 @@ function quoteMask(command) {
   return mask;
 }
 
-// True only for a shell IO-number (e.g. `2>log`), not a command name ending in a digit (`cmd2>out`).
-function isFdRedirect(command, operatorIndex) {
-  let start = operatorIndex;
-  while (start > 0 && /[0-9]/.test(command[start - 1])) start--;
-  return start < operatorIndex && (start === 0 || /[\s;|&]/.test(command[start - 1]));
-}
-
-// Extract stdout write-redirection / tee targets so the lease can gate shell writes.
+// Extract write-redirection / tee targets so the lease can gate shell writes.
 function shellWriteTargets(command) {
   const targets = [];
   const mask = quoteMask(command);
@@ -232,7 +225,7 @@ function shellWriteTargets(command) {
   let m; let guard = 0;
   while ((m = re.exec(command)) !== null && guard < 256) {
     guard++;
-    if (mask[m.index] || isFdRedirect(command, m.index)) continue;
+    if (mask[m.index]) continue;
     let t = m[1];
     if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) t = t.slice(1, -1);
     if (t.length > 0 && t !== "/dev/null") targets.push(t);

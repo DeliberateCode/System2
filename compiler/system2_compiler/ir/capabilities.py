@@ -1,4 +1,4 @@
-"""Intent-capability vocabulary, role attributes, and blocking semantics (IR/capability implementation).
+"""Intent-capability vocabulary, role attributes, and blocking semantics (Phase 2).
 
 Defines the fixed six-term intent-capability vocabulary and the three role
 attributes, the ``BlockingSemantic`` record (an honest description of what each
@@ -7,8 +7,8 @@ intent capabilities), and unknown-capability validation.
 
 Contains **no** Claude mechanism fields (``tools`` / ``hooks`` / ``permissionMode``):
 the mechanism→capability lowering lives in the backend and its descriptor; the IR
-carries only neutral intent (the requirement/040). The ``BlockingSemantic`` records below
-are derived from the design's mechanism→capability mapping table (the requirement): every
+carries only neutral intent (REQ-028/040). The ``BlockingSemantic`` records below
+are derived from the design's mechanism→capability mapping table (REQ-029): every
 enforced capability appears with its enforcement point and blocking flag, with a
 neutral description that names no Claude hook.
 """
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 
-# The fixed intent-capability vocabulary (the requirement). Exactly these six terms.
+# The fixed intent-capability vocabulary (REQ-028). Exactly these six terms.
 INTENT_CAPABILITIES = (
     "enforce-lease",
     "block-dangerous",
@@ -115,12 +115,12 @@ _BLOCKING_SEMANTICS = (
 
 
 def blocking_semantics() -> List[BlockingSemantic]:
-    """Return the enforced-capability blocking-semantics records (the requirement)."""
+    """Return the enforced-capability blocking-semantics records (REQ-029)."""
     return list(_BLOCKING_SEMANTICS)
 
 
 def validate_declared_capabilities(declared: List[str]) -> List[str]:
-    """Return warnings for any declared capability outside the vocabulary (the requirement).
+    """Return warnings for any declared capability outside the vocabulary (REQ-039).
 
     A declared capability not in ``INTENT_CAPABILITIES`` yields one warning; valid
     capabilities yield none. Deterministic: warnings follow input order.

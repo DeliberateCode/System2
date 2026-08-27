@@ -1,26 +1,26 @@
-"""the implementation work — Pi implementation DoD sign-off (DoD-P): no claude-code regression.
+"""TASK-410 — Phase-4 DoD sign-off (DoD-P): no claude-code regression.
 
 The integrity gate proving the Pi backend + PG6 shared helper landed **additively**:
 they changed no claude-code bytes, confined the ``ir/`` change to ``write_scope``
 population, and ``pi.py`` / ``_degradation.py`` honor the import boundaries (design
-§"Test/validity strategy" leg 5; AC-P1/AC-P7; the requirement/015/040/016/043/047).
+§"Test/validity strategy" leg 5; AC-P1/AC-P7; REQ-014/015/040/016/043/047).
 
 Assertions:
 
-1. **Registry / CLI (the requirement).** ``PiBackend`` is registered in ``cli._BACKENDS``
+1. **Registry / CLI (REQ-049).** ``PiBackend`` is registered in ``cli._BACKENDS``
    under ``"pi"``; claude-code is still registered; ``--target`` accepts
    claude-code / pi and rejects an unknown target.
 
-2. **Claude keystone preserved (the requirement, AC-P1).** The in-process
+2. **Claude keystone preserved (REQ-014, AC-P1).** The in-process
    ``ir.compose -> ClaudeCodeBackend().emit`` path is byte-identical to the frozen
-   initial implementation/1 baseline across the full matrix (reuses ``evals.run_goldens``,
+   Phase-0/1 baseline across the full matrix (reuses ``evals.run_goldens``,
    ``--driver compiler``).
 
 3. **Pi emit perturbs no claude-code artifact (AC-P1).** Emitting Pi into a
    project and then composing+emitting claude-code into a separate project yields
    the same claude-code bytes as without the Pi emit.
 
-4. **Import boundaries (the requirement/040/016/043/047, AC-P7).** ``backends/pi.py`` imports
+4. **Import boundaries (REQ-015/040/016/043/047, AC-P7).** ``backends/pi.py`` imports
    only ``ir.graph`` + ``backends._degradation`` + stdlib (never ``ir.base_template``
    / ``ir.overlay_inputs`` / any manifest/anchor/profile/schema loader);
    ``backends/_degradation.py`` imports only stdlib and **no ``ir/*``**. Both are
@@ -58,7 +58,7 @@ _DEGRADATION_FILE = "system2_compiler/backends/_degradation.py"
 
 _FIRST_PARTY_TOP = frozenset({"system2_compiler"})
 
-# Loaders a backend must never import (the requirement).
+# Loaders a backend must never import (REQ-015).
 _FORBIDDEN_IR_LOADERS = frozenset({
     "system2_compiler.ir.manifest",
     "system2_compiler.ir.profiles",
@@ -166,7 +166,7 @@ def _emit_bytes(project_dir, backend):
 
 
 class BackendRegistryTest(unittest.TestCase):
-    """the requirement — pi registered additively; --target accepts both."""
+    """REQ-049 — pi registered additively; --target accepts both."""
 
     def test_both_backends_registered(self):
         from system2_compiler import cli
@@ -198,14 +198,14 @@ class BackendRegistryTest(unittest.TestCase):
 
 
 class ClaudeKeystoneGoldenGate(unittest.TestCase):
-    """the requirement / AC-P1 — claude-code goldens empty-diff across the matrix."""
+    """REQ-014 / AC-P1 — claude-code goldens empty-diff across the matrix."""
 
     def test_compiler_driver_empty_diff(self):
         failures = run_goldens.run_goldens(driver="compiler")
         self.assertEqual(
             [], failures,
             msg=(
-                "claude-code compose->emit goldens regressed under Pi implementation:\n"
+                "claude-code compose->emit goldens regressed under Phase 4:\n"
                 + "\n".join(failures)
             ),
         )
@@ -214,7 +214,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
         failures = run_goldens.run_goldens(driver="oracle")
         self.assertEqual(
             [], failures,
-            msg="oracle-driver goldens regressed under Pi implementation:\n" + "\n".join(failures),
+            msg="oracle-driver goldens regressed under Phase 4:\n" + "\n".join(failures),
         )
 
 
@@ -225,10 +225,10 @@ class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
         from system2_compiler.backends.claude_code import ClaudeCodeBackend
         from system2_compiler.backends.pi import PiBackend
 
-        baseline_dir = tempfile.mkdtemp(prefix="Pi implementation-claude-")
+        baseline_dir = tempfile.mkdtemp(prefix="phase4-claude-")
         baseline = _emit_bytes(baseline_dir, ClaudeCodeBackend())
 
-        pi_dir = tempfile.mkdtemp(prefix="Pi implementation-pi-")
+        pi_dir = tempfile.mkdtemp(prefix="phase4-pi-")
         _emit_bytes(pi_dir, PiBackend())
 
         # Seed the second claude project with the baseline lock so the matching
@@ -236,7 +236,7 @@ class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
         # run_goldens seeds the prior lock. The claim under test is that Pi emit
         # changes no claude CONTENT; the wall-clock timestamp line is not content,
         # and without this seed the two emits can straddle a one-second boundary.
-        after_dir = tempfile.mkdtemp(prefix="Pi implementation-claude2-")
+        after_dir = tempfile.mkdtemp(prefix="phase4-claude2-")
         _seed_prior_lock(baseline_dir, after_dir)
         after = _emit_bytes(after_dir, ClaudeCodeBackend())
 
@@ -258,7 +258,7 @@ class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
         from system2_compiler.backends.pi import PiBackend
         from system2_compiler import ir
 
-        pi_dir = tempfile.mkdtemp(prefix="Pi implementation-pi-only-")
+        pi_dir = tempfile.mkdtemp(prefix="phase4-pi-only-")
         cell = matrix.get_cell("core+overlay")
         result = ir.compose(oracle.PLUGIN_ROOT, list(cell.overlays), pi_dir)
         self.assertIsNotNone(result.graph)
@@ -280,7 +280,7 @@ class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
 
 
 class PiBoundaryTest(unittest.TestCase):
-    """the requirement/040/016/043/047 / AC-P7 — pi.py + _degradation.py import boundaries."""
+    """REQ-015/040/016/043/047 / AC-P7 — pi.py + _degradation.py import boundaries."""
 
     def test_pi_imports_only_allowed_modules(self):
         imported = _imported_module_paths(_PI_FILE)
@@ -289,7 +289,7 @@ class PiBoundaryTest(unittest.TestCase):
             {"system2_compiler.ir.graph"}, ir_imports,
             msg=(
                 f"{_PI_FILE} may import only ir.graph from ir/, got: "
-                f"{sorted(ir_imports)} (the requirement)"
+                f"{sorted(ir_imports)} (REQ-015)"
             ),
         )
         forbidden = imported & _FORBIDDEN_IR_LOADERS
@@ -351,7 +351,7 @@ class PiBoundaryTest(unittest.TestCase):
             violations = check_no_network_calls(_abspath(rel))
             self.assertEqual(
                 [], violations,
-                msg=f"{rel} contains network call pattern(s): {violations} (the requirement)",
+                msg=f"{rel} contains network call pattern(s): {violations} (REQ-047)",
             )
 
     def test_pi_never_references_quarantined_carriers(self):
@@ -388,7 +388,7 @@ class IrChangeIsWriteScopeOnlyTest(unittest.TestCase):
     def test_roles_carry_non_empty_write_scope(self):
         from system2_compiler import ir
 
-        project = tempfile.mkdtemp(prefix="Pi implementation-scope-")
+        project = tempfile.mkdtemp(prefix="phase4-scope-")
         try:
             cell = matrix.get_cell("core+overlay")
             result = ir.compose(oracle.PLUGIN_ROOT, list(cell.overlays), project)
@@ -417,7 +417,7 @@ class IrChangeIsWriteScopeOnlyTest(unittest.TestCase):
         # golden gate above. Re-assert cheaply that the claude path still composes.
         from system2_compiler.backends.claude_code import ClaudeCodeBackend
 
-        d = tempfile.mkdtemp(prefix="Pi implementation-claude-scope-")
+        d = tempfile.mkdtemp(prefix="phase4-claude-scope-")
         try:
             out = _emit_bytes(d, ClaudeCodeBackend())
             self.assertIn("CLAUDE.md", out)

@@ -1,6 +1,6 @@
-"""the implementation work — drift-guard self-test: the bundle freshness check has TEETH.
+"""TASK-511 — drift-guard self-test: the bundle freshness check has TEETH.
 
-convergence implementation (AC-5.7, G8/NFR-006). ``tools/check_bundle_fresh.py`` is the
+Phase 5 (AC-5.7, G8/NFR-006). ``tools/check_bundle_fresh.py`` is the
 machine-enforced freshness gate: a stale or hand-edited vendored bundle CANNOT
 merge. A guard that never fails is worthless, so this self-test proves both
 directions:
@@ -17,7 +17,7 @@ the minimal layout (``ir/`` + ``backends/`` + ``plugin_adapter.py`` present; the
 multi-target ``evals/`` test tree absent), and exercises the
 ``compute_source_hash`` drift anchor directly.
 
-The doctor ``bundle_tampered`` leg of the self-test is owned by the implementation work (the
+The doctor ``bundle_tampered`` leg of the self-test is owned by TASK-517 (the
 plugin doctor surface); this module covers the guard-fail teeth, which is the half
 that lands with the guard.
 

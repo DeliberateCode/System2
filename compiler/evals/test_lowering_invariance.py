@@ -1,22 +1,22 @@
-"""the implementation work — Lowering-invariance / DoD-2 sign-off gate.
+"""TASK-209 — Lowering-invariance / DoD-2 sign-off gate.
 
-This is the integrity gate for the IR/capability implementation cycle. Driving the in-process
+This is the integrity gate for the Phase 2 cycle. Driving the in-process
 ``ir.compose -> ClaudeCodeBackend().emit`` path across the matrix, it asserts that
 the anchor + capability lift changed NO bytes the compiler emits, save the single
 additive ``degradation_report`` key in the lock:
 
-* the requirement/030 — ``CLAUDE.md``, auxiliary agent files, overlay content, and the
-  stderr warning stream are byte-identical to the frozen the implementation work baseline: the
+* REQ-026/030 — ``CLAUDE.md``, auxiliary agent files, overlay content, and the
+  stderr warning stream are byte-identical to the frozen TASK-006 baseline: the
   compiler driver is GREEN on every non-lock artifact across the matrix.
-* the requirement — the ONLY lock delta vs the baseline is the additive
+* REQ-035 — the ONLY lock delta vs the baseline is the additive
   ``degradation_report``: stripping it yields a lock byte-identical to the baseline
   (additive-only).
-* the requirement / design T3 — the static plugin surface (13-agent inventory, hook
+* REQ-009 / design T3 — the static plugin surface (13-agent inventory, hook
   inventory, ``.regex`` allowlist bindings + delegation map) is unchanged: every
   read-only ``System2/evals/goldens/`` structural golden referenced from
   ``evals/goldens/core/structural_goldens.json`` still matches its pinned sha256,
   and the inventory invariant is present (13 agents, the allowlist binding goldens).
-* the requirement — no enforced capability is dropped from the degradation report
+* REQ-033 — no enforced capability is dropped from the degradation report
   (cross-checked from the produced lock).
 
 It invokes the existing ``evals.run_goldens`` machinery (the compiler driver,
@@ -52,7 +52,7 @@ def _read_bytes(path: str) -> bytes:
 
 
 class CompilerDriverGreenGate(unittest.TestCase):
-    """the requirement/030/035: the compiler driver is empty-diff across the matrix.
+    """REQ-026/030/035: the compiler driver is empty-diff across the matrix.
 
     Runs the existing ``run_goldens`` compiler driver, which per cell drives
     ``ir.compose -> ClaudeCodeBackend().emit`` and byte-diffs every artifact against
@@ -86,12 +86,12 @@ class CompilerDriverGreenGate(unittest.TestCase):
 
 
 class AdditiveLockDeltaGate(unittest.TestCase):
-    """the requirement: the ONLY lock delta vs the baseline is the additive degradation_report.
+    """REQ-035: the ONLY lock delta vs the baseline is the additive degradation_report.
 
     Drives compose->emit on every composed (non-refusal, non-core) cell and, for the
     produced lock, asserts that removing ``degradation_report`` reproduces the frozen
     baseline lock byte-for-byte — and that the report itself is present + complete +
-    every status native (the requirement/034 cross-check).
+    every status native (REQ-033/034 cross-check).
     """
 
     def _composed_cells(self):
@@ -156,7 +156,7 @@ class AdditiveLockDeltaGate(unittest.TestCase):
             self.assertIsInstance(
                 report, dict,
                 f"[{cell.name}] the produced lock must carry an additive "
-                "degradation_report (the requirement)",
+                "degradation_report (REQ-032)",
             )
             stripped = run_goldens._normalize_lock_paths(
                 (json.dumps(produced, indent=2) + "\n").encode("utf-8")
@@ -164,10 +164,10 @@ class AdditiveLockDeltaGate(unittest.TestCase):
             self.assertEqual(
                 baseline, stripped,
                 f"[{cell.name}] after stripping the additive degradation_report the "
-                "lock must be byte-identical to the frozen baseline (the requirement)",
+                "lock must be byte-identical to the frozen baseline (REQ-035)",
             )
 
-            # the requirement/034 cross-check: no enforced capability dropped; all native.
+            # REQ-033/034 cross-check: no enforced capability dropped; all native.
             caps = report.get("capabilities", {})
             self.assertTrue(
                 caps, f"[{cell.name}] degradation_report.capabilities must be non-empty"
@@ -183,7 +183,7 @@ class AdditiveLockDeltaGate(unittest.TestCase):
         )
 
     def test_no_enforced_capability_dropped_from_report(self):
-        # the requirement cross-check against the IR's capability union per cell.
+        # REQ-033 cross-check against the IR's capability union per cell.
         for cell in self._composed_cells():
             cell_dir = cell.snapshot_dir(_GOLDENS_DIR)
             if not os.path.isfile(
@@ -230,13 +230,13 @@ class AdditiveLockDeltaGate(unittest.TestCase):
             self.assertEqual(
                 report_caps, ir_caps,
                 f"[{cell.name}] every IR capability must appear in the report; no "
-                f"enforced capability may be dropped (the requirement). "
+                f"enforced capability may be dropped (REQ-033). "
                 f"missing={ir_caps - report_caps}",
             )
 
 
 class StaticSurfaceInventoryInvariantGate(unittest.TestCase):
-    """the requirement / design T3: the static plugin surface is unchanged byte-for-byte.
+    """REQ-009 / design T3: the static plugin surface is unchanged byte-for-byte.
 
     Reads the read-only ``System2/evals/goldens/`` structural goldens referenced from
     ``evals/goldens/core/structural_goldens.json`` and asserts each still matches its
@@ -271,7 +271,7 @@ class StaticSurfaceInventoryInvariantGate(unittest.TestCase):
             self.assertEqual(
                 actual, entry["sha256"],
                 f"static plugin surface drift: {rel} sha256 changed "
-                "(the requirement inventory invariant violated)",
+                "(REQ-009 inventory invariant violated)",
             )
 
     def test_inventory_invariant_goldens_are_referenced(self):
@@ -287,7 +287,7 @@ class StaticSurfaceInventoryInvariantGate(unittest.TestCase):
         ):
             self.assertIn(
                 required, referenced,
-                f"the static-surface invariant must lock {required} (the requirement/T3)",
+                f"the static-surface invariant must lock {required} (REQ-009/T3)",
             )
 
     def test_thirteen_agent_inventory_unchanged(self):
@@ -324,7 +324,7 @@ class StaticSurfaceInventoryInvariantGate(unittest.TestCase):
         )
         self.assertEqual(
             current, expected,
-            "base CLAUDE.md template drift (the requirement/030): the byte-source for the "
+            "base CLAUDE.md template drift (REQ-026/030): the byte-source for the "
             "composed output changed",
         )
 

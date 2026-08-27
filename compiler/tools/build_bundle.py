@@ -1,6 +1,6 @@
 """Deterministic bundler: emit the vendored, stdlib-only ``_system2_compiler/`` subtree.
 
-convergence implementation (AC-5.5, OQ-5.4). The plugin ships a verbatim copy of the compiler's
+Phase 5 (AC-5.5, OQ-5.4). The plugin ships a verbatim copy of the compiler's
 product modules so its runtime stays ZERO-DEPENDENCY (G7/C3). This tool generates
 that copy from the ``compiler/`` source:
 
@@ -19,7 +19,7 @@ dispatch (so the adapter and ``cli.py`` cannot drift). ``cli.py`` therefore ship
 as the adapter's private implementation dependency — not as an exposed entry; the
 multi-target ``cli.main`` is never reachable from the plugin because the adapter
 pins the target. Both are stdlib-only, so the bundle is stdlib-only by
-construction (a pure copy of the stdlib-only compiler — the requirement/043).
+construction (a pure copy of the stdlib-only compiler — REQ-016/043).
 
 The bundle is a PURE COPY (no import rewriting): the package structure is
 preserved so imports resolve as-is and the module-boundary / stdlib-only

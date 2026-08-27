@@ -1,7 +1,7 @@
-"""the implementation work — Pi artifact goldens + the load-validity leg.
+"""TASK-407 — Pi artifact goldens + the load-validity leg.
 
 Drives the in-process ``ir.compose -> PiBackend.emit`` path for the Pi matrix cells
-and asserts (design §"Pi implementation — Pi Backend", §"Test/validity strategy" legs 1 + 3;
+and asserts (design §"Phase 4 — Pi Backend", §"Test/validity strategy" legs 1 + 3;
 AC-P2/AC-P6/AC-P7):
 
 * **Artifact set** — the full deterministic Pi tree is emitted under ``project_path``
@@ -150,7 +150,7 @@ def committed_pi_dist():
     """Return the committed ``distributions/pi`` package dir (the SHIPPED bytes), or None.
 
     ``SYSTEM2_PI_DIST`` overrides the location. Present iff the package's gate extension
-    exists on disk — i.e. the implementation work has committed the npm package.
+    exists on disk — i.e. TASK-026 has committed the npm package.
     """
     cand = os.environ.get("SYSTEM2_PI_DIST") or os.path.join(
         _REPO_ROOT, "distributions", "pi"
@@ -306,7 +306,7 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         )
 
     def test_total_emitted_file_count(self):
-        # Recomputed from actual emission (the consolidation requirement) — never asserted from
+        # Recomputed from actual emission (CC-REQ-087) — never asserted from
         # arithmetic. The RATIFIED base-skill fix (K1a) changes zero file COUNTS,
         # only the bytes of the three existing skill files, so the count observed
         # here still equals the pre-K1 21 + the 3 new skills.

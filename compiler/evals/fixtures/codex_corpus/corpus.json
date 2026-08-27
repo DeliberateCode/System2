@@ -1,6 +1,6 @@
 {
   "_README": [
-    "the implementation work (F8) Codex end-to-end bypass corpus. Each case is a REALISTIC Codex",
+    "TASK-019 (F8) Codex end-to-end bypass corpus. Each case is a REALISTIC Codex",
     "PreToolUse event fired at the ACTUAL generated Node hook via `node <hook>.js`",
     "with the event as JSON on stdin; the decision is read at the stdout/exit-code",
     "boundary. `hook` picks the generated script (shell -> system2-shell-guard.js,",
@@ -44,7 +44,9 @@
     {"name": "shell_bare_relative_dotenv_advisory", "hook": "shell", "event": {"tool_input": {"command": "cat .env"}}, "expect": "allow", "reason_contains": "", "pi_parity": [], "category": "shell_sensitive_boundary"},
     {"name": "shell_write_redirect_offscope", "hook": "shell", "event": {"tool_input": {"command": "echo x > /etc/hosts"}}, "expect": "block", "reason_contains": "enforce-lease", "pi_parity": [], "category": "shell_lease"},
     {"name": "stderr_redirect_devnull", "hook": "shell", "event": {"tool_input": {"command": "ls 2>/dev/null"}}, "expect": "allow", "reason_contains": "", "pi_parity": [], "category": "redirect_allow"},
-    {"name": "stderr_redirect_file", "hook": "shell", "event": {"tool_input": {"command": "ls 2>/tmp/stderr.log"}}, "expect": "allow", "reason_contains": "", "pi_parity": [], "category": "redirect_allow"},
+    {"name": "stderr_redirect_file", "hook": "shell", "event": {"tool_input": {"command": "ls 2>/tmp/stderr.log"}}, "expect": "block", "reason_contains": "enforce-lease", "pi_parity": [], "category": "redirect_lease"},
+    {"name": "explicit_stdout_redirect", "hook": "shell", "event": {"tool_input": {"command": "echo owned 1>/etc/system2-review"}}, "expect": "block", "reason_contains": "enforce-lease", "pi_parity": [], "category": "redirect_lease"},
+    {"name": "custom_fd_redirect", "hook": "shell", "event": {"tool_input": {"command": "command 3>/outside"}}, "expect": "block", "reason_contains": "enforce-lease", "pi_parity": [], "category": "redirect_lease"},
     {"name": "quoted_redirect_character", "hook": "shell", "event": {"tool_input": {"command": "git commit -m \"fix: handle a > b case\""}}, "expect": "allow", "reason_contains": "", "pi_parity": [], "category": "redirect_allow"},
     {"name": "digit_suffix_stdout_redirect", "hook": "shell", "event": {"tool_input": {"command": "command2 > /tmp/out"}}, "expect": "block", "reason_contains": "enforce-lease", "pi_parity": [], "category": "redirect_lease"},
 

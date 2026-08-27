@@ -1,4 +1,4 @@
-"""the implementation work — Pi package supply-chain policy (F12) + init-materializer semantics (F5).
+"""TASK-025 — Pi package supply-chain policy (F12) + init-materializer semantics (F5).
 
 Two machine-enforced postures over the ``@deliberatecode/pi-system2`` package that
 ``build_pi_package.py`` produces (built fresh into a temp dir here exactly the way

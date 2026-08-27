@@ -1,11 +1,11 @@
-"""the implementation work — Mechanism->capability mapping completeness test (the requirement).
+"""TASK-206 — Mechanism->capability mapping completeness test (REQ-029).
 
 Encodes the design's mechanism->capability table (spec/design.md, "Mechanism ->
-capability mapping table (the requirement)") as an explicit fixture and asserts the IR's
+capability mapping table (REQ-029)") as an explicit fixture and asserts the IR's
 capability model faithfully covers the enforced Claude surface:
 
 * Every enforced Claude mechanism maps to **exactly one** intent capability
-  (the requirement): no mechanism is unmapped, no mechanism maps to two capabilities.
+  (REQ-029): no mechanism is unmapped, no mechanism maps to two capabilities.
 * The **union** of mapped capabilities exactly covers the enforced intent surface
   (the six-term ``INTENT_CAPABILITIES`` vocabulary) — no enforced mechanism is left
   unrepresented and no capability is invented.
@@ -35,8 +35,8 @@ from system2_compiler.ir.capabilities import (
 
 
 # ---------------------------------------------------------------------------
-# The design's mechanism -> capability table, encoded verbatim (the requirement).
-# Source: spec/design.md, "Mechanism -> capability mapping table (the requirement)".
+# The design's mechanism -> capability table, encoded verbatim (REQ-029).
+# Source: spec/design.md, "Mechanism -> capability mapping table (REQ-029)".
 # Each enforced Claude mechanism maps to exactly one intent capability. Where a
 # mechanism participates in two intent "arms" (validate-file-paths.py: per-task
 # lease + per-agent path scope; sensitive-file/boundary-check: sensitive + boundary
@@ -74,7 +74,7 @@ _VALID_ENFORCEMENT_POINTS = frozenset({
 
 
 class MechanismMappingTest(unittest.TestCase):
-    """the requirement: each enforced mechanism maps to exactly one intent capability."""
+    """REQ-029: each enforced mechanism maps to exactly one intent capability."""
 
     def test_every_mechanism_maps_to_exactly_one_capability(self):
         # Each value is a single capability string (not a list/tuple) -> exactly one.
@@ -117,7 +117,7 @@ class MechanismMappingTest(unittest.TestCase):
             self.assertNotIn(
                 mechanism, _MECHANISM_TO_CAPABILITY,
                 f"{mechanism!r} is a notification side-effect; it must not be mapped "
-                "to a safety capability (the requirement note (3))",
+                "to a safety capability (REQ-029 note (3))",
             )
         self.assertIn(
             "tts-notify.py", _NON_CAPABILITY_MECHANISMS,
@@ -127,7 +127,7 @@ class MechanismMappingTest(unittest.TestCase):
 
 
 class BlockingSemanticsTest(unittest.TestCase):
-    """the requirement: every BlockingSemantic has a valid enforcement_point + blocking."""
+    """REQ-029: every BlockingSemantic has a valid enforcement_point + blocking."""
 
     def setUp(self):
         self.records = blocking_semantics()

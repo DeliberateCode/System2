@@ -109,4 +109,5 @@ This channel is independently reversible; nothing here couples to another channe
 The plugin is additive — uninstall it from the harness, or remove the marketplace, to back
 out. No project files are modified by installing it. The globally-installed hooks are removed
 with `system2 codex uninstall`, which restores any backup and removes only the System2
-artifacts.
+artifacts. If `~/.codex/hooks.json` changed after installation, uninstall refuses and leaves
+the referenced scripts and install state intact rather than creating dangling global hooks.

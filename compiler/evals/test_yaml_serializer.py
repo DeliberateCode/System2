@@ -1,4 +1,4 @@
-"""the implementation work — ``backends/_yaml`` serializer unit goldens (quoting / multiline / determinism).
+"""TASK-311 — ``backends/_yaml`` serializer unit goldens (quoting / multiline / determinism).
 
 Pins the deterministic, stdlib-only block-YAML serializer's contract in isolation
 (AC-G1/AC-G5; design §"Stdlib-only YAML emission"):

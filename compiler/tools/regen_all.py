@@ -1,5 +1,5 @@
 """``regen_all.py`` — the single regeneration entrypoint + freshness guard for every
-committed generated artifact (the requirement; design §Public Interfaces 2, §Data Flow).
+committed generated artifact (REQ-037; design §Public Interfaces 2, §Data Flow).
 
     python3 compiler/tools/regen_all.py [--check] [--only bundle|codex|pi]
 
@@ -7,9 +7,9 @@ committed generated artifact (the requirement; design §Public Interfaces 2, §D
   ``bundle -> codex -> pi`` into its committed location (each writes its
   lock + provenance).
 * **--check** — regenerate each artifact into a temp dir and byte-diff it against the
-  committed tree; exit 1 on the FIRST divergence with the the requirement message
+  committed tree; exit 1 on the FIRST divergence with the REQ-057 message
   ``"<artifact> is stale: regenerate via python3 compiler/tools/regen_all.py"``. An
-  artifact with no committed tree yet (``codex`` until the implementation work) is skipped with a
+  artifact with no committed tree yet (``codex`` until TASK-023) is skipped with a
   note. Exit 0 when every checked artifact matches.
 * **--only <artifact>** — operate on just that artifact.
 
@@ -20,16 +20,16 @@ source. Freshness is checked per artifact:
   (``compiler_source_sha256`` match, the bundle's DESIGNED drift anchor). We do NOT
   byte-diff ``BUNDLE.json``, because its ``generated_from`` (a git-rev stamp) and
   ``bundled_at`` legitimately vary; reusing the oracle also means bundle ``--check``
-  and ``check_bundle_fresh.py`` can never disagree (the requirement).
+  and ``check_bundle_fresh.py`` can never disagree (REQ-038).
 * **distributions (codex/pi)** — regenerated into a temp dir and byte-diffed
   vs the committed tree. The ONLY fields allowed to differ are the breadcrumb
   provenance fields in ``IGNORED_PROVENANCE_FIELDS`` (``generated_at`` and the
   one-commit-lagging ``generated_from``), which live ONLY in ``PROVENANCE.json`` and
   are compared field-wise. Keep that ignore set MINIMAL and EXPLICIT: a broadened
-  ignore set is itself a defect (the implementation work asserts the set is exactly this list).
+  ignore set is itself a defect (TASK-022 asserts the set is exactly this list).
 
 This module WRAPS ``build_bundle.py`` / ``check_bundle_fresh.py`` (it does not
-reimplement or weaken either — the requirement). Stdlib-only.
+reimplement or weaken either — REQ-038). Stdlib-only.
 
 Builder registry
 ----------------
@@ -38,7 +38,7 @@ active now. A future artifact can be registered as a PLACEHOLDER slot
 (``builder=None``, which errors clearly on an explicit ``--only`` and is skipped
 with a note otherwise) until its builder lands: a follow-up task then defines its
 ``_build_<name>(dest_abs, ctx)`` function and sets that entry's ``builder=`` to it
-(the implementation work activated pi this way, via ``build_pi_package.py``). A newly activated
+(TASK-024 activated pi this way, via ``build_pi_package.py``). A newly activated
 builder is automatically covered by ``regen_all --check`` and by
 ``test_regen_guards.py`` (it iterates ``REGISTRY``).
 """
@@ -80,7 +80,7 @@ __all__ = [
     "main",
 ]
 
-# The command the the requirement stale message names — the single documented way to refresh.
+# The command the REQ-057 stale message names — the single documented way to refresh.
 _REGEN_COMMAND = "python3 compiler/tools/regen_all.py"
 
 # Identifies this generator in every distribution's PROVENANCE.json.
@@ -273,7 +273,7 @@ REGISTRY: List[_Artifact] = [
 
 
 def stale_message(artifact: str) -> str:
-    """The the requirement divergence message: names the artifact AND the exact regen command."""
+    """The REQ-057 divergence message: names the artifact AND the exact regen command."""
     return f"{artifact} is stale: regenerate via {_REGEN_COMMAND}"
 
 
@@ -416,8 +416,8 @@ def _bundle_is_fresh(ctx: _Context, committed_root: str) -> bool:
     (its DESIGNED drift anchor). Reusing it — rather than re-deriving freshness as a
     BUNDLE.json byte-diff — removes the ``generated_from``/``bundled_at`` one-commit
     lag entirely and guarantees bundle ``--check`` never disagrees with
-    ``check_bundle_fresh.py`` (the requirement). Its diagnostics are captured so ``--check``
-    speaks with a single the requirement voice.
+    ``check_bundle_fresh.py`` (REQ-038). Its diagnostics are captured so ``--check``
+    speaks with a single REQ-057 voice.
     """
     sink = io.StringIO()
     with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):

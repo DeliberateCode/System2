@@ -1,4 +1,4 @@
-"""the implementation work — first backend implementation DoD sign-off: no claude-code regression.
+"""TASK-318 — Phase-3 DoD sign-off: no claude-code regression.
 
 The integrity gate proving claude-code stays the untouched reference target as
 other backends land. It re-asserts the claude-code keystone golden gate, a
@@ -7,16 +7,16 @@ import boundary.
 
 Assertions:
 
-1. **Registry / CLI (the requirement).** ``ClaudeCodeBackend`` is registered in
+1. **Registry / CLI (REQ-049).** ``ClaudeCodeBackend`` is registered in
    ``cli._BACKENDS`` under ``"claude-code"``, and ``--target`` accepts it (and
    rejects an unknown target).
 
-2. **Claude keystone preserved (the requirement).** The in-process
+2. **Claude keystone preserved (REQ-014).** The in-process
    ``ir.compose -> ClaudeCodeBackend().emit`` path is byte-identical to the frozen
-   initial implementation/1 baseline across the full matrix (reuses ``evals.run_goldens`` machinery,
-   ``--driver compiler`` — the DoD-1 gate, re-asserted under first backend implementation).
+   Phase-0/1 baseline across the full matrix (reuses ``evals.run_goldens`` machinery,
+   ``--driver compiler`` — the DoD-1 gate, re-asserted under Phase 3).
 
-3. **``backends/_yaml.py`` import boundary (the requirement/040/016/043/047).**
+3. **``backends/_yaml.py`` import boundary (REQ-015/040/016/043/047).**
    ``backends/_yaml.py`` imports only stdlib; it does not reference
    ``ir.base_template`` / ``ir.overlay_inputs`` (the Claude-targeted byte-fidelity
    carriers); it is stdlib-only with no network calls. This module has no runtime
@@ -105,7 +105,7 @@ def _external_imports(rel: str):
 
 
 class BackendRegistryTest(unittest.TestCase):
-    """the requirement — claude-code registered; --target accepts it and rejects unknown."""
+    """REQ-049 — claude-code registered; --target accepts it and rejects unknown."""
 
     def test_claude_code_backend_registered(self):
         from system2_compiler import cli
@@ -135,14 +135,14 @@ class BackendRegistryTest(unittest.TestCase):
 
 
 class ClaudeKeystoneGoldenGate(unittest.TestCase):
-    """the requirement — claude-code goldens empty-diff across the matrix (DoD-3 sign-off)."""
+    """REQ-014 — claude-code goldens empty-diff across the matrix (DoD-3 sign-off)."""
 
     def test_compiler_driver_empty_diff(self):
         failures = run_goldens.run_goldens(driver="compiler")
         self.assertEqual(
             [], failures,
             msg=(
-                "claude-code compose->emit goldens regressed under first backend implementation:\n"
+                "claude-code compose->emit goldens regressed under Phase 3:\n"
                 + "\n".join(failures)
             ),
         )
@@ -152,12 +152,12 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
         failures = run_goldens.run_goldens(driver="oracle")
         self.assertEqual(
             [], failures,
-            msg="oracle-driver goldens regressed under first backend implementation:\n" + "\n".join(failures),
+            msg="oracle-driver goldens regressed under Phase 3:\n" + "\n".join(failures),
         )
 
 
 class YamlModuleBoundaryTest(unittest.TestCase):
-    """the requirement/040/016/043/047 — the retained ``backends/_yaml.py``'s import boundary."""
+    """REQ-015/040/016/043/047 — the retained ``backends/_yaml.py``'s import boundary."""
 
     def test_yaml_is_stdlib_only(self):
         offenders = _external_imports(_YAML_FILE)
@@ -181,7 +181,7 @@ class YamlModuleBoundaryTest(unittest.TestCase):
             violations = check_no_network_calls(_abspath(rel))
             self.assertEqual(
                 [], violations,
-                msg=f"{rel} contains network call pattern(s): {violations} (the requirement)",
+                msg=f"{rel} contains network call pattern(s): {violations} (REQ-047)",
             )
 
 

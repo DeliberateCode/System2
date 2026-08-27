@@ -216,14 +216,14 @@ class CodexInitUninstall(unittest.TestCase):
             self.assertFalse(os.path.isfile(hooks_json))
             self.assertIsNone(result["restored_backup"])
 
-    def test_uninstall_preserves_hooks_json_modified_since_install(self):
-        """Codex second-opinion review, round 4: uninstall never discards custom
-        entries added alongside System2's hooks after installation."""
+    def test_uninstall_refuses_hooks_json_modified_since_install(self):
+        """A customized global config must not retain references to deleted hooks."""
         with tempfile.TemporaryDirectory() as home:
             installed = codex_init.codex_init(
                 codex_home=home, reference_dir=_REFERENCE,
             )
             hooks_json = installed["hooks_json"]
+            state_path = os.path.join(home, "system2", "system2-install.json")
             with open(hooks_json, encoding="utf-8") as fh:
                 config = json.load(fh)
             config["hooks"]["MyCustomEvent"] = [{"command": "echo custom"}]
@@ -234,9 +234,11 @@ class CodexInitUninstall(unittest.TestCase):
                 customized = fh.read()
 
             result = codex_init.codex_uninstall(codex_home=home)
-            self.assertEqual(result["status"], "uninstalled")
+            self.assertEqual(result["status"], "refused")
+            self.assertEqual(result["removed"], [])
             self.assertIs(result["hooks_json_removed"], False)
-            self.assertTrue(os.path.isfile(hooks_json))
+            self.assertTrue(os.path.isfile(state_path))
+            self.assertTrue(all(os.path.isfile(path) for path in installed["hook_files"]))
             with open(hooks_json, "rb") as fh:
                 self.assertEqual(fh.read(), customized)
 

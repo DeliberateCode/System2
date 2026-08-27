@@ -52,11 +52,11 @@ spec/evals.md must include:
 - Metrics (task success, correctness, groundedness, harmfulness, latency/cost budgets)
 - Golden Dataset strategy (case authoring, review, versioning)
 - Regression policy (when evals run, thresholds, triage workflow)
-- Traceability (requirement headings -> evaluation cases)
+- Traceability (REQ IDs -> eval cases)
 
 Implementation guidance:
 - Prefer lightweight, repo-native tooling with a thin eval wrapper.
-- Store test cases in evals/goldens/ with clear, behavior-oriented names and expected outputs.
+- Store test cases in evals/goldens/ with clear IDs and expected outputs.
 - For tool calls, record structured traces and validate schemas.
 - Avoid brittle exact string match unless output is deterministic; use structured checks.
 

@@ -1,9 +1,9 @@
-"""the implementation work — convergence implementation DoD sign-off (DoD-5): no-regression + drift-guard teeth.
+"""TASK-517 — Phase-5 DoD sign-off (DoD-5): no-regression + drift-guard teeth.
 
-The integrity gate proving convergence implementation (Convergence & Lifecycle Parity) landed without
+The integrity gate proving Phase 5 (Convergence & Lifecycle Parity) landed without
 regression and that the drift guard has teeth on BOTH halves (CI staleness +
 plugin-side tamper). It is an AGGREGATION gate: it re-runs the authoritative
-convergence implementation gates in-process and adds the plugin-side bundle-integrity assertions that
+Phase-5 gates in-process and adds the plugin-side bundle-integrity assertions that
 ship with the vendored bundle.
 
 Assertions:
@@ -13,7 +13,7 @@ Assertions:
    protocol with REAL ``emit`` + ``uninstall`` + ``doctor`` + ``recompose_from_lock``
    + lock helpers (no ``NotImplementedError`` stubs).
 
-2. **Claude keystone byte-identical (AC-5.2/the requirement).** The compose->emit goldens
+2. **Claude keystone byte-identical (AC-5.2/REQ-014).** The compose->emit goldens
    are empty-diff under BOTH the in-process compiler driver and the frozen-oracle
    subprocess driver.
 
@@ -138,7 +138,7 @@ class GrownContractTest(unittest.TestCase):
                     _is_real_impl(fn),
                     msg=(
                         f"{b.name}.{m} is still a NotImplementedError stub; "
-                        "convergence implementation lifecycle parity requires a real implementation"
+                        "Phase-5 lifecycle parity requires a real implementation"
                     ),
                 )
 
@@ -157,7 +157,7 @@ class GrownContractTest(unittest.TestCase):
 
 
 class ClaudeKeystoneGoldenGate(unittest.TestCase):
-    """AC-5.2 / the requirement — compose->emit goldens empty-diff, both drivers."""
+    """AC-5.2 / REQ-014 — compose->emit goldens empty-diff, both drivers."""
 
     def test_compiler_driver_empty_diff(self):
         failures = run_goldens.run_goldens(driver="compiler")

@@ -1,10 +1,10 @@
 """The lowering + lifecycle contract.
 
-original implementation declared a single ``emit`` seam. convergence implementation grows the contract into a
+Phase 1 declared a single ``emit`` seam. Phase 5 grows the contract into a
 per-target *lifecycle* (``emit`` + ``uninstall`` + ``doctor`` +
 ``recompose_from_lock`` + lock helpers) so Pi and Codex reach feature-completeness
 alongside Claude — each backend owns its own artifact lifecycle, exactly the seam
-original implementation cut for ``emit`` (the requirement/015; design "## convergence implementation").
+Phase 1 cut for ``emit`` (REQ-013/015; design "## Phase 5").
 
 A backend receives only the harness-neutral ``System2Graph`` IR plus the target
 project path (and, for the lifecycle verbs, its OWN target lock + artifacts under
@@ -115,7 +115,7 @@ class Backend(Protocol):
     """Lower a ``System2Graph`` onto a concrete target and own its lifecycle.
 
     ``name`` identifies the backend in the CLI registry. ``emit`` performs the
-    projection (original implementation, unchanged). The convergence implementation lifecycle methods read the target's
+    projection (Phase 1, unchanged). The Phase 5 lifecycle methods read the target's
     OWN lock + artifacts under ``project_path`` (never manifests/anchor-map/profiles/
     schema directly): ``uninstall`` removes one overlay (recompose-remaining or
     revert-to-base on the last, atomic restore); ``doctor`` reports drift/status;

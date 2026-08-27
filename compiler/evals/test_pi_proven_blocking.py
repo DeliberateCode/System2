@@ -1,4 +1,4 @@
-"""the implementation work — PROVEN-BLOCKING node harness (synthetic ``tool_call``; no LLM).
+"""TASK-408 — PROVEN-BLOCKING node harness (synthetic ``tool_call``; no LLM).
 
 The strongest native-fidelity evidence for Pi. A node harness (generated into a
 tempdir) loads the SHIPPED ``system2.ts`` gate — path-parameterized like the codex

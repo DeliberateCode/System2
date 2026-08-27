@@ -1,7 +1,7 @@
 """Locate, hash-pin, and invoke the frozen System2 oracle (``composer.py.preflip``).
 
 The pre-flip ``composer.py.preflip`` is the IMMUTABLE read-only oracle the golden
-suite freezes against (convergence implementation): it is the byte-for-byte snapshot of the plugin's
+suite freezes against (Phase 5): it is the byte-for-byte snapshot of the plugin's
 pre-flip ``composer.py`` engine, retained as the post-flip equivalence target and
 the one-commit backout source. After the flip the live ``composer.py`` is a thin
 shim delegating to the vendored bundle; the oracle deliberately resolves the frozen
@@ -115,7 +115,7 @@ def verify_pin(lock_path: str = LOCK_PATH) -> dict:
     """Recompute hashes and compare to the pinned lock.
 
     Raises ``RuntimeError(DRIFT_MESSAGE)`` on any mismatch. Never regenerates the
-    lock automatically (the requirement).
+    lock automatically (REQ-007).
     """
     pinned = load_lock(lock_path)
     current = compute_lock()

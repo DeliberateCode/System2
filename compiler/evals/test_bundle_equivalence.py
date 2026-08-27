@@ -1,4 +1,4 @@
-"""BUNDLE-EQUIVALENCE GATE (convergence implementation keystone, HARD).
+"""BUNDLE-EQUIVALENCE GATE (Phase 5 keystone, HARD).
 
 Prove the flipped plugin's shim ``composer.py`` running the VENDORED BUNDLE
 (``SYSTEM2_USE_BUNDLE=1``) produces stdout, stderr, and exit code byte-identical to
@@ -16,7 +16,7 @@ Both engines are run as subprocesses under a hermetic temp HOME (the real
 ``~/.system2`` is never touched). Setup state is established with the frozen
 preflip engine on each engine's own temp project independently, so the measured
 invocation observes identical inputs. A non-empty diff FAILS the gate — there is no
-auto-rebaseline (the requirement). A self-teeth test asserts a one-byte divergence is caught.
+auto-rebaseline (REQ-007). A self-teeth test asserts a one-byte divergence is caught.
 """
 
 import os
@@ -30,7 +30,7 @@ from evals import oracle
 from evals import test_cli_contract as clic
 
 # The flipped plugin shim and the immutable preflip engine live side-by-side in the
-# plugin scripts dir. ``oracle.COMPOSER_PATH`` is re-pointed (the implementation work) at the
+# plugin scripts dir. ``oracle.COMPOSER_PATH`` is re-pointed (TASK-512) at the
 # preflip baseline; the shim is its ``composer.py`` sibling.
 PREFLIP_PATH = oracle.COMPOSER_PATH
 SCRIPTS_DIR = os.path.dirname(PREFLIP_PATH)

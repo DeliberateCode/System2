@@ -1,6 +1,6 @@
 """Plugin-side bundle TAMPER check (ships WITH the vendored bundle).
 
-convergence implementation drift guard, the plugin half (AC-5.7, G8/NFR-006). The plugin runs the
+Phase 5 drift guard, the plugin half (AC-5.7, G8/NFR-006). The plugin runs the
 vendored ``_system2_compiler/`` bundle and CANNOT see the compiler source, so it
 can only perform the INTERNAL-INTEGRITY (tamper) check:
 

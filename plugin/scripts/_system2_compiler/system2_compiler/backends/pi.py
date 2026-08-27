@@ -137,7 +137,7 @@ def _ts_escape(value: str) -> str:
 
     Every IR-derived string interpolated into the generated ``.ts`` (role names,
     write-scope regexes, reasons, the SYSTEM prompt) passes through here so no raw
-    overlay/IR text is spliced into executable TS (the requirement injection posture).
+    overlay/IR text is spliced into executable TS (REQ-042 injection posture).
     Uses ``json.dumps`` (a superset-safe JS string literal) so quotes, backslashes,
     newlines, and control characters are all escaped canonically.
     """
@@ -519,7 +519,7 @@ _SKILL_DESCRIPTIONS = {
     ),
 }
 
-# K2 rule 4 (the consolidation requirement): each new utility skill's external-CLI prerequisite.
+# K2 rule 4 (CC-REQ-090): each new utility skill's external-CLI prerequisite.
 _UTILITY_SKILL_PREREQUISITES = {
     "codex": "the OpenAI Codex CLI (`codex`) on PATH",
     "gemini": "Google's Antigravity CLI (`agy`) on PATH",
@@ -1510,7 +1510,7 @@ class PiBackend:
         return _write_outputs(project_path, planned)
 
     # -----------------------------------------------------------------------
-    # convergence implementation lifecycle: lock helpers
+    # Phase 5 lifecycle: lock helpers
     # -----------------------------------------------------------------------
 
     def lock_path(self, project_path: str) -> str:
@@ -1531,7 +1531,7 @@ class PiBackend:
         return [s for s in lock_data.get("overlay_sources", []) if s]
 
     # -----------------------------------------------------------------------
-    # convergence implementation lifecycle: recompose from lock
+    # Phase 5 lifecycle: recompose from lock
     # -----------------------------------------------------------------------
 
     def recompose_from_lock(
@@ -1549,7 +1549,7 @@ class PiBackend:
         )
 
     # -----------------------------------------------------------------------
-    # convergence implementation lifecycle: uninstall
+    # Phase 5 lifecycle: uninstall
     # -----------------------------------------------------------------------
 
     def uninstall(
@@ -1567,7 +1567,7 @@ class PiBackend:
         ``emit`` (re-recording the trimmed set); on 0 remaining -> remove the
         generated Pi tree (the extension, ``SYSTEM.md``, ``AGENTS.md``, the
         orchestrator + 13 role prompts, the three skills, the lock) and clean empty
-        ``.pi/`` dirs, all under the atomic backup/restore (the requirement). Writes only
+        ``.pi/`` dirs, all under the atomic backup/restore (REQ-044). Writes only
         under ``project_path`` — never the operator's real ``~/.pi``.
         ``allow_newer_schema`` is threaded into the remaining-set recompose (matching
         the oracle's uninstall -> compose forwarding), so a remaining overlay
@@ -1668,7 +1668,7 @@ class PiBackend:
 
         Removes the extension, context, prompts, skills, and lock; cleans the
         now-empty ``.pi/`` subdirectories. Backs up every removed file and restores
-        on any failure (the requirement). Writes/removes only under ``project_path``.
+        on any failure (REQ-044). Writes/removes only under ``project_path``.
         """
         artifacts = self._existing_artifacts(project_path)
 
@@ -1760,7 +1760,7 @@ class PiBackend:
             pass
 
     # -----------------------------------------------------------------------
-    # convergence implementation lifecycle: doctor
+    # Phase 5 lifecycle: doctor
     # -----------------------------------------------------------------------
 
     def doctor(self, project_path: str) -> DoctorReport:

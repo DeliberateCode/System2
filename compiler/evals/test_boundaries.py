@@ -1,4 +1,4 @@
-"""the implementation work — Static import-boundary regression tests (stdlib ``unittest``).
+"""TASK-111 — Static import-boundary regression tests (stdlib ``unittest``).
 
 Enforces the import boundaries declared in ``spec/module-boundaries.json`` by an
 AST scan of the product source files (no product code is imported for its side
@@ -6,18 +6,18 @@ effects; the modules are read as text and parsed):
 
 * ``backends/claude_code.py`` and ``backends/base.py`` import none of the
   forbidden ``ir/*`` loaders — only ``ir.graph`` (+ ``backends.base`` for the
-  concrete backend) and stdlib (the requirement).
-* ``ir/*`` modules import no ``backends/`` package or ``cli`` (the requirement).
+  concrete backend) and stdlib (REQ-015).
+* ``ir/*`` modules import no ``backends/`` package or ``cli`` (REQ-040).
 * ``ir/`` + ``backends/`` import no third-party package. This reuses the vendored
   ``ir._hook_security.check_no_external_deps`` but wraps it in a **level-aware**
   pass: relative (``level > 0``) intra-package imports and first-party
   ``ir``/``backends`` imports are NOT flagged, since the vendored scanner
   false-positives on relative imports such as ``from .graph import X``
-  (the requirement / the requirement).
+  (REQ-016 / REQ-043).
 * No network calls anywhere in ``ir/`` + ``backends/`` — reuses
-  ``ir._hook_security.check_no_network_calls`` (the requirement).
+  ``ir._hook_security.check_no_network_calls`` (REQ-047).
 * No product module imports the plugin's ``composer`` / ``profiles`` /
-  ``hook_security`` from ``System2/plugin/`` (the requirement).
+  ``hook_security`` from ``System2/plugin/`` (REQ-017).
 
 Runs under both ``python3 -m unittest`` and ``pytest``. Stdlib-only.
 
@@ -45,7 +45,7 @@ _PKG_ROOT = os.path.dirname(_THIS_DIR)
 # third-party.
 _FIRST_PARTY_TOP = frozenset({"system2_compiler"})
 
-# The forbidden ir/* loaders a backend must never import (the requirement). Derived from
+# The forbidden ir/* loaders a backend must never import (REQ-015). Derived from
 # spec/module-boundaries.json (backends/claude_code.py + backends/base.py
 # forbidden_imports_from), expressed as importable module paths (package-qualified).
 _FORBIDDEN_IR_LOADERS = frozenset({
@@ -59,7 +59,7 @@ _FORBIDDEN_IR_LOADERS = frozenset({
     "system2_compiler.ir.conflicts",
 })
 
-# Plugin modules no product code may import (the requirement). The plugin is reached only
+# Plugin modules no product code may import (REQ-017). The plugin is reached only
 # as a read-only subprocess oracle via evals/oracle.py.
 _FORBIDDEN_PLUGIN_MODULES = frozenset({
     "composer",
@@ -183,7 +183,7 @@ def _imported_module_paths(rel: str):
 
 
 class BackendIsolationTest(unittest.TestCase):
-    """the requirement: backends import only ir.graph (+ backends.base) and stdlib."""
+    """REQ-015: backends import only ir.graph (+ backends.base) and stdlib."""
 
     def test_backends_import_no_forbidden_ir_loaders(self):
         for rel in _BACKEND_FILES:
@@ -194,7 +194,7 @@ class BackendIsolationTest(unittest.TestCase):
                 forbidden_hit,
                 msg=(
                     f"{rel} imports forbidden ir/* loader(s): "
-                    f"{sorted(forbidden_hit)} (the requirement)"
+                    f"{sorted(forbidden_hit)} (REQ-015)"
                 ),
             )
 
@@ -212,13 +212,13 @@ class BackendIsolationTest(unittest.TestCase):
                 offenders,
                 msg=(
                     f"{rel} imports ir module(s) other than ir.graph: "
-                    f"{sorted(offenders)} (the requirement)"
+                    f"{sorted(offenders)} (REQ-015)"
                 ),
             )
 
 
 class IrNeutralityTest(unittest.TestCase):
-    """the requirement: ir/* imports no backend and no cli."""
+    """REQ-040: ir/* imports no backend and no cli."""
 
     def test_ir_imports_no_backend_or_cli(self):
         for rel in _IR_FILES:
@@ -236,13 +236,13 @@ class IrNeutralityTest(unittest.TestCase):
                 offenders,
                 msg=(
                     f"{rel} imports a backend/cli module: "
-                    f"{sorted(offenders)} (the requirement)"
+                    f"{sorted(offenders)} (REQ-040)"
                 ),
             )
 
 
 class StdlibOnlyTest(unittest.TestCase):
-    """the requirement / the requirement: ir/ + backends/ import no third-party package.
+    """REQ-016 / REQ-043: ir/ + backends/ import no third-party package.
 
     Uses a level-aware wrapper over the vendored scanner so relative
     intra-package imports are not flagged.
@@ -256,7 +256,7 @@ class StdlibOnlyTest(unittest.TestCase):
                 offenders,
                 msg=(
                     f"{rel} imports third-party package(s): {offenders} "
-                    f"(the requirement/043)"
+                    f"(REQ-016/043)"
                 ),
             )
 
@@ -282,7 +282,7 @@ class StdlibOnlyTest(unittest.TestCase):
 
 
 class NoNetworkTest(unittest.TestCase):
-    """the requirement: no network calls anywhere in ir/ + backends/."""
+    """REQ-047: no network calls anywhere in ir/ + backends/."""
 
     def test_no_network_calls(self):
         for rel in _IR_FILES + _BACKEND_FILES:
@@ -290,12 +290,12 @@ class NoNetworkTest(unittest.TestCase):
             self.assertEqual(
                 [],
                 violations,
-                msg=f"{rel} contains network call pattern(s): {violations} (the requirement)",
+                msg=f"{rel} contains network call pattern(s): {violations} (REQ-047)",
             )
 
 
 class NoPluginImportTest(unittest.TestCase):
-    """the requirement: no product module imports the plugin composer/profiles/hook_security."""
+    """REQ-017: no product module imports the plugin composer/profiles/hook_security."""
 
     def test_no_product_module_imports_plugin(self):
         for rel in _PRODUCT_FILES:
@@ -307,7 +307,7 @@ class NoPluginImportTest(unittest.TestCase):
                 hit,
                 msg=(
                     f"{rel} imports plugin module(s) {sorted(hit)}; the plugin "
-                    f"is reachable only as a subprocess oracle (the requirement)"
+                    f"is reachable only as a subprocess oracle (REQ-017)"
                 ),
             )
 
@@ -323,7 +323,7 @@ class NegativeControlTest(unittest.TestCase):
     def test_forbidden_ir_loader_in_backend_is_detected(self):
         bad = (
             "from system2_compiler.ir.graph import System2Graph\n"
-            "from system2_compiler.ir.manifest import load_schema  # forbidden (the requirement)\n"
+            "from system2_compiler.ir.manifest import load_schema  # forbidden (REQ-015)\n"
         )
         tree = ast.parse(bad)
         imported = set()

@@ -14,7 +14,7 @@
     },
     "overlays": [],
     "contributions_applied": {},
-    "composed_lines": 217,
+    "composed_lines": 216,
     "files_to_write": [
       "<PROJECT>/CLAUDE.md"
     ],

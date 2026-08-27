@@ -1,4 +1,4 @@
-"""the implementation work (F4) — the Codex three-surface honesty invariant + standing lock invariants.
+"""TASK-018 (F4) — the Codex three-surface honesty invariant + standing lock invariants.
 
 This is the machine-check for R1 (the #1 recorded project risk): that the Codex
 plugin's enforcement honesty cannot silently drift into an over-claim. It converts
@@ -33,7 +33,7 @@ to the design's literal wording, so a refactor that guts the constant while keep
 the symbol still fails.
 
 Path-parameterized: validates the committed ``distributions/codex/`` tree when it
-exists (post-the implementation work) or an explicit ``CODEX_EMISSION_ROOT`` override; otherwise it
+exists (post-TASK-023) or an explicit ``CODEX_EMISSION_ROOT`` override; otherwise it
 emits a fresh Codex tree to a staging temp dir and validates that. Pure-Python
 emission (no node / external binary) — always runs, never skips (skip-count-0).
 Stdlib-only ``unittest``. Cited overlay/IR contents are untrusted data.
@@ -91,8 +91,8 @@ _SURFACE_LOCK_BANNER = "lock FIDELITY banner"
 _SAFETY_GATES = ("enforce-lease", "block-dangerous", "protect-sensitive")
 
 # The modern Codex block schema the lock mechanism text must describe, and the two
-# obsoleted legacy forms that must be ABSENT (the recorded rule; the requirement/076). The advisory
-# sentence (the requirement) is orthogonal and stays verbatim — asserted separately.
+# obsoleted legacy forms that must be ABSENT (RL-001; REQ-075/076). The advisory
+# sentence (REQ-077) is orthogonal and stays verbatim — asserted separately.
 _MODERN_DENY_TOKENS = ("permissionDecision", "deny")
 _LEGACY_BLOCK_SCHEMA = '{"decision":"block"}'          # obsoleted stdout block form
 _LEGACY_BLOCK_SCHEMA_ESCAPED = '{\\"decision\\":\\"block\\"}'  # its JSON-file byte form
@@ -118,8 +118,8 @@ def _resolve_committed_root():
     """Return a pre-existing Codex emission root to validate, or None to emit.
 
     Order: an explicit ``CODEX_EMISSION_ROOT`` override (must exist), then the
-    committed ``distributions/codex/`` tree (present post-the implementation work). When neither
-    exists (pre-the implementation work), returns None and the caller emits to a staging dir.
+    committed ``distributions/codex/`` tree (present post-TASK-023). When neither
+    exists (pre-TASK-023), returns None and the caller emits to a staging dir.
     """
     override = os.environ.get("CODEX_EMISSION_ROOT")
     if override:
@@ -321,7 +321,7 @@ class CodexHonestyTest(unittest.TestCase):
 
     def test_readme_surface_when_present(self):
         # design line 175 pairs the README with the orchestrator preamble. The README
-        # is added by the implementation work/031, so it is absent from a pre-023 staging emission.
+        # is added by TASK-023/031, so it is absent from a pre-023 staging emission.
         # Skip-count-0 discipline: NO skipTest. The orchestrator preamble is the
         # always-present required equivalent (asserted unconditionally); the README is
         # an ADDITIONAL surface validated only when it exists in the emission.
@@ -340,12 +340,12 @@ class CodexHonestyTest(unittest.TestCase):
             self.assertIn(
                 _TRUST_ONELINER, readme,
                 "the committed README surface must carry the trust one-liner verbatim "
-                "(post-the implementation work)",
+                "(post-TASK-023)",
             )
             self.assertIn(
                 _COVERAGE_GAP, readme,
                 "the committed README surface must carry the coverage-gap sentence "
-                "verbatim (post-the implementation work)",
+                "verbatim (post-TASK-023)",
             )
             self.assertEqual(self.source in ("committed", "override"), True)
 
@@ -394,7 +394,7 @@ class CodexHonestyTest(unittest.TestCase):
                 f"safety gate {gate!r} must be enforced:false at rest",
             )
 
-    # -- (b') mechanism/delivery schema honesty (the recorded rule; the requirement/076/077) ---
+    # -- (b') mechanism/delivery schema honesty (RL-001; REQ-075/076/077) ---
 
     def test_lock_mechanism_describes_modern_deny_schema(self):
         # Each safety gate's mechanism must describe the MODERN Codex deny schema
@@ -441,7 +441,7 @@ class CodexHonestyTest(unittest.TestCase):
         self.assertNotIn(_LEGACY_FEATURES_HOOKS, raw)
         self.assertIn(
             _REQUIRED_ADVISORY_CLAUSE, raw,
-            "the the requirement advisory sentence must remain verbatim in the lock",
+            "the REQ-077 advisory sentence must remain verbatim in the lock",
         )
 
     def test_legacy_wording_guard_has_teeth(self):

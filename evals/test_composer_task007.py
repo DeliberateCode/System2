@@ -1,4 +1,4 @@
-"""Tests for composer core behavior: composition, locks, copies, and atomic writes."""
+"""Tests for TASK-007: compose(), lock generation, content copying, atomic writes."""
 
 import hashlib
 import json
