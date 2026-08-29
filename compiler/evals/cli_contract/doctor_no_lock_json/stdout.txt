@@ -1,0 +1,15 @@
+{
+  "status": "no_lock",
+  "details": [
+    {
+      "type": "no_lock",
+      "message": "No lock file found at spec/overlay-manifest.lock"
+    }
+  ],
+  "system2_version": {
+    "locked": null,
+    "installed": "1.1.1"
+  },
+  "overlays": [],
+  "claude_md_composed": false
+}

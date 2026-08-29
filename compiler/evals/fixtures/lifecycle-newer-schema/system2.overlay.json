@@ -1,0 +1,13 @@
+{
+  "name": "lifecycle-newer-schema",
+  "version": "1.0.0",
+  "description": "Lifecycle fixture: an overlay declaring a newer (unsupported) schema; only composable under --allow-newer-schema.",
+  "schema_version": "2.0.0",
+  "tags": ["lifecycle-newer-schema"],
+  "compatibility": {
+    "known_conflicts": [],
+    "tested_with": [],
+    "review_when_combined_with_tags": []
+  },
+  "contributions": {}
+}

@@ -1,0 +1,765 @@
+{
+  "version": "1.0.0",
+  "modules": {
+    "ir/__init__.py": {
+      "description": "Public front-end entry point. Re-exports compose() and the System2Graph schema. Harness-neutral; imports no backend.",
+      "public_exports": [
+        {
+          "name": "compose",
+          "kind": "function",
+          "signature": "compose(base_path: str, overlay_paths: list[str], project_path: str, *, profile: str | None = None, dry_run: bool = False, allow_newer_schema: bool = False) -> CompileResult"
+        },
+        {
+          "name": "CompileResult",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class CompileResult { graph: System2Graph | None; errors: list[str]; warnings: Warnings; files_to_write: list[str]; report: dict }"
+        }
+      ],
+      "internal_only": []
+    },
+    "ir/graph.py": {
+      "description": "The System2Graph IR schema: frozen, JSON-serializable dataclasses. Harness-neutral. No Claude mechanism fields (tools/hooks/permissionMode) on roles or contributions.",
+      "public_exports": [
+        {
+          "name": "System2Graph",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class System2Graph { schema_version: str; system2_version: str; roles: list[Role]; gate_graph: GateGraph; delegation_contract: DelegationContract; post_execution: PostExecution; maintenance_loop: MaintenanceLoop; spec_artifacts: list[SpecArtifact]; contributions: OrderedContributions; active_profile: ProfileRef | None; anchors: AnchorTable; capabilities: CapabilitySet; blocking_semantics: list[BlockingSemantic]; warnings: Warnings; base_template: BaseTemplate }"
+        },
+        {
+          "name": "Role",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class Role { name: str; gate_role: str; write_scope: str; model_hint: str | None; capabilities: list[str]; pipeline: bool }"
+        },
+        {
+          "name": "GateGraph",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class GateGraph { gates: list[GateNode]; edges: list[tuple[int, int]] }"
+        },
+        {
+          "name": "GateNode",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class GateNode { number: int; name: str; checklist_text: str; consultations: list[Contribution] }"
+        },
+        {
+          "name": "DelegationContract",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class DelegationContract { required_fields: list[str]; preferred_order: list[str]; advisory_sources: list[Contribution] }"
+        },
+        {
+          "name": "PostExecution",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class PostExecution { trigger_rules: list[TriggerRule]; execution_order: list[str]; blocker_policy: dict; boomerang_cap: int; opaque_text: str }"
+        },
+        {
+          "name": "TriggerRule",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class TriggerRule { agent: str; condition: str; always: bool }"
+        },
+        {
+          "name": "MaintenanceLoop",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class MaintenanceLoop { regression_ledger_fields: list[str]; corrective_cycle_cap: int; classification: list[str]; opaque_text: str }"
+        },
+        {
+          "name": "SpecArtifact",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class SpecArtifact { name: str; required_sections: list[Contribution] }"
+        },
+        {
+          "name": "OrderedContributions",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class OrderedContributions { scopes: dict[tuple[str, str], list[Contribution]] }  # keyed by (type_path, target_key); each list already topologically sorted"
+        },
+        {
+          "name": "Contribution",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class Contribution { overlay_name: str; contribution_type: str; raw: dict; overlay_path: str; contribution_id: str | None; anchor: AnchorRef | None }"
+        },
+        {
+          "name": "ProfileRef",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class ProfileRef { name: str; ordered_source_paths: list[str] }"
+        },
+        {
+          "name": "Warnings",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class Warnings { validation: list[str]; structural_conflicts: list[dict]; additive_overlaps: list[dict]; semantic_tensions: list[dict]; injection: list[str] }"
+        },
+        {
+          "name": "BaseTemplate",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class BaseTemplate { text: str; section_offsets: dict[str, int] }  # CLAUDE-TARGETED: byte-fidelity mechanism for this cycle (design T4); excluded from neutrality assertions"
+        }
+      ],
+      "internal_only": []
+    },
+    "ir/build.py": {
+      "description": "Assembles a System2Graph from validated manifests + anchor map + profile resolution. Lifts the front-end half of composer.compose() and _activate_profile(). Produces the graph without invoking any backend.",
+      "public_exports": [
+        {
+          "name": "build_graph",
+          "kind": "function",
+          "signature": "build_graph(base_path: str, validated_manifests: list[dict], overlay_path_map: dict[str, str], anchor_map: dict, schema: dict, project_path: str, profile: ProfileRef | None, warnings: Warnings) -> System2Graph"
+        }
+      ],
+      "internal_only": ["_load_base_template", "_read_system2_version"]
+    },
+    "ir/contributions.py": {
+      "description": "Lifted verbatim from composer.py: contribution indexing and within-scope topological ordering. Sort keys (overlay_name, id) preserved for argument-order independence.",
+      "public_exports": [
+        {
+          "name": "build_contribution_index",
+          "kind": "function",
+          "signature": "build_contribution_index(manifests: list[dict], valid_anchors_by_agent: dict[str, list[str]] | None = None) -> dict[tuple[str, str], list[tuple[str, dict]]]"
+        },
+        {
+          "name": "topological_sort",
+          "kind": "function",
+          "signature": "topological_sort(contributions: list[tuple[str, dict]], scope: str) -> tuple[list[tuple[str, dict]], list[str]]"
+        }
+      ],
+      "internal_only": []
+    },
+    "ir/conflicts.py": {
+      "description": "Lifted verbatim from composer.py: conflict detection and ConflictReport. Neutral structural/additive/semantic-tension outcomes.",
+      "public_exports": [
+        {
+          "name": "detect_conflicts",
+          "kind": "function",
+          "signature": "detect_conflicts(manifests: list[dict], anchor_map: dict) -> ConflictReport"
+        },
+        {
+          "name": "ConflictReport",
+          "kind": "class",
+          "signature": "class ConflictReport { structural_conflicts: list[dict]; additive_overlaps: list[dict]; semantic_tensions: list[dict]; has_structural_conflicts: bool }"
+        }
+      ],
+      "internal_only": ["_HIGH_LEVERAGE_SURFACES", "_HIGH_LEVERAGE_ANCHORS", "_PIPELINE_AGENTS"]
+    },
+    "ir/manifest.py": {
+      "description": "Lifted manifest read/validation, schema + anchor-map loaders, path containment, content-file collection, and the prompt-injection scan. Treats all content as untrusted; never executes embedded instructions.",
+      "public_exports": [
+        {
+          "name": "read_manifest",
+          "kind": "function",
+          "signature": "read_manifest(overlay_path: str) -> dict"
+        },
+        {
+          "name": "validate_manifest",
+          "kind": "function",
+          "signature": "validate_manifest(manifest: dict, schema: dict, overlay_path: str, anchor_map: dict) -> ValidationResult"
+        },
+        {
+          "name": "load_schema",
+          "kind": "function",
+          "signature": "load_schema(base_path: str) -> dict"
+        },
+        {
+          "name": "load_anchor_map",
+          "kind": "function",
+          "signature": "load_anchor_map(base_path: str) -> dict"
+        },
+        {
+          "name": "scan_for_injection",
+          "kind": "function",
+          "signature": "scan_for_injection(content: str, file_label: str) -> list[str]"
+        },
+        {
+          "name": "ValidationResult",
+          "kind": "class",
+          "signature": "class ValidationResult { valid: bool; errors: list[str]; warnings: list[str] }"
+        }
+      ],
+      "internal_only": ["_check_path_containment", "_check_content_file", "_expect_type", "_expect_enum", "_INJECTION_PATTERNS"]
+    },
+    "ir/anchors.py": {
+      "description": "Phase 2: IR-level anchor model. Builds a per-agent AnchorTable from anchor-map.json (REQ-027) and resolves contributions by anchor identity (not literal-heading matching). Filters contributions to non-existent anchors exactly as the oracle does.",
+      "public_exports": [
+        {
+          "name": "build_anchor_table",
+          "kind": "function",
+          "signature": "build_anchor_table(anchor_map: dict) -> AnchorTable"
+        },
+        {
+          "name": "AnchorTable",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class AnchorTable { by_agent: dict[str, dict[str, AnchorDef]] }"
+        },
+        {
+          "name": "AnchorDef",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class AnchorDef { agent: str; anchor_name: str; purpose: str }"
+        },
+        {
+          "name": "AnchorRef",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class AnchorRef { agent: str; anchor_name: str }"
+        }
+      ],
+      "internal_only": []
+    },
+    "ir/capabilities.py": {
+      "description": "Phase 2: fixed intent-capability vocabulary, role attributes, blocking-semantics records, and unknown-capability validation. No Claude mechanism fields.",
+      "public_exports": [
+        {
+          "name": "INTENT_CAPABILITIES",
+          "kind": "constant",
+          "signature": "INTENT_CAPABILITIES: frozenset[str] = frozenset({'enforce-lease', 'block-dangerous', 'protect-sensitive', 'format', 'typecheck', 'budget'})"
+        },
+        {
+          "name": "ROLE_ATTRIBUTES",
+          "kind": "constant",
+          "signature": "ROLE_ATTRIBUTES: frozenset[str] = frozenset({'write-scope', 'model-hint', 'gate-role'})"
+        },
+        {
+          "name": "CapabilitySet",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class CapabilitySet { by_agent: dict[str, list[str]] }"
+        },
+        {
+          "name": "BlockingSemantic",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class BlockingSemantic { capability: str; enforcement_point: str; blocking: bool; description: str }"
+        },
+        {
+          "name": "validate_declared_capabilities",
+          "kind": "function",
+          "signature": "validate_declared_capabilities(declared: list[str]) -> list[str]  # returns warnings for unknown capabilities (REQ-039)"
+        }
+      ],
+      "internal_only": []
+    },
+    "ir/profiles.py": {
+      "description": "Vendored stdlib-only copy of the plugin's profiles.py. Profile resolution for the front-end. No backend or Claude rendering.",
+      "public_exports": [
+        {
+          "name": "resolve_profile",
+          "kind": "function",
+          "signature": "resolve_profile(name: str) -> ProfileResolution"
+        },
+        {
+          "name": "ProfileError",
+          "kind": "class",
+          "signature": "class ProfileError(Exception) { message: str; exit_code: int }"
+        }
+      ],
+      "internal_only": []
+    },
+    "backends/base.py": {
+      "description": "The lowering + lifecycle contract. Phase 1: emit only. Phase 5 (parity): grown to a per-target lifecycle (emit + uninstall + doctor + recompose_from_lock + lock helpers) so Goose and Pi reach feature-completeness, not just Claude. Backends receive only the IR and/or project path; they return written paths or neutral result dataclasses. No manifest/anchor/profile/schema access. The neutral UninstallResult/DoctorReport dataclasses are declared here so all backends + the CLI share one shape.",
+      "public_exports": [
+        {
+          "name": "Backend",
+          "kind": "type",
+          "signature": "class Backend(Protocol) { name: str; def emit(self, ir: System2Graph, project_path: str) -> list[str]: ...; def uninstall(self, project_path: str, overlay_name: str, *, dry_run: bool = False) -> UninstallResult: ...; def doctor(self, project_path: str) -> DoctorReport: ...; def recompose_from_lock(self, ir, project_path: str, *, dry_run: bool = False) -> list[str]: ...; def lock_path(self, project_path: str) -> str: ...; def read_lock_overlay_sources(self, project_path: str) -> list[str]: ... }"
+        },
+        {
+          "name": "UninstallResult",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class UninstallResult { removed: dict; remaining: list[dict]; artifacts_removed: list[str]; files_written: list[str]; is_last_overlay: bool; injection_warnings: list[str]; preview: str; errors: list[str] }  # Phase 5: neutral, target-agnostic uninstall outcome (ported byte-faithfully from composer._uninstall for claude-code)"
+        },
+        {
+          "name": "DoctorReport",
+          "kind": "type",
+          "signature": "@dataclass(frozen=True) class DoctorReport { status: str; details: list[dict]; system2_version: dict; overlays: list[dict]; composed: bool; exit_code: int; validator_available: bool }  # Phase 5: neutral drift/status report; status in {current, stale_base, stale_overlay, broken, no_lock}; claude-code ports composer.drift_check; goose/pi add validator_available (goose recipe validate / pi load) with LOUD validator_unavailable when absent"
+        }
+      ],
+      "internal_only": []
+    },
+    "backends/claude_code.py": {
+      "description": "The Claude projection (the only backend this cycle). Lifts _render_contribution, _generate_claude_md, _insert_overlay_sections, _generate_lock, _copy_overlay_content, _write_outputs, and the content-fingerprint/timestamp-reuse idempotency. Owns all byte-level Claude details, the IR-anchor -> CLAUDE.md location mapping, and the degradation-report rendering. Imports only ir/graph types and backends/base.",
+      "public_exports": [
+        {
+          "name": "ClaudeCodeBackend",
+          "kind": "class",
+          "signature": "class ClaudeCodeBackend(Backend) { name = 'claude-code'; def emit(self, ir: System2Graph, project_path: str) -> list[str] }"
+        }
+      ],
+      "internal_only": [
+        "_render_contribution",
+        "_generate_claude_md",
+        "_insert_overlay_sections",
+        "_generate_lock",
+        "_copy_overlay_content",
+        "_collect_content_files",
+        "_resolve_content_file",
+        "_write_outputs",
+        "_makedirs_tracked",
+        "_compute_content_fingerprint",
+        "_resolve_anchor_location",
+        "_build_degradation_report (Phase 4: thin wrapper over backends/_degradation.build_capability_records with fields=('status','mechanism'), allow_native=True, then the {backend,capabilities} envelope — BYTE-IDENTICAL to pre-refactor)",
+        "_SECTION_RE",
+        "_GATE_LINE_RE",
+        "_DEFERRED_SUFFIXES"
+      ]
+    },
+    "cli.py": {
+      "description": "Additive, opt-in CLI. Phase 1: a single implicit 'compile'. Phase 3/4 add goose/pi to the backend registry. Phase 5 (parity): grows into a subcommand dispatcher reaching FULL parity with the plugin's composer.py — compile | uninstall | doctor | from-lock | profile {list|inspect|save|create|edit|delete} — plus --allow-injection/--force where they apply. Keeps `system2 compile` (no subcommand) back-compatible. The claude-code path of every verb reproduces the frozen oracle's args/exit-codes/stdout/stderr byte-for-byte (CLI-contract goldens) so the plugin shim can run on it. Profiles are harness-NEUTRAL (no --target). Does not touch the plugin's /system2:* surface (additive).",
+      "public_exports": [
+        {
+          "name": "main",
+          "kind": "function",
+          "signature": "main(argv: list[str] | None = None) -> int"
+        }
+      ],
+      "internal_only": ["_dispatch_subcommand", "_select_backend", "_emit_stderr_warnings", "_cmd_compile", "_cmd_uninstall", "_cmd_doctor", "_cmd_from_lock", "_cmd_profile", "_reject_inapplicable_subflags", "_BACKENDS"]
+    },
+    "tools/build_bundle.py": {
+      "description": "Phase 5 (convergence): the deterministic bundler. Generates the vendored, stdlib-only bundle the plugin ships by copying the compiler's product subtree (ir/ + backends/ + plugin_adapter) verbatim into plugin/scripts/_system2_compiler/ and writing BUNDLE.json with the compiler-source hash. A pure copy (no import rewriting) so the vendored tree's module-boundary + stdlib-only properties are EXACTLY the compiler's and byte-identical Claude output is guaranteed by construction. Lives in the compiler repo (test/build tooling, not a product module). bundled_at is excluded from the hash so a re-bundle of identical source is hash-stable.",
+      "public_exports": [
+        {
+          "name": "build_bundle",
+          "kind": "function",
+          "signature": "build_bundle(compiler_root: str, dest: str) -> dict  # writes the vendored subtree + BUNDLE.json; returns the manifest"
+        },
+        {
+          "name": "compute_source_hash",
+          "kind": "function",
+          "signature": "compute_source_hash(compiler_root: str) -> str  # sha256 over sorted (relpath, bytes) of ir/ + backends/ + plugin_adapter (the drift anchor)"
+        }
+      ],
+      "internal_only": ["_copy_subtree", "_BUNDLE_MEMBERS"]
+    },
+    "tools/check_bundle_fresh.py": {
+      "description": "Phase 5 (G8/NFR-006): the CI hash/staleness guard. Regenerates the bundle from the current compiler source into a temp dir, hashes it, and compares to the committed plugin/scripts/_system2_compiler/ + its BUNDLE.json. FAILS when they differ ('vendored bundle is stale: regenerate via tools/build_bundle.py'). Deterministic (the bundler is a pure copy; bundled_at excluded from the hash). The machine-enforced cross-repo freshness check — a stale bundle cannot merge.",
+      "public_exports": [
+        {
+          "name": "main",
+          "kind": "function",
+          "signature": "main(argv: list[str] | None = None) -> int  # 0 fresh, non-zero stale"
+        }
+      ],
+      "internal_only": ["_regenerate_and_hash"]
+    },
+    "backends/goose.py": {
+      "description": "Phase 3: the Goose backend (second backend). Lowers the SAME System2Graph to a Goose recipe workflow (orchestrator recipe + 13 role sub-recipes), an adapted enforcement permission policy, advisory instruction blocks, a loud honest degradation report, and a thin launcher. Same boundary as claude_code: imports only ir.graph + backends.base + backends._yaml + stdlib; reads its own backends/capabilities/goose.json data file; never reads manifests/anchor-map/profiles/schema. Does NOT consume ir.base_template or ir.overlay_inputs (Claude-targeted). Output is a pure function of the IR (no timestamps); deterministic, stdlib-only YAML via backends/_yaml.py.",
+      "public_exports": [
+        {
+          "name": "GooseBackend",
+          "kind": "class",
+          "signature": "class GooseBackend(Backend) { name = 'goose'; def emit(self, ir: System2Graph, project_path: str) -> list[str] }"
+        }
+      ],
+      "internal_only": [
+        "_emit_orchestrator_recipe",
+        "_emit_role_subrecipe",
+        "_emit_permission_policy",
+        "_emit_advisory_blocks",
+        "_emit_degradation_report",
+        "_build_degradation_report (Phase 4: thin wrapper over backends/_degradation.build_capability_records with fields=('status','mechanism','enforced','gated'), allow_native=False, then the {backend,goose_version_assumed,mode,permission_delivery,DEGRADATION,capabilities} envelope — BYTE-IDENTICAL to pre-refactor)",
+        "_emit_launcher",
+        "_load_descriptor",
+        "_write_outputs",
+        "_DESCRIPTOR_PATH",
+        "_GOOSE_VERSION_ASSUMED",
+        "_GOOSE_MODE"
+      ]
+    },
+    "backends/_yaml.py": {
+      "description": "Phase 3: internal, stdlib-only deterministic block-YAML serializer (emit-only; no parser). Supports the closed recipe subset: mappings, sequences, scalars (str/int/bool/None), and '|' literal block scalars for multi-line instructions/prompt. Fixed 2-space indent, conservative double-quote predicate, LF endings, single trailing newline, insertion-ordered keys (the emitter controls order for determinism). Falls back to a JSON-compatible quoting for any un-block-formattable value. Correctness is gated empirically by 'goose recipe validate' in the test suite, not by a hand-written full YAML spec. Backend-internal; consumed by backends/goose.py only.",
+      "public_exports": [
+        {
+          "name": "dump",
+          "kind": "function",
+          "signature": "dump(data: dict | list, *, indent: int = 2) -> str  # deterministic block YAML; emit-only"
+        }
+      ],
+      "internal_only": ["_dump_mapping", "_dump_sequence", "_dump_scalar", "_needs_quote", "_block_literal", "_NEEDS_QUOTE_RE"]
+    },
+    "backends/capabilities/goose.json": {
+      "description": "Phase 3: per-capability status descriptor for the goose backend. Same schema as claude_code.json. OQ1-locked honest statuses: NOTHING native (Goose has no PreToolUse/PostToolUse/SubagentStop hooks). block-dangerous/protect-sensitive = adapted (permission.yaml + smart_approve); enforce-lease/format/typecheck/budget = advisory (recipe instructions only). mechanism strings carry the LOUD degradation honesty.",
+      "public_exports": [
+        {
+          "name": "goose_capability_descriptor",
+          "kind": "constant",
+          "signature": "{ \"version\": \"1.0.0\", \"backend\": \"goose\", \"capabilities\": { \"<capability>\": { \"status\": \"adapted|advisory\", \"mechanism\": \"<str>\" } } }"
+        }
+      ],
+      "internal_only": []
+    },
+    "backends/capabilities/claude_code.json": {
+      "description": "Per-capability status descriptor for the claude-code backend. Every IR capability maps to exactly one of native|adapted|advisory|unsupported. Claude is full-fidelity: all enforced capabilities native.",
+      "public_exports": [
+        {
+          "name": "claude_code_capability_descriptor",
+          "kind": "constant",
+          "signature": "{ \"version\": \"1.0.0\", \"backend\": \"claude-code\", \"capabilities\": { \"<capability>\": { \"status\": \"native|adapted|advisory|unsupported\", \"mechanism\": \"<str>\" } } }"
+        }
+      ],
+      "internal_only": []
+    },
+    "backends/_degradation.py": {
+      "description": "Phase 4 (PG6): the shared, descriptor-driven degradation helper. Backend-agnostic; lifts the per-capability report record assembly + the status->flags rule out of claude_code._build_degradation_report and goose._build_degradation_report so all three backends (claude_code/goose/pi) share one source of truth. Internal, stdlib-only, no I/O, no ir/* import (a backend hands it ir.capabilities-as-data + its own parsed descriptor). BYTE-PRESERVING: it reproduces both existing reports exactly — each backend keeps its own envelope + 'fields' selection so the serialized bytes of the claude-code lock degradation_report and system2.goose.lock.json are UNCHANGED. The status->flags rule is total over the four-value enum (native=>enforced:true,gated:false; adapted=>enforced:false,gated:true; advisory/unsupported=>both false), making Pi's MIXED status correct by construction.",
+      "public_exports": [
+        {
+          "name": "ir_capability_union",
+          "kind": "function",
+          "signature": "ir_capability_union(capabilities_by_agent: dict[str, list[str]]) -> set[str]  # the union of IR-present capabilities (same set both builders compute today)"
+        },
+        {
+          "name": "build_capability_records",
+          "kind": "function",
+          "signature": "build_capability_records(descriptor: dict, ir_capability_union: set[str], *, fields: tuple[str, ...], allow_native: bool = True) -> dict[str, dict]  # ordered {cap: {<fields...>}} in descriptor order filtered to IR-present; status/mechanism from the descriptor; enforced:=status=='native'; gated:=status=='adapted'; raises (no silent drop) on an IR-present cap absent from the descriptor; raises when allow_native is False and a status is 'native' (goose)"
+        }
+      ],
+      "internal_only": ["_record_for", "_FLAG_RULE"]
+    },
+    "backends/pi.py": {
+      "description": "Phase 4: the Pi backend (third backend; the first MIXED-status backend). Lowers the SAME System2Graph onto a generated Pi TypeScript extension + Pi context/skill/prompt markdown. Same boundary as claude_code/goose: imports only ir.graph + backends._degradation + backends.base + stdlib; reads its own backends/capabilities/pi.json data file; never reads manifests/anchor-map/profiles/schema; never consumes ir.base_template / ir.overlay_inputs (renders from structured IR fields only). The compiler emits TS/markdown/JSON as TEXT — no node/TS/third-party in the compiler (node/pi only in TESTS). ENFORCEMENT: enforce-lease/block-dangerous/protect-sensitive are NATIVE via the generated extension's on('tool_call') handler (returns {block:true,reason} before the tool runs; Pi has no built-in permission system, so the handler IS the gate); budget is ADAPTED (on('agent_end') reporting); format/typecheck are ADVISORY (SYSTEM.md instruction). Backend owns DEFAULT dangerous-command + sensitive-path pattern sets (mirroring goose._DANGEROUS_COMMANDS, keeping the IR neutral); enforce-lease uses role write_scope when present, else is wired-but-unscoped and reported honestly. Output is a pure function of the IR (no timestamps); deterministic, escaped TS/markdown text.",
+      "public_exports": [
+        {
+          "name": "PiBackend",
+          "kind": "class",
+          "signature": "class PiBackend(Backend) { name = 'pi'; def emit(self, ir: System2Graph, project_path: str) -> list[str] }"
+        }
+      ],
+      "internal_only": [
+        "_emit_extension_ts",
+        "_emit_system_md",
+        "_emit_agents_md",
+        "_emit_orchestrator_prompt",
+        "_emit_role_prompt",
+        "_emit_skill",
+        "_emit_degradation_report",
+        "_emit_delegate_command",
+        "_build_native_gate_handlers",
+        "_build_budget_handler",
+        "_ts_escape",
+        "_load_descriptor",
+        "_planned_files",
+        "_write_outputs",
+        "_makedirs_tracked",
+        "_DESCRIPTOR_PATH",
+        "_PI_VERSION_ASSUMED",
+        "_DANGEROUS_COMMANDS",
+        "_SENSITIVE_PATHS",
+        "_ADVISORY_LABEL"
+      ]
+    },
+    "backends/capabilities/pi.json": {
+      "description": "Phase 4: per-capability status descriptor for the pi backend. Same schema as claude_code.json/goose.json. The first MIXED descriptor: enforce-lease/block-dangerous/protect-sensitive = native (generated extension on('tool_call') hard-block before the tool runs; Pi has no built-in permission system); budget = adapted (on('agent_end') reporting, not a block); format/typecheck = advisory (SYSTEM.md instruction only — making them native needs deferred IR-enrichment). mechanism strings carry the MIXED-fidelity honesty, including the enforce-lease wired-but-unscoped note when role write_scope is empty.",
+      "public_exports": [
+        {
+          "name": "pi_capability_descriptor",
+          "kind": "constant",
+          "signature": "{ \"version\": \"1.0.0\", \"backend\": \"pi\", \"capabilities\": { \"<capability>\": { \"status\": \"native|adapted|advisory\", \"mechanism\": \"<str>\" } } }"
+        }
+      ],
+      "internal_only": []
+    }
+  },
+  "schemas": {
+    "System2Graph": {
+      "description": "Top-level harness-neutral IR. JSON-serializable. No tools/hooks/permissionMode on roles or contributions (REQ-028/040).",
+      "fields": {
+        "schema_version": "str (e.g. 'system2-graph/1.0.0')",
+        "system2_version": "str",
+        "roles": "list[Role] (length 13 for pipeline; REQ-009/050)",
+        "gate_graph": "GateGraph (Gate 0..5 nodes + ordered edges)",
+        "delegation_contract": "DelegationContract",
+        "post_execution": "PostExecution",
+        "maintenance_loop": "MaintenanceLoop",
+        "spec_artifacts": "list[SpecArtifact] (context|requirements|design|tasks + overlay-required)",
+        "contributions": "OrderedContributions (per-scope, post-topo-sort)",
+        "active_profile": "ProfileRef | null",
+        "anchors": "AnchorTable (Phase 2; per-agent named insertion points)",
+        "capabilities": "CapabilitySet (Phase 2; per-agent intent capabilities)",
+        "blocking_semantics": "list[BlockingSemantic] (Phase 2; fidelity-honest enforcement descriptors)",
+        "warnings": "Warnings (validation|structural|additive|semantic|injection)",
+        "base_template": "BaseTemplate (CLAUDE-TARGETED; quarantined byte-fidelity field, design T4)"
+      }
+    },
+    "Role": {
+      "description": "Intent projection of an agent. No Claude mechanism fields.",
+      "fields": {
+        "name": "str",
+        "gate_role": "str",
+        "write_scope": "str",
+        "model_hint": "str | null",
+        "capabilities": "list[str] subset of INTENT_CAPABILITIES",
+        "pipeline": "bool"
+      }
+    },
+    "BlockingSemantic": {
+      "description": "Honest description of an enforced capability's blocking behavior on a fully-faithful target; substrate for per-backend fidelity reporting (OPEN-3/NFR-003).",
+      "fields": {
+        "capability": "str (one of INTENT_CAPABILITIES)",
+        "enforcement_point": "str (PreToolUse|PostToolUse|SubagentStop|orchestrator-lifecycle)",
+        "blocking": "bool (true = action is blocked, not merely described)",
+        "description": "str (neutral)"
+      }
+    },
+    "Backend.emit": {
+      "description": "Lowering entry point (REQ-013/015). Phase 5 grows the contract to a per-target lifecycle (see Backend lifecycle).",
+      "signature": "emit(ir: System2Graph, project_path: str) -> list[str]",
+      "returns": "list of absolute file paths actually written (or would-write paths under ir.dry_run); performs atomic write with backup/restore (REQ-044)"
+    },
+    "BackendLifecycle": {
+      "description": "Phase 5 (parity): the grown Backend contract giving Goose and Pi feature-completeness, not just Claude. Each backend OWNS its own artifact lifecycle (the Phase-1 emit seam, extended). Same boundary: imports only ir.graph (+ its helpers) + stdlib; reads its own target lock + artifacts under project_path; never reads manifests/anchor-map/profiles/schema directly (the from-lock recompose path arrives as an IR).",
+      "methods": {
+        "emit": "emit(ir: System2Graph, project_path: str) -> list[str] (Phase 1, unchanged)",
+        "uninstall": "uninstall(project_path: str, overlay_name: str, *, dry_run=False) -> UninstallResult. claude-code: ports composer._uninstall + _uninstall_last_overlay byte-faithfully (recompose-remaining via ir.compose->emit, or revert-to-base on the last overlay; atomic restore). goose/pi: recompose remaining sources (from the additive overlay_sources[] lock key) or remove the full generated tree on the last overlay, atomic restore.",
+        "doctor": "doctor(project_path: str) -> DoctorReport. claude-code: ports composer.drift_check + _print_doctor_report (status/findings/exit-code byte-faithful). goose: validates each recipe via real `goose recipe validate` (LOUD validator_unavailable when goose absent). pi: validates the extension via discoverAndLoadExtensions / `pi -e` + the synthetic tool_call proven-blocking probe (LOUD validator_unavailable when node/pi absent). Never a silent 'current' when the validator could not run.",
+        "recompose_from_lock": "recompose_from_lock(ir, project_path, *, dry_run=False) -> list[str]. The CLI reads the target's lock overlay sources via read_lock_overlay_sources, recomposes via ir.compose, and calls emit. Claude reads spec/overlay-manifest.lock; goose/pi read overlay_sources[] from their standalone lock.",
+        "lock_path": "lock_path(project_path) -> str (the target's lock artifact: spec/overlay-manifest.lock | system2.goose.lock.json | system2.pi.lock.json)",
+        "read_lock_overlay_sources": "read_lock_overlay_sources(project_path) -> list[str] (the overlay source paths recorded in the target's lock; the parsing lives in the backend that owns the lock format)"
+      },
+      "constraints": [
+        "no Claude artifact bytes change (REQ-014 holds); the only intentional non-Claude byte change is the additive overlay_sources[] key on the goose/pi locks (appended last; re-baselines those two goldens once)",
+        "the claude-code lifecycle is invocable with the EXACT composer.py flag CLI + exit codes + stdout/stderr (CLI-contract goldens vs the frozen oracle)",
+        "goose/pi doctor: LOUD validator_unavailable when the real validator is absent; never a silent 'current' (no-silent-downgrade ethic)"
+      ]
+    },
+    "VendoredBundle": {
+      "description": "Phase 5 (C3/G7/NFR-005): the vendored, stdlib-only bundle the plugin ships. RESOLVED: a vendored module SUBTREE (plugin/scripts/_system2_compiler/), NOT a single-file amalgamation — a pure verbatim copy of the compiler's ir/ + backends/ (+ plugin_adapter) so the boundary + stdlib-only properties are exactly the compiler's and byte-identical Claude output is guaranteed by construction. Generated by tools/build_bundle.py. Preserves the plugin's ZERO-DEPENDENCY property (no pip, no submodule, no network).",
+      "fields": {
+        "layout": "plugin/scripts/_system2_compiler/{ir/, backends/, plugin_adapter.py, BUNDLE.json}",
+        "BUNDLE.json": "{ compiler_source_sha256: str (hash over sorted (relpath, bytes) of the copied source — the drift anchor), compiler_version: str, generated_from: str (System2-Compiler@<git-rev>), bundled_at: str (EXCLUDED from the hash) }"
+      },
+      "constraints": [
+        "stdlib-only (verified by check_no_external_deps over the vendored subtree); plugin runtime deps stay empty (G7)",
+        "a pure copy of compiler product source -> byte-identical Claude output by construction (goldens then prove it)",
+        "freshness is machine-enforced: tools/check_bundle_fresh.py (CI) + system2:doctor bundle_freshness/bundle_tampered findings (G8/NFR-006)"
+      ]
+    },
+    "PluginFlip": {
+      "description": "Phase 5 [PLUGIN]: the convergence flip. RESOLVED: THIN SHIM (not full-replace). composer.py and profiles.py become ~10-line shims delegating to the vendored bundle (via plugin_adapter), preserving the EXACT flag CLI the skills invoke (--doctor/--uninstall/--from-lock/--profile/--save-profile/--profile-op/--profile-*/--base/--overlays/--project/--dry-run/--format/--allow-injection/--allow-newer-schema/--force) + exit codes + stdout/stderr byte-for-byte. --target is hard-pinned to claude-code inside the adapter (the plugin is Claude-only). The pre-flip composer.py is preserved as composer.py.preflip (immutable oracle baseline + one-commit backout target).",
+      "constraints": [
+        "${PLUGIN_ROOT}/scripts/composer.py invocation path + flag surface UNCHANGED -> skills (compose/doctor/profile/init/uninstall) need ZERO changes",
+        "plugin_adapter.py is the ONE place the composer.py CLI contract is encoded; pinned by the CLI-contract goldens against the frozen oracle",
+        "reversible: restore composer.py/profiles.py from *.preflip + delete _system2_compiler/ = one-commit backout, zero residue",
+        "GATE before merge: bundle-equivalence (bundle output == compiler == frozen oracle) empty-diff + CLI-contract goldens empty-diff + the plugin's own System2/evals/ suite green"
+      ]
+    },
+    "DriftGuard": {
+      "description": "Phase 5 (C3/G8/NFR-006): machine-enforced vendored-bundle freshness. Two surfaces keyed off BUNDLE.json.compiler_source_sha256.",
+      "surfaces": {
+        "ci_hash_guard": "tools/check_bundle_fresh.py: regenerate the bundle from current compiler source, hash, compare to the committed _system2_compiler/ + BUNDLE.json; FAIL CI when stale ('regenerate via build_bundle.py'). A stale bundle cannot merge.",
+        "doctor_staleness": "system2:doctor gains bundle_freshness (recorded provenance: compiler_version/generated_from) + bundle_tampered (the recomputed vendored-subtree hash != BUNDLE.json.compiler_source_sha256 -> a hand-edited bundle). Report-only in the end-user doctor (does not block compose). The authoritative cross-repo (bundle == regenerated-from-source) check is the CI guard."
+      },
+      "constraints": [
+        "deterministic (pure-copy bundler; bundled_at excluded from the hash)",
+        "drift-guard self-test: mutate a vendored byte -> CI guard fails AND doctor reports bundle_tampered (teeth)"
+      ]
+    },
+    "CapabilityDescriptor": {
+      "description": "backends/capabilities/<backend>.json (REQ-031/036).",
+      "fields": {
+        "version": "str (semver)",
+        "backend": "str",
+        "capabilities": "object keyed by capability name -> { status: enum(native|adapted|advisory|unsupported), mechanism: str }"
+      },
+      "constraints": [
+        "status enum is exactly {native, adapted, advisory, unsupported} (REQ-036)",
+        "every IR capability must be present (completeness, REQ-031)",
+        "for claude-code, all enforced safety capabilities have status 'native' (REQ-034)"
+      ]
+    },
+    "DegradationReport": {
+      "description": "Top-level 'degradation_report' key appended to the lock file (REQ-032/033/037). Additive; appended last to preserve prefix bytes (REQ-019/035).",
+      "fields": {
+        "backend": "str",
+        "capabilities": "object keyed by capability name -> { status: enum(native|adapted|advisory|unsupported), mechanism: str }"
+      },
+      "constraints": [
+        "every capability present in the IR appears with a status (no silent drop, REQ-033)",
+        "parseable JSON within the lock; sole surface for enforced-vs-advisory (REQ-037)"
+      ]
+    },
+    "LockFile": {
+      "description": "spec/overlay-manifest.lock. json.dumps(lock, indent=2) + '\\n' formatting preserved (REQ-019).",
+      "fields": {
+        "composed_at": "str (ISO 8601; reused when content_fingerprint matches)",
+        "content_fingerprint": "str (sha256:...)",
+        "system2_version": "str",
+        "schema_version": "str ('1.0.0')",
+        "overlays": "list[object] (name, version, source_path, local_path, manifest_hash, content_hash)",
+        "contributions_applied": "object (type_path -> list[contribution id])",
+        "warnings": "list[object] (semantic tensions)",
+        "degradation_report": "DegradationReport (Phase 2; additive, last key)"
+      }
+    },
+    "GooseRecipe": {
+      "description": "Phase 3: a Goose recipe YAML (orchestrator system2.recipe.yaml or a role agents/<role>.recipe.yaml). Validated by 'goose recipe validate' (the validity oracle). Parent may be YAML/JSON; sub-recipes are YAML-only and CANNOT nest sub_recipes (maps onto 'subagents cannot spawn subagents').",
+      "fields": {
+        "version": "str (required)",
+        "title": "str (required)",
+        "description": "str (required)",
+        "instructions": "str (orchestrator/role persona + gate checklist + delegation contract + advisory capability blocks, rendered from structured IR fields)",
+        "prompt": "str (initial task framing; references {{ task }})",
+        "parameters": "list[object] { key, input_type, requirement, description } -- EVERY declared parameter MUST be referenced via {{ key }} or validation fails ('Unnecessary parameter definitions'); emitter asserts referenced superset-of declared",
+        "extensions": "list[object] { type: builtin|stdio, name, timeout, bundled } -- e.g. the developer builtin; extensions ADD tools, they cannot GATE builtins",
+        "sub_recipes": "list[object] { name, path (YAML file), values?: map } -- ONLY on the orchestrator; role sub-recipes MUST NOT declare sub_recipes (no nesting)",
+        "settings": "object (per-recipe model override from Role.model_hint when present; omitted otherwise) -- exact shape is OQ-G1, resolve via goose recipe validate"
+      },
+      "constraints": [
+        "valid per 'goose recipe validate' on goose v1.38.0 (the oracle, AC-G1)",
+        "parameters referenced is a superset of parameters declared (else validation fails)",
+        "sub-recipes are YAML-only and declare no nested sub_recipes",
+        "rendered from structured IR fields (gate_graph/delegation_contract/post_execution/maintenance_loop), NOT from base_template/overlay_inputs (Claude-targeted, not consumed)"
+      ]
+    },
+    "GoosePermissionPolicy": {
+      "description": "Phase 3: generated Goose permission policy fragment (project-local goose/permission.yaml) delivering the ADAPTED enforcement for block-dangerous/protect-sensitive. emit writes it under project_path only (pure, home-dir-free); the launcher merges it into the GLOBAL ~/.config/goose/permission.yaml (loud, reversible, opt-in).",
+      "fields": {
+        "user": "object keyed by tool name (shell/Bash, Read, Write, Edit) -> { permission: always_allow|ask_before|never_allow }"
+      },
+      "constraints": [
+        "dangerous-command set -> never_allow on the shell tool; Read/Write/Edit -> ask_before",
+        "paired with GOOSE_MODE=smart_approve (LLM PermissionJudge) set by the launcher",
+        "is a permission gate (adapted), NOT a deterministic block (not native); entries emitted in fixed sorted order for a stable global-merge diff",
+        "global delivery is the launcher's job; emit never touches $HOME"
+      ]
+    },
+    "GooseDegradationReport": {
+      "description": "Phase 3: standalone system2.goose.lock.json (the Goose analogue of the Claude lock's degradation_report; standalone so the claude-code lock format is untouched). Sole machine-readable surface for enforced-vs-advisory on Goose. MUST match goose.json status per capability (AC-G3). Pure function of the IR (no timestamps).",
+      "fields": {
+        "backend": "str ('goose')",
+        "goose_version_assumed": "str ('1.38.0')",
+        "mode": "str ('smart_approve')",
+        "permission_delivery": "str ('global-merge-required')",
+        "DEGRADATION": "str (LOUD headline banner: enforced primitives downgraded to adapted/advisory)",
+        "capabilities": "object keyed by capability name -> { status: enum(adapted|advisory), mechanism: str, enforced: bool, gated: bool }"
+      },
+      "constraints": [
+        "every IR capability appears (completeness; no silent drop; NFR-003 / REQ-033 analogue)",
+        "no capability has status 'native' for goose (AC-G3)",
+        "report status == backends/capabilities/goose.json status per capability (AC-G3)",
+        "adapted caps: enforced=false, gated=true; advisory caps: enforced=false, gated=false (adapted != enforced, T6)"
+      ]
+    },
+    "GooseLauncher": {
+      "description": "Phase 3: thin generated run-system2.sh (C6/NFR-007: launcher, never an abstraction). Validate-then-run only; owns the global permission delivery and GOOSE_MODE.",
+      "steps": [
+        "goose recipe validate system2.recipe.yaml && validate each agents/*.recipe.yaml (fail fast)",
+        "opt-in merge of goose/permission.yaml into ~/.config/goose/permission.yaml (backup prior file; stricter-wins on conflict; LOUD warning if skipped -> adapted enforcement NOT active)",
+        "export GOOSE_MODE=smart_approve",
+        "goose run --recipe system2.recipe.yaml --params task=\"$1\""
+      ],
+      "constraints": [
+        "no workflow logic / no translation / no policy in bash",
+        "generated deterministically",
+        "skipping the permission merge prints a LOUD warning (no silent downgrade, NFR-003)"
+      ]
+    },
+    "DegradationHelper": {
+      "description": "Phase 4 (PG6): the shared descriptor-driven degradation contract (backends/_degradation.py). Separates policy (which caps, order, native-allowed?) from mechanism (record assembly). BYTE-PRESERVING for claude-code/goose; the enabler for Pi's mixed status.",
+      "functions": {
+        "ir_capability_union": "ir_capability_union(capabilities_by_agent: dict[str, list[str]]) -> set[str]",
+        "build_capability_records": "build_capability_records(descriptor: dict, ir_capability_union: set[str], *, fields: tuple[str, ...], allow_native: bool = True) -> dict[str, dict]"
+      },
+      "rules": {
+        "iteration_order": "descriptor 'capabilities' order, filtered to IR-present (matches both existing builders exactly)",
+        "record_key_order": "exactly the supplied 'fields' tuple order (insertion-ordered; the byte-fidelity crux)",
+        "status_to_flags": "native => {enforced:true, gated:false}; adapted => {enforced:false, gated:true}; advisory => {both false}; unsupported => {both false}",
+        "no_silent_drop": "raises ValueError if an IR-present capability is absent from the descriptor (the exact error both builders raise today)",
+        "native_guard": "raises when allow_native is False and any selected status is 'native' (goose)"
+      },
+      "byte_preservation": [
+        "claude-code wrapper: fields=('status','mechanism'), allow_native=True, envelope {backend, capabilities} -> byte-identical to the pre-refactor lock degradation_report",
+        "goose wrapper: fields=('status','mechanism','enforced','gated'), allow_native=False, envelope {backend, goose_version_assumed, mode, permission_delivery, DEGRADATION, capabilities} -> byte-identical to the pre-refactor system2.goose.lock.json",
+        "pi wrapper: fields=('status','mechanism','enforced','gated'), allow_native=True -> the new MIXED report (native+adapted+advisory in one backend)"
+      ]
+    },
+    "PiExtension": {
+      "description": "Phase 4: the generated Pi TypeScript extension (.pi/extensions/system2.ts). A default-export-function module auto-discovered from .pi/extensions/*.ts. Emitted as TEXT by the compiler (never run/transpiled by the compiler; node/pi only in tests). Pi has NO built-in permission system — the generated extension IS the gate. Validity oracle: load via node/pi (discoverAndLoadExtensions / createExtensionRuntime / `pi -e`) + a synthetic-tool_call PROVEN-BLOCKING unit test.",
+      "shape": "import type { ExtensionAPI, ToolCallEvent, ... } from \"@earendil-works/pi-coding-agent\"; export default function (pi: ExtensionAPI) { ... }",
+      "handlers": {
+        "on('tool_call')": "NATIVE safety gates — fires BEFORE a tool and CAN BLOCK; returns ToolCallEventResult {block?: boolean; reason?: string}. block-dangerous: bash command in the backend-owned dangerous set -> {block:true}. protect-sensitive: read/write/edit/bash touching a backend-owned sensitive path -> {block:true}. enforce-lease: write/edit path outside role write_scope -> {block:true} (wired-but-unscoped + honestly reported when write_scope empty). Uses isToolCallEventType('bash'|'read'|'edit'|'write'|...) narrowing.",
+        "on('agent_end')": "ADAPTED budget reporting (a report via ctx.ui.notify / appended summary, NOT a block).",
+        "before_agent_start | context": "inject the System2 orchestrator context ({systemPrompt} or {messages}); seam picked empirically (OQ-P2).",
+        "registerCommand('/delegate')": "bounded dispatcher: validate role in the 13 (delegation_contract.preferred_order), load the role prompt, dispatch; isolation fidelity native vs adapted per the empirical probe (OQ-P1)."
+      },
+      "constraints": [
+        "type-checks against ExtensionAPI and loads under Pi v0.79.9 (AC-P2)",
+        "PROVEN-BLOCKING: synthetic tool_call events assert {block:true} for dangerous bash / sensitive read / off-lease write, and not-blocked for benign inputs (AC-P3)",
+        "dangerous-command + sensitive-path pattern sets are BACKEND-OWNED defaults (keeps the IR neutral; mirrors goose._DANGEROUS_COMMANDS)",
+        "every IR-derived string interpolated into the .ts is escaped for a TS literal (no raw splice; REQ-042 injection posture preserved)",
+        "deterministic: sorted pattern sets, stable escaping, LF endings, single trailing newline; emit(ir) twice byte-identical"
+      ]
+    },
+    "PiArtifactSet": {
+      "description": "Phase 4: the full set of files PiBackend.emit writes under project_path. Deterministic, sorted, pure function of the IR (no timestamps). emit writes only under project_path; never touches $HOME / the user's real ~/.pi.",
+      "files": {
+        ".pi/extensions/system2.ts": "the generated TS gate + /delegate dispatcher + commands + context injection (see PiExtension)",
+        ".pi/SYSTEM.md": "orchestrator context from the structured IR (gate graph 0->5, delegation contract, post-exec/maintenance policy, overlay-contributed material, advisory NOT-ENFORCED blocks, native/adapted notes)",
+        "AGENTS.md": "short auto-loaded project context: System2 one-liner, 13-role inventory, gate pipeline, pointers to SYSTEM.md/skills/the /delegate command",
+        ".pi/prompts/orchestrator.md": "orchestrator prompt template (drive the gate graph, delegate via /delegate)",
+        ".pi/prompts/role-<name>.md": "one prompt template per role of the 13: persona + gate-role + write-scope + model-hint note + native/adapted/advisory capability notes",
+        ".pi/skills/system2-init/SKILL.md": "skill: set up / start the System2 workflow",
+        ".pi/skills/system2-compose/SKILL.md": "skill: run the gate pipeline; use /delegate for the 13 roles; the delegation contract",
+        ".pi/skills/system2-doctor/SKILL.md": "skill: verify the extension loads and the gates are live (operator analogue of the proven-blocking test)",
+        "system2.pi.lock.json": "the MIXED degradation report (see PiDegradationReport)"
+      },
+      "constraints": [
+        "13 roles -> 13 role prompt templates + /delegate targets (AC-P6)",
+        "renders from the STRUCTURED IR fields only; does NOT consume base_template / overlay_inputs (AC-P7)",
+        "emitted as TEXT (TS + markdown + JSON); stdlib-only compiler; no node/TS dependency in the compiler"
+      ]
+    },
+    "PiDegradationReport": {
+      "description": "Phase 4: standalone system2.pi.lock.json — the FIRST mixed-status degradation report (native + adapted + advisory in one backend). Built via the shared backends/_degradation helper (allow_native=True, fields=('status','mechanism','enforced','gated')). Standalone so the claude-code lock is untouched (same posture as the goose lock). Pure function of the IR (no timestamps). MUST match pi.json status per capability.",
+      "fields": {
+        "backend": "str ('pi')",
+        "pi_version_assumed": "str ('0.79.9')",
+        "enforcement": "str ('extension-native-gates')",
+        "subagent_isolation": "str ('native'|'adapted', per the empirical /delegate isolation probe — OQ-P1)",
+        "FIDELITY": "str (headline banner: which gates are NATIVE blocks vs ADAPTED report vs ADVISORY instruction; includes the enforce-lease wired-but-unscoped note when write_scope is empty)",
+        "capabilities": "object keyed by capability name -> { status: enum(native|adapted|advisory), mechanism: str, enforced: bool, gated: bool }"
+      },
+      "constraints": [
+        "every IR capability appears (completeness; no silent drop; NFR-003/REQ-033 analogue)",
+        "MIXES statuses: enforce-lease/block-dangerous/protect-sensitive = native; budget = adapted; format/typecheck = advisory (AC-P4)",
+        "report status == backends/capabilities/pi.json status per capability (AC-P4)",
+        "flags follow the status->flags rule (native=>enforced:true,gated:false; adapted=>enforced:false,gated:true; advisory=>both false)",
+        "enforce-lease honesty: when role write_scope is empty, status stays native (the mechanism — a hard pre-execution block — is real) but the mechanism text + FIDELITY banner state it is wired-but-UNSCOPED until IR-enrichment (OQ-P3); never a silent vacuous native claim (T8)"
+      ]
+    },
+    "CLIArgs": {
+      "description": "system2 (additive, opt-in; REQ-049). Phase 1: a single implicit 'compile'. Phase 3/4 extend --target to goose/pi. Phase 5 (parity): a subcommand dispatcher reaching FULL parity with composer.py — compile | uninstall | doctor | from-lock | profile {list|inspect|save|create|edit|delete} — plus --allow-injection/--force. `system2 compile` (no subcommand) stays back-compatible. Profiles are harness-NEUTRAL (no --target).",
+      "subcommands": {
+        "compile": "--target {claude-code|goose|pi} [--profile N | --overlays P | --from-lock] --base B --project P [--dry-run] [--allow-newer-schema] [--allow-injection] [--format text|json]",
+        "uninstall": "--target {…} --base B --project P --name OVERLAY [--dry-run] [--allow-injection] [--allow-newer-schema] [--format …]",
+        "doctor": "--target {…} --base B --project P [--format …]  (exit 0 if current else 1; goose/pi LOUD validator_unavailable when absent)",
+        "from-lock": "--target {…} --base B --project P [--dry-run] [--allow-injection] [--allow-newer-schema] [--format …]  (sugar for compile --from-lock; own verb for skill-contract parity)",
+        "profile": "{list | inspect NAME | save NAME | create NAME --paths P | edit NAME [--add P]… [--remove OVERLAY]… | delete NAME} [--project P] [--force] [--format …]  (harness-neutral; writes only ~/.system2/profiles.json; rejects --dry-run on mutations; emits the pre-mutation active_in_project signal)"
+      },
+      "args": {
+        "--target": "required for compile/uninstall/doctor/from-lock; enum {claude-code, goose, pi}; NOT used by profile (harness-neutral)",
+        "--profile": "NAME; xor with --overlays/--from-lock; routes through profile resolution; hard-fail on unknown/stale (ported _activate_profile)",
+        "--overlays": "comma-separated overlay source paths; xor with --profile/--from-lock",
+        "--from-lock": "recompose from the target's lock overlay sources (claude: spec/overlay-manifest.lock; goose/pi: overlay_sources[])",
+        "--name": "overlay name to uninstall (kebab-case; ported _uninstall validation)",
+        "--paths / --add / --remove": "profile create paths / edit add+remove (repeatable), ported from --profile-paths/--profile-add/--profile-remove",
+        "--base": "required (compile/uninstall/doctor/from-lock); System2 plugin root",
+        "--project": "required; target project root (must not be inside --base, REQ-020)",
+        "--dry-run": "compute graph + files_to_write, write nothing (REQ-023); REJECTED on profile mutations (exact ported error)",
+        "--allow-injection": "proceed despite prompt-injection warnings in write mode (compile/uninstall/from-lock); else refuse with exit 4 + exact message (ported injection gate)",
+        "--allow-newer-schema": "degraded-mode schema acceptance (lifted)",
+        "--force": "overwrite an existing profile on save/create",
+        "--format": "enum {text, json}; default text"
+      },
+      "constraints": [
+        "the claude-code path of every verb reproduces the frozen oracle's args/exit-codes/stdout/stderr byte-for-byte (CLI-contract goldens)",
+        "mutual-exclusion + sub-flag rejection rules ported verbatim (profile xor overlays xor from-lock xor uninstall; --dry-run rejected on mutations)"
+      ]
+    },
+    "OracleLock": {
+      "description": "evals/oracle.lock.json (REQ-006/007). Discoverable hash-pin of the frozen oracle and its dependencies.",
+      "fields": {
+        "path": "str (abs path to composer.py)",
+        "sha256": "str (hex of composer.py)",
+        "profiles_sha256": "str (hex of profiles.py)",
+        "hook_security_sha256": "str (hex of hook_security.py)"
+      }
+    },
+    "ComparisonPolicy": {
+      "description": "Per-artifact-class golden comparison policy (REQ-004/005). Default byte-identical; all classes byte-identical this cycle (OPEN-1).",
+      "fields": {
+        "artifact_class": "str (CLAUDE.md|agents|lock|warnings)",
+        "mode": "enum {byte-identical, semantic-equivalent}; default byte-identical",
+        "justification": "str | null; required and non-empty when mode == semantic-equivalent"
+      }
+    }
+  }
+}
