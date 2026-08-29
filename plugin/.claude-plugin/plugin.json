@@ -1,0 +1,14 @@
+{
+  "name": "sys2",
+  "description": "A collection of utility skills for Claude Code, independent of the core System2 multi-agent pipeline.",
+  "version": "0.1.4",
+  "author": {
+    "name": "James Nordlund",
+    "url": "https://github.com/DeliberateCode"
+  },
+  "repository": "https://github.com/DeliberateCode/System2-UtilitySkills",
+  "license": "MIT",
+  "skills": [
+    "./skills/"
+  ]
+}
