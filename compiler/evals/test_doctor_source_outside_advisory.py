@@ -1,6 +1,6 @@
-"""C1 — doctor advisory: lock-recorded overlay source resolving OUTSIDE the project.
+"""doctor advisory: lock-recorded overlay source resolving OUTSIDE the project.
 
-Security F-P5-1. A lock's overlay ``source_path[]`` resolving outside ``project_path``
+Security . A lock's overlay ``source_path[]`` resolving outside ``project_path``
 is legitimate (user-equivalent to ``--overlays`` pointing elsewhere) but worth
 surfacing on the read-only drift check: a recompose/uninstall re-reads those
 out-of-tree sources. The advisory is INFORMATIONAL only — it never changes

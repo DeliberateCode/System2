@@ -24,10 +24,10 @@ honesty check can byte-verify agreement.
 Hooks are PORTED, not re-implemented: the dangerous-command / sensitive-path
 matcher sets and the path-normalizing fail-closed lease algorithm come from
 ``backends/_enforcement.py`` (the same proven constants the Pi backend uses).
-Codex-specific hardening (F11) lives in the generated Node glue: stdin/command
-length is capped before matching, a watchdog timeout resolves to BLOCK (exit 2),
+Codex-specific hardening lives in the generated Node glue: stdin and command
+lengths are capped before matching, a watchdog timeout resolves to BLOCK (exit 2),
 and any internal error (malformed JSON, exception, oversize) fails closed — never
-a silent allow. Defense-in-depth (F6): each independently-registered enforcement
+a silent allow. For defense in depth, each independently registered enforcement
 hook carries its own ``system2-hook-canary`` sentinel, and a canary block echoes
 the nonce parsed from the offending command (``system2-canary-blocked:<nonce>``).
 
@@ -66,7 +66,7 @@ _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "codex.json"
 )
 
-# PR #10 review finding 11: hand-pinned, with no automated guard forcing a bump when
+# hand-pinned, with no automated guard forcing a bump when
 # emitted content changes -- nothing today would stop a real behavior change from
 # shipping under an unchanged version number. Bump policy (manual, until guarded):
 # bump the PATCH digit for a bug fix that changes emitted bytes with no new
@@ -74,10 +74,10 @@ _DESCRIPTOR_PATH = os.path.join(
 # capability; bump MAJOR for a breaking change to the emitted surface (e.g. a
 # skill/capability removal). Mirrors PACKAGE_VERSION's policy in
 # compiler/tools/build_pi_package.py.
-_CODEX_PLUGIN_VERSION = "0.2.1"
+_CODEX_PLUGIN_VERSION = "0.2.2"
 
 # Both enforcement guards are PreToolUse; the modern block schema carries this as
-# ``hookSpecificOutput.hookEventName`` (§4a.B).
+# ``hookSpecificOutput.hookEventName``.
 _HOOK_EVENT_NAME = "PreToolUse"
 
 # The role whose write_scope governs a turn when no explicit in-session role switch
@@ -87,17 +87,17 @@ _DEFAULT_ACTIVE_ROLE = "executor"
 
 _ADVISORY_LABEL = "ADVISORY — NOT ENFORCED ON CODEX (instruction only)"
 
-# The trust one-liner (OQ-L, design §4). Carried VERBATIM as a byte-substring in the
-# manifest description, the orchestrator-skill preamble, and the lock FIDELITY banner
-# (three-surface honesty, machine-checked downstream by test_codex_honesty.py / F4).
+# This trust statement appears verbatim in the manifest description, orchestrator
+# preamble, and lock FIDELITY banner so every user-visible surface says when
+# enforcement is inactive.
 _TRUST_ONELINER = (
     "System2 workflows for Codex. NOTE: safety enforcement is INACTIVE until you "
     "review and trust the bundled hooks via /hooks; until then System2 runs "
     "advisory-only."
 )
 
-# The coverage-gap statement (OQ-L, design §4) — carried verbatim in the
-# orchestrator-skill preamble (and the README, TASK-023) and the lock banner.
+# This coverage statement appears verbatim in the orchestrator preamble, README,
+# and lock banner so none of those surfaces can overstate hook coverage.
 _COVERAGE_GAP = (
     "Even with hooks trusted, Codex hooks intercept shell commands and "
     "apply_patch-matched edits; they do NOT intercept WebSearch or other "
@@ -105,9 +105,9 @@ _COVERAGE_GAP = (
     "total."
 )
 
-# The canary sentinel + its base block reason, taken from the SAME _enforcement
-# builder the shell hook consumes (F6). Codex-only inclusion path so Pi's bytes
-# are unaffected. The consumer appends ``:<nonce>`` parsed from the canary command.
+# The canary sentinel and base block reason come from the same enforcement builder
+# consumed by the shell hook. This Codex-only path leaves Pi output unaffected. The
+# consumer appends ``:<nonce>`` parsed from the canary command.
 _CANARY_ENTRY = next(
     e for e in build_dangerous_command_patterns(include_canary=True)
     if e[2] == "system2-canary-blocked"
@@ -250,13 +250,12 @@ def _skill_frontmatter(name: str, description: str) -> List[str]:
 
 
 def _trust_state_block_lines() -> List[str]:
-    """The shared trust-state honesty block (OQ-L): the trust one-liner, the three-row
-    trust-state table, the activation paragraph, and the coverage-gap sentence.
+    """Return the shared trust statement, state table, activation instructions,
+    and coverage limitations.
 
-    Emitted VERBATIM into BOTH the orchestrator-skill preamble and the README so the
-    two honesty surfaces (design line 175) cannot drift from each other or from the
-    manifest/lock — ``_TRUST_ONELINER`` and ``_COVERAGE_GAP`` are the single source
-    (machine-checked by test_codex_honesty.py / F4).
+    The orchestrator preamble and README both use this exact block, while the
+    manifest and lock reuse its constants, so enforcement claims cannot drift
+    between surfaces.
     """
     return [
         _TRUST_ONELINER,
@@ -348,7 +347,7 @@ def _build_orchestrator_skill(ir: System2Graph) -> str:
 
 
 def _build_readme() -> str:
-    """The committed ``README.md`` honesty surface (OQ-L, design line 175).
+    """Build the committed README enforcement-honesty surface.
 
     Carries the SAME trust-state block as the orchestrator preamble (trust one-liner +
     state table + coverage-gap sentence, all from the shared constants) plus the
@@ -426,7 +425,7 @@ def _build_readme() -> str:
 
 
 def _build_doctor_skill() -> str:
-    """The ``system2-doctor`` hook-liveness canary skill (F6, design §4).
+    """Build the ``system2-doctor`` hook-liveness canary skill.
 
     Verdict rests on a machine-observable side-effect artifact (a marker file),
     NEVER agent narration — injected content can fabricate a "canary blocked"
@@ -605,10 +604,10 @@ def _build_role_skill(ir: System2Graph, role) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Utility skills (G14, adapted from the merged plugin/skills/*/SKILL.md — J2)
+# Utility skills adapted from the merged plugin skill bodies
 # ---------------------------------------------------------------------------
 
-# Per-skill external-CLI prerequisite (J2 rule 4, CC-REQ-090).
+# Each utility skill names its external CLI prerequisite.
 _UTILITY_SKILL_PREREQUISITES = {
     "codex": "the OpenAI Codex CLI (`codex`) on PATH",
     "gemini": "Google's Antigravity CLI (`agy`) on PATH",
@@ -618,8 +617,8 @@ _UTILITY_SKILL_PREREQUISITES = {
     ),
 }
 
-# Frontmatter descriptions (J1/J2 rule 1) — adapted from each source SKILL.md's own
-# frontmatter description, naming the CLI prerequisite.
+# Frontmatter descriptions are adapted from each source skill and name the CLI
+# prerequisite.
 _UTILITY_SKILL_DESCRIPTIONS = {
     "codex": (
         "Run a prompt through OpenAI's Codex CLI (`codex exec`) non-interactively for "
@@ -635,8 +634,8 @@ _UTILITY_SKILL_DESCRIPTIONS = {
     ),
 }
 
-# J2 rule 5 (OA-20/CC-REQ-081): the fresh-non-interactive-codex honesty sentence,
-# system2-codex ONLY.
+# Only the Codex utility skill needs to clarify that it starts a fresh,
+# non-interactive Codex process.
 _FRESH_CODEX_HONESTY = (
     "This spawns a NEW non-interactive `codex exec` subprocess — a fresh Codex "
     "instance with none of this session's context. It is a second opinion from a "
@@ -645,14 +644,13 @@ _FRESH_CODEX_HONESTY = (
 
 
 def _build_utility_skill(name: str) -> str:
-    """Adapted body for one of the three Codex utility skills (J1/J2, CC-REQ-076/077).
+    """Build one of the three utility skills from its merged plugin behavior.
 
-    Adapted from ``plugin/skills/<name>/SKILL.md`` — see
-    spec-consolidation-completion/design.md Group J2; keep the sync-guard invariants
-    (rule 6's verbatim tokens: codex `--ephemeral`/`history.persistence=none`; gemini
-    `agy -p`/the flag-migration map/`--print-timeout 9m`; stateless-loop
-    `STATUS: CLEAN`/`claude -p`/`max_iterations`; every "Never pass the prompt
-    unquoted" quoting rule) intact on any future edit.
+    Keep these load-bearing tokens synchronized with the source skills: Codex uses
+    `--ephemeral` and `history.persistence=none`; Gemini uses `agy -p`, its flag
+    migration map, and `--print-timeout 9m`; the stateless loop uses
+    `STATUS: CLEAN`, `claude -p`, and `max_iterations`. Every rule requiring prompts
+    to remain quoted must also stay intact.
     """
     skill_name = f"system2-{name}"
     lines: List[str] = _skill_frontmatter(skill_name, _UTILITY_SKILL_DESCRIPTIONS[name])
@@ -971,10 +969,10 @@ def _build_utility_skill(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Node command hooks (JavaScript, Node stdlib only — REQ-059)
+# Node command hooks (JavaScript, Node stdlib only — )
 # ---------------------------------------------------------------------------
 
-# F11 hardening constants shared by every generated enforcement hook.
+#  hardening constants shared by every generated enforcement hook.
 _MAX_INPUT_BYTES = 1048576   # 1 MiB stdin hard cap (memory guard); over => fail closed
 _MAX_MATCH_LEN = 16384       # per command/path string cap before matching; over => block
 _WATCHDOG_MS = 2000          # no decision within this window => fail closed (BLOCK)
@@ -993,7 +991,7 @@ def _js_regex_array(name: str, patterns) -> List[str]:
 
 
 def _hook_constants_and_helpers(ir: System2Graph, *, include_dangerous: bool) -> List[str]:
-    """The shared prelude: F11 constants, ported matcher sets, and fail-closed helpers."""
+    """The shared prelude:  constants, ported matcher sets, and fail-closed helpers."""
     lines: List[str] = []
     lines.append("#!/usr/bin/env node")
     lines.append('"use strict";')
@@ -1017,7 +1015,7 @@ def _hook_constants_and_helpers(ir: System2Graph, *, include_dangerous: bool) ->
     if include_dangerous:
         lines.append("// Ported from _enforcement.build_dangerous_command_patterns(include_canary=True):")
         lines.append("// [pattern, reason]; fixed order (evaluation order is semantic). The LAST")
-        lines.append("// entry is the F6 canary sentinel — a match echoes the nonce it parsed.")
+        lines.append("// The final entry is the canary sentinel; a match echoes its parsed nonce.")
         lines.extend(
             _js_regex_array(
                 "DANGEROUS_REGEXES",
@@ -1041,7 +1039,7 @@ def _hook_constants_and_helpers(ir: System2Graph, *, include_dangerous: bool) ->
     lines.append("  process.exit(0);")
     lines.append("}")
     lines.append("function allow() { process.exit(0); }")
-    lines.append("// A1 fallback: also emit the honored deny-JSON on stdout BEFORE exiting")
+    lines.append("//  fallback: also emit the honored deny-JSON on stdout BEFORE exiting")
     lines.append("// non-zero, so fail-closed holds even if exit-2 denial is not honored.")
     lines.append("function failClosed(reason) {")
     lines.append("  try { process.stdout.write(denyJson(reason)); } catch (e) {}")
@@ -1054,12 +1052,12 @@ def _hook_constants_and_helpers(ir: System2Graph, *, include_dangerous: bool) ->
     lines.append('  return (typeof r === "string" && r.length > 0) ? r : DEFAULT_ACTIVE_ROLE;')
     lines.append("}")
     lines.append("")
-    lines.append("// F6: parse the nonce from a canary command (touch .system2/canary-<nonce>).")
+    lines.append("// Parse the nonce from a canary command (touch .system2/canary-<nonce>).")
     lines.append("function parseNonce(text) {")
     lines.append('  const m = /canary-([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(text));')
     lines.append("  return m ? m[1] : null;")
     lines.append("}")
-    lines.append("// PR #10 review finding 4: a bare CANARY_SENTINEL substring scan over the")
+    lines.append("// a bare CANARY_SENTINEL substring scan over the")
     lines.append("// raw payload false-positives on any edit whose CONTENT merely mentions the")
     lines.append("// sentinel (e.g. this backend's own source, or the generated doctor skill's")
     lines.append("// own instructions) -- it is not a real canary probe. A genuine canary probe")
@@ -1122,7 +1120,7 @@ def _hook_main_scaffold(decide_lines: List[str]) -> List[str]:
     lines.append("  }")
     lines.append("}")
     lines.append("")
-    lines.append("// F11: a watchdog that resolves to BLOCK (fail closed). If no decision is")
+    lines.append("// The watchdog resolves to BLOCK (fail closed). If no decision is")
     lines.append("// reached within WATCHDOG_MS (e.g. stdin never closes), block rather than")
     lines.append("// hang or silently allow.")
     lines.append('let watchdog = setTimeout(() => { failClosed("watchdog timeout before decision"); }, WATCHDOG_MS);')
@@ -1262,7 +1260,7 @@ def _build_edit_hook_js(ir: System2Graph) -> str:
     decide = [
         "function decide(event, raw) {",
         "  const paths = pathsOf(event);",
-        "  // F6: this enforcement hook carries its own canary sentinel (defense-in-depth).",
+        "  // This enforcement hook carries its own canary sentinel (defense-in-depth).",
         "  const cr = canaryReason(paths);",
         "  if (cr) return cr;",
         "  for (const p of paths) {",
@@ -1308,8 +1306,8 @@ def _build_hooks_config() -> str:
 
     Command strings carry the literal ``{{SYSTEM2_HOOKS_DIR}}`` placeholder — a
     user-scope hook fires across every project (cwd = the project, not ``~/.codex``,
-    A2), so init resolves the placeholder to the ABSOLUTE guard directory when it
-    renders this into ``~/.codex/hooks.json``. The compiler never resolves it (§4a.C).
+    ), so init resolves the placeholder to the ABSOLUTE guard directory when it
+    renders this into ``~/.codex/hooks.json``. The compiler never resolves it.
     """
     hook = lambda name: {
         "type": "command",
@@ -1493,11 +1491,9 @@ def _default_file_mode(existing_path: Optional[str] = None) -> int:
     """The mode a regenerated file should end up at.
 
     If *existing_path* is a file being overwritten, PRESERVE its current mode --
-    never silently widen or narrow an intentional existing permission (Codex
-    second-opinion review, round 2: an earlier version of this fix unconditionally
-    applied the umask-derived default even when overwriting an existing, more
-    restrictive file -- e.g. a 0600 destination silently became 0644, exactly the
-    widening the original finding was about). For a genuinely NEW file, use 0o666
+    never silently widen or narrow intentional permissions. Applying the
+    umask-derived default while overwriting could turn a 0600 destination into 0644.
+    For a genuinely new file, use 0o666
     masked by the process umask -- what ``open()``/``touch`` would produce, unlike
     ``mkstemp``'s fixed 0o600 (deliberately conservative for temp files, wrong for
     files meant to become permanent repo content). Duplicated in backends/pi.py and
@@ -1537,7 +1533,7 @@ def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[st
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
-                # PR #10 review finding 3: mkstemp() defaults to mode 0600; os.replace()
+                # mkstemp() defaults to mode 0600; os.replace()
                 # does not change it, so the final file silently inherited 0600 instead
                 # of a normal, umask-respecting mode for a regular committed source file.
                 os.chmod(tmp, _default_file_mode(dst))
@@ -1594,17 +1590,17 @@ def _overlay_name_of(source_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# User-scope enforcement install (``system2 codex init``) — design §4a.C
+# User-scope enforcement install (``system2 codex init``)
 # ---------------------------------------------------------------------------
 #
-# Codex runs config-layer hook commands with cwd = the project, never ``~/.codex``
-# (A2). A user-scope hook must fire across EVERY project, so the emitted ``command``
+# Codex runs config-layer hook commands with cwd = the project, never ``~/.codex``.
+# A user-scope hook must fire across EVERY project, so the emitted ``command``
 # MUST be an ABSOLUTE path to the guard JS. init copies the committed guard JS into
 # ``~/.codex/system2/hooks/`` and renders ``hooks.json.tmpl`` into ``~/.codex/hooks.json``
 # with ``{{SYSTEM2_HOOKS_DIR}}`` resolved to that absolute dir. It READS the committed
-# ``distributions/codex/user-hooks/`` reference; it never modifies it. ROQ-1
-# (own-with-warning + backup): a pre-existing NON-System2 ``hooks.json`` is never
-# silently clobbered — refuse without ``--force``; with it, back up (timestamped .bak)
+# ``distributions/codex/user-hooks/`` reference; it never modifies it. A pre-existing
+# non-System2 ``hooks.json`` is never silently clobbered: refuse without ``--force``;
+# with it, back up the file (timestamped .bak)
 # and warn LOUDLY first. A small install-state record lets uninstall restore that
 # backup and remove exactly the System2 artifacts.
 
@@ -1618,8 +1614,7 @@ _INSTALL_STATE_REL = os.path.join("system2", "system2-install.json")
 def user_hooks_reference() -> str:
     """The packaged user-hooks reference dir.
 
-    PR #10 review finding 6 (Codex second-opinion review, round 2): this used to
-    walk four ``dirname()`` calls up from this module to find
+    This used to walk four ``dirname()`` calls up from this module to find
     ``distributions/codex/user-hooks/`` at the repo root -- correct only inside a
     full checkout, since ``distributions/`` is not (and cannot cheaply become)
     setuptools package-data. Resolved relative to this module's own package
@@ -1678,7 +1673,7 @@ def _resolve_hook_commands(node: object, hooks_dir_abs: str) -> None:
 
 
 def render_user_hooks_config(reference_dir: str, hooks_dir_abs: str) -> str:
-    """Render ``hooks.json.tmpl`` with ``{{SYSTEM2_HOOKS_DIR}}`` -> *hooks_dir_abs* (absolute, A2).
+    """Render ``hooks.json.tmpl`` with ``{{SYSTEM2_HOOKS_DIR}}`` -> *hooks_dir_abs* (absolute, ).
 
     The template is parsed as JSON and rebuilt with each command's placeholder resolved
     to a shell-quoted absolute path, then re-serialized via ``json.dumps`` — so a home
@@ -1709,7 +1704,7 @@ def _hooks_json_has_system2_signature(hooks_json_path: str, guard_names: List[st
     Ownership must not hinge on the install-state file alone: a partial or
     state-corrupted System2 install (state missing/unreadable but hooks.json present)
     must still be recognized as System2-owned, never misclassified as a foreign file
-    (which would invert ROQ-1 under ``--force``, S-Recovery). The signature is the
+    (which would invert  under ``--force``, S-Recovery). The signature is the
     materialized guard directory segment or any guard basename in the command strings.
     """
     try:
@@ -1727,7 +1722,7 @@ def _hooks_json_is_unmodified(
 ) -> bool:
     """True iff ``hooks.json`` is still exactly what this System2 install wrote.
 
-    Codex second-opinion review, round 3, finding 5: the substring-based
+    the substring-based
     ``_hooks_json_has_system2_signature`` check only proves "a System2 fragment is
     present somewhere in this file" -- a user who hand-added their OWN extra hooks
     while leaving System2's entries in place still matches it, so uninstall would
@@ -1799,19 +1794,20 @@ def codex_init(
 
     ``status`` is ``"installed"``, ``"dry_run"``, or ``"refused"`` (a pre-existing
     non-System2 ``hooks.json`` without ``--force`` — never a silent clobber). The hook
-    ``command`` strings written are ABSOLUTE (A2). Re-running over a prior System2
-    install is idempotent (the original backup is preserved).
+    Hook ``command`` strings are absolute so they work from every project directory.
+    Re-running over a prior System2 install is idempotent and preserves the original
+    backup.
     """
     home = resolve_codex_home(codex_home)
     auto_discovered = reference_dir is None
     ref = reference_dir or user_hooks_reference()
 
-    # N3: a missing/invalid reference dir must fail cleanly (the CLI turns this into an
-    # error exit code), never a raw FileNotFoundError traceback from os.listdir/open.
+    # A missing or invalid reference directory becomes a clean CLI error, never a
+    # raw FileNotFoundError traceback from os.listdir/open.
     if not os.path.isdir(ref) or not os.path.isdir(os.path.join(ref, "hooks")):
         if auto_discovered:
-            # Codex second-opinion review, round 2: the reference tree is now real
-            # package-data (system2_compiler/_packaged_data/codex_user_hooks/, see
+            # The reference tree is real package data
+            # (system2_compiler/_packaged_data/codex_user_hooks/; see
             # user_hooks_reference()'s docstring), verified end-to-end by building
             # a real wheel, installing it fresh, and running this command from
             # outside any checkout -- so reaching this branch is no longer the
@@ -1845,7 +1841,7 @@ def codex_init(
     # signature in an existing hooks.json — so a partial/state-corrupted install is
     # never treated as a foreign file.
     #
-    # Codex second-opinion review, round 4, finding 3: a prior install-state record
+    # a prior install-state record
     # ALONE used to be treated as sufficient proof of ownership, so re-running
     # `system2 codex init` unconditionally overwrote hooks.json even if the user had
     # hand-edited it since the last write (confirmed by direct reproduction: a
@@ -1937,7 +1933,7 @@ def codex_init(
     # brackets the install — an interrupted run still leaves a System2 marker, so a
     # re-run recognizes ownership instead of misclassifying it as foreign.
     #
-    # Codex second-opinion review, round 3 (finding 7, precision upgrade): the
+    # the
     # coarse "does the current file contain a signature substring" check used at
     # uninstall time correctly protects a FULLY foreign replacement, but not a
     # file where the user ADDED their own hooks while leaving System2's entries
@@ -1965,7 +1961,7 @@ def codex_init(
         shutil.copy2(os.path.join(ref, "hooks", name), dst)
         written.append(dst)
 
-    # S4: never write THROUGH a symlink — unlink an existing symlinked hooks.json first.
+    # never write THROUGH a symlink — unlink an existing symlinked hooks.json first.
     if os.path.islink(hooks_json):
         os.unlink(hooks_json)
     with open(hooks_json, "w", encoding="utf-8") as fh:
@@ -2001,7 +1997,7 @@ def codex_uninstall(codex_home: Optional[str] = None, *, dry_run: bool = False) 
         return {"status": "nothing", "removed": [], "restored_backup": None,
                 "hooks_json_removed": False, "codex_home": home}
 
-    # S3: never act on a state record that has been tampered into a path-traversal.
+    # never act on a state record that has been tampered into a path-traversal.
     # Only bare basenames are removed (a ``/`` or ``..`` entry is skipped), and the
     # backup is restored ONLY if it resolves INSIDE codex_home.
     guard_names = [n for n in state.get("hook_files", []) if _is_safe_basename(n)]
@@ -2016,7 +2012,7 @@ def codex_uninstall(codex_home: Optional[str] = None, *, dry_run: bool = False) 
     )
     backup_available = backup_inside_home and os.path.isfile(backup_path)
 
-    # PR #10 review finding 7 (+ Codex second-opinion review): the install-state
+    # the install-state
     # record alone is not proof the CURRENT hooks.json content is still System2's --
     # a user may have hand-replaced it since init, in EITHER the backup-exists or
     # no-backup case. An earlier fix only content-signature-checked the no-backup
@@ -2025,7 +2021,7 @@ def codex_uninstall(codex_home: Optional[str] = None, *, dry_run: bool = False) 
     # once, up front, and use the SAME computed decision for both the dry-run preview
     # and the real run, so they can never drift from each other.
     #
-    # Codex second-opinion review, round 3, finding 5: prefer an exact digest
+    # prefer an exact digest
     # comparison (recorded by codex_init as hooks_json_sha256) over the coarse
     # substring signature check, so a user who added their OWN hooks alongside
     # System2's is correctly treated as "modified" and left alone, instead of
@@ -2353,7 +2349,7 @@ class CodexBackend:
     # -----------------------------------------------------------------------
 
     def doctor(self, project_path: str) -> DoctorReport:
-        """Read-only drift/status report — the documented honest subset (design §4).
+        """Return a read-only drift report without claiming unobservable hook state.
 
         Verifies emitted-content INTEGRITY against the lock where paths are known
         (the fixed manifest/hooks/skill artifacts exist; recorded overlay sources
@@ -2417,8 +2413,8 @@ class CodexBackend:
                     "message": f"generated Codex artifact is missing: {rel}",
                 })
 
-        # HONEST SUBSET (design §4): hook trust/approval state is NOT machine-observable
-        # by the compiler. Always surface this loudly and delegate to the canary skill.
+        # Hook trust and approval are not observable by the compiler. Always surface
+        # that limitation loudly and delegate the liveness check to the canary skill.
         details.append({
             "kind": "validator_unavailable",
             "message": (

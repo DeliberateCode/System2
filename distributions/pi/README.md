@@ -26,7 +26,7 @@ Re-running is idempotent: a file already byte-identical to the package payload i
 
 This package ships the **base 13-role workflow** — the general-purpose spec-driven pipeline composed with an empty overlay set — **plus three utility skills**, `system2-codex`, `system2-gemini`, and `system2-stateless-loop`, each requiring its own external CLI on PATH.
 
-Overlays and profiles (per-project role customization, OPEN-G) are a **compiler-path** feature. They are NOT available through this npm package: applying overlays requires cloning [DeliberateCode/System2](https://github.com/DeliberateCode/System2) and running the System2 compiler CLI (`system2 compile --target pi …`) against your overlays. This package is the precompiled base emission; it contains no compiler and reads no overlay input at install time or at runtime.
+Overlays and profiles for per-project role customization are a **compiler-path** feature. They are NOT available through this npm package: applying overlays requires cloning [DeliberateCode/System2](https://github.com/DeliberateCode/System2) and running the System2 compiler CLI (`system2 compile --target pi …`) against your overlays. This package is the precompiled base emission; it contains no compiler and reads no overlay input at install time or at runtime.
 
 ## Utility skills
 

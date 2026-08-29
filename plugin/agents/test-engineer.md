@@ -50,7 +50,7 @@ Verification workflow:
    - If fixes require production code changes, delegate to executor with the diagnosis.
 
 Test authoring rules:
-- Add tests that map directly to REQ IDs and spec edge cases.
+- Add tests that map directly to required behavior and relevant edge cases. Name the behavior in the test or its documentation instead of citing a generated identifier.
 - Prefer unit tests for pure logic; use integration tests only when necessary.
 - Avoid brittle snapshots unless the repo standardizes them.
 
@@ -77,7 +77,7 @@ Test mutation policy:
   2. approved behavior change
   3. flaky/environment fix
   4. harness/config repair
-- If the change is category (2), cite the REQ ID or approved design section. During active corrective execution, the corrective requirement packet's IDs are valid citations (see executor maintenance rules).
+- If the change is category (2), describe the approved behavior change and the design rationale directly. Do not cite generated requirement, task, finding, or decision identifiers.
 - If the change weakens signal, escalate to `code-reviewer` and user gate.
 
 Completion summary (use attempt_completion):

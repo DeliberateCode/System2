@@ -6,7 +6,7 @@
 // (AGENTS.md, .pi/SYSTEM.md, the lock) from this package's payload/project/ directory
 // into the current project.
 //
-// Security posture (design "Pi npm package" project-file-mismatch resolution; F5):
+// Security posture (design "Pi npm package" project-file-mismatch resolution; ):
 //   * The payload source is resolved PACKAGE-RELATIVE from this module's own location
 //     (import.meta.url) -- robust across a global ~/.pi/agent/npm/ install and a
 //     project-local .pi/npm/ install; no absolute path is baked into the package.

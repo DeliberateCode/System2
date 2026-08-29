@@ -19,7 +19,7 @@ const DEFAULT_ACTIVE_ROLE = "executor";
 
 // Ported from _enforcement.build_dangerous_command_patterns(include_canary=True):
 // [pattern, reason]; fixed order (evaluation order is semantic). The LAST
-// entry is the F6 canary sentinel — a match echoes the nonce it parsed.
+// The final entry is the canary sentinel; a match echoes its parsed nonce.
 const DANGEROUS_REGEXES = [
   [new RegExp("\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*|-r\\s+-f|-f\\s+-r|-[a-zA-Z]*r[a-zA-Z]*\\s+-[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*\\s+-[a-zA-Z]*r[a-zA-Z]*|--recursive\\s+--force|--force\\s+--recursive|--recursive\\s+-f|-f\\s+--recursive|-r\\s+--force|--force\\s+-r|--recursive[^|;&]*-f|-f[^|;&]*--recursive|-r[^|;&]*--force|--force[^|;&]*-r)\\s*(/|/\\*)\\s*($|;|\\||&)", "m"), "rm -rf targeting root filesystem (/) is extremely dangerous"],
   [new RegExp("\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*|-r\\s+-f|-f\\s+-r|-[a-zA-Z]*r[a-zA-Z]*\\s+-[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*\\s+-[a-zA-Z]*r[a-zA-Z]*|--recursive\\s+--force|--force\\s+--recursive|--recursive\\s+-f|-f\\s+--recursive|-r\\s+--force|--force\\s+-r|--recursive[^|;&]*-f|-f[^|;&]*--recursive|-r[^|;&]*--force|--force[^|;&]*-r)\\s*\\./?(?:\\s|$|;|\\||&)", "m"), "rm -rf targeting current directory (.) could delete critical files"],
@@ -134,7 +134,7 @@ function block(reason) {
   process.exit(0);
 }
 function allow() { process.exit(0); }
-// A1 fallback: also emit the honored deny-JSON on stdout BEFORE exiting
+//  fallback: also emit the honored deny-JSON on stdout BEFORE exiting
 // non-zero, so fail-closed holds even if exit-2 denial is not honored.
 function failClosed(reason) {
   try { process.stdout.write(denyJson(reason)); } catch (e) {}
@@ -147,12 +147,12 @@ function activeRole() {
   return (typeof r === "string" && r.length > 0) ? r : DEFAULT_ACTIVE_ROLE;
 }
 
-// F6: parse the nonce from a canary command (touch .system2/canary-<nonce>).
+// Parse the nonce from a canary command (touch .system2/canary-<nonce>).
 function parseNonce(text) {
   const m = /canary-([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(text));
   return m ? m[1] : null;
 }
-// PR #10 review finding 4: a bare CANARY_SENTINEL substring scan over the
+// a bare CANARY_SENTINEL substring scan over the
 // raw payload false-positives on any edit whose CONTENT merely mentions the
 // sentinel (e.g. this backend's own source, or the generated doctor skill's
 // own instructions) -- it is not a real canary probe. A genuine canary probe
@@ -262,7 +262,7 @@ function run(raw) {
   }
 }
 
-// F11: a watchdog that resolves to BLOCK (fail closed). If no decision is
+// The watchdog resolves to BLOCK (fail closed). If no decision is
 // reached within WATCHDOG_MS (e.g. stdin never closes), block rather than
 // hang or silently allow.
 let watchdog = setTimeout(() => { failClosed("watchdog timeout before decision"); }, WATCHDOG_MS);

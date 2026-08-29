@@ -16,7 +16,7 @@ Hermetic guarantees:
   PATH (an empty temp dir as the only ``PATH`` entry, with the env overrides
   cleared) so ``doctor`` reports ``validator_available=False`` + a
   ``validator_unavailable`` finding while still exiting 0 on a ``current`` tree
-  (LOCKED OQ-5.2).
+  (LOCKED ).
 
 Asserts:
 
@@ -27,7 +27,7 @@ Asserts:
   last-overlay full teardown, not-installed refusal; ``UninstallResult`` fields.
 * ``recompose_from_lock``: round-trips via ``overlay_sources[]`` (emit ->
   ``read_lock_overlay_sources`` -> recompose -> same artifact set).
-* The ``--allow-newer-schema`` forward (FIX-A) reaches Pi ``uninstall``: a
+* The ``--allow-newer-schema`` flag reaches Pi ``uninstall``: a
   multi-overlay uninstall whose REMAINING overlay declares a newer schema succeeds
   only when the flag is threaded through.
 
@@ -208,7 +208,7 @@ class PiLifecycleTest(_LifecycleBase):
         self.assertEqual(report.status, "current", report.details)
         self.assertEqual(
             report.exit_code, 0,
-            "absent validator on a current tree is exit 0 (OQ-5.2), not punished",
+            "absent validator on a current tree is exit 0, not punished",
         )
 
     # -- uninstall ----------------------------------------------------------

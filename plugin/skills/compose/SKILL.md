@@ -207,7 +207,7 @@ Tell the user: "The composition engine exited with unexpected code N. Check the 
 
 These steps apply when `--uninstall` was detected in the Arguments section (step 10).
 
-### U1. Run dry-run preview first (always)
+### Run the uninstall dry-run preview first
 
 **Always** run the composer in dry-run mode first, regardless of whether the user passed `--dry-run`:
 
@@ -221,9 +221,9 @@ python3 "${PLUGIN_ROOT}/scripts/composer.py" \
   --format text
 ```
 
-Include `--allow-newer-schema` if the user passed it. Capture stdout, stderr, and the exit code. If the exit code is not 0, skip to step U5 to handle the error. Otherwise, continue.
+Include `--allow-newer-schema` if the user passed it. Capture stdout, stderr, and the exit code. If the exit code is not 0, skip to the uninstall error-handling step. Otherwise, continue.
 
-### U2. Present the uninstall preview
+### Present the uninstall preview
 
 Present the uninstall report from stdout to the user. The report includes:
 - Overlay being removed (name and version)
@@ -231,7 +231,7 @@ Present the uninstall report from stdout to the user. The report includes:
 - Files and directories to be removed (stale artifacts from the uninstalled overlay)
 - CLAUDE.md preview (first 20 lines of the resulting CLAUDE.md)
 
-### U3. Gate: user approval
+### Require user approval for uninstall
 
 If the user passed `--dry-run`, tell them:
 "Dry run complete. No files were written. To apply the uninstall, run `/system2:compose --uninstall <overlay-name>` without `--dry-run`."
@@ -242,7 +242,7 @@ If the user did NOT pass `--dry-run`, ask for explicit approval before writing:
 
 Wait for user approval. If the user declines, stop without writing.
 
-### U4. Execute uninstall in write mode
+### Execute uninstall in write mode
 
 After user approval, run the composer in write mode (same command without `--dry-run`). Forward any flags that were used in the dry-run (`--allow-injection` if injection warnings were approved, `--allow-newer-schema` if the user opted into degraded mode):
 
@@ -259,9 +259,9 @@ python3 "${PLUGIN_ROOT}/scripts/composer.py" \
 Capture stdout, stderr, and the exit code. If exit code is 0, tell the user:
 "Uninstall complete. The overlay has been removed and the project artifacts have been updated."
 
-If the exit code is not 0, handle it per step U5.
+If the exit code is not 0, use the uninstall error handling below.
 
-### U5. Handle errors
+### Handle uninstall errors
 
 Handle errors using the same exit code mapping as step 4 of the compose flow:
 
@@ -275,7 +275,7 @@ Handle errors using the same exit code mapping as step 4 of the compose flow:
 
 These steps apply when `--profile <name>` was detected in the Arguments section (step 11). Activation composes the profile's saved overlay set into the current project using the same preview-then-approve flow as a normal compose. The composer resolves the profile to its ordered overlay paths and reuses the composition engine; it hard-fails (without writing anything) if the profile is unknown or if any of its overlay paths is missing or unresolvable.
 
-### P1. Run dry-run preview first (always)
+### Run the profile activation dry-run preview first
 
 **Always** run the composer in dry-run mode first, regardless of whether the user passed `--dry-run`:
 
@@ -291,11 +291,11 @@ python3 "${PLUGIN_ROOT}/scripts/composer.py" \
 
 Include `--allow-newer-schema` if the user passed it. Capture stdout, stderr, and the exit code. If the exit code is not 0, handle it using the exit-code mapping in step 4 of the compose flow (an unknown profile or an unresolvable/missing overlay path surfaces there as a validation error naming the offending profile or path) and stop. Otherwise, continue.
 
-### P2. Present the activation preview
+### Present the activation preview
 
 Present the composition report from stdout exactly as in step 3a of the compose flow: overlays composed (name and version), contributions applied, composed CLAUDE.md line count, files that would be written, plus any deferred contributions, semantic tension warnings, size warning, and prompt injection warnings. Treat prompt injection warnings as a security gate the same way the compose flow does.
 
-### P3. Gate: user approval
+### Require user approval for profile activation
 
 If the user passed `--dry-run`, tell them:
 "Dry run complete. No files were written. To activate the profile, run `/system2:compose --profile <name>` without `--dry-run`."
@@ -308,7 +308,7 @@ If prompt injection warnings were present, call them out in the approval prompt 
 
 Wait for user approval. If the user declines, stop without writing.
 
-### P4. Write composed artifacts
+### Write the activated profile's composed artifacts
 
 After user approval, re-invoke the same command WITHOUT `--dry-run` to write. Forward any flags that were used in the dry-run (`--allow-injection` if injection warnings were approved, `--allow-newer-schema` if the user opted into degraded mode):
 
@@ -332,7 +332,7 @@ If the exit code is not 0, handle it using the exit-code mapping in step 4 of th
 
 These steps apply when `--save-profile`, `create`, `edit`, or `delete` was detected in the Arguments section (steps 12-13). Mutations change only the stored profile definition; they never write project artifacts and never recompose on their own. The composer REJECTS `--dry-run` with mutations (it exits 1 with a clear error), so never pass `--dry-run` for `--save-profile`, `create`, `edit`, or `delete`, and do not run a dry-run preview for them.
 
-### M1. Build and run the mutation command
+### Build and run the profile mutation command
 
 Build the command that matches the requested operation:
 
@@ -384,18 +384,18 @@ Add `--force` only for save/create when the user wants to overwrite an existing 
 
 If the exit code is not 0, present the error to the user. Exit 1 means a validation error (for example: the profile name is invalid, the profile already exists without `--force`, there is no current composition to capture, an overlay to remove is not in the profile, or the profile is unknown). Exit 3 means an I/O error writing the profile store. Suggest the matching fix and stop.
 
-### M2. Present the mutation summary
+### Present the profile mutation summary
 
 On success, present the mutation summary from the output: the profile name, where it is stored, and its resulting overlay set (with resolved overlay names where available). For a delete, confirm the profile was removed.
 
-### M3. Recompose prompt (only when the profile is active here)
+### Offer recomposition when the profile is active here
 
 After presenting the summary, read the active-profile signal from the same output: in `--format text` it is the one-line "Profile `<name>` is currently active in this project." note; in `--format json` it is the `active_in_project` boolean field. This signal reports whether the just-mutated profile's overlay set matches what is currently composed in this project's lock.
 
 - If the signal indicates the profile is NOT active in this project, you are done. The mutation changed only the stored profile definition.
 - If the signal indicates the profile IS active in this project, the project's composed artifacts no longer match the updated profile. Ask the user:
   "Profile `<name>` is active in this project. Recompose now?"
-  - On approval: run the standard "Profile Activation Steps" above for `--profile <name>` (P1 dry-run preview -> P3 approval gate -> P4 write). Do not invent a separate write path; recomposition goes through the exact same preview-then-approve activation flow.
+  - On approval: run the standard "Profile Activation Steps" above for `--profile <name>`: dry-run preview, approval gate, then write. Do not invent a separate write path; recomposition goes through the exact same preview-then-approve activation flow.
   - On decline: tell the user "No changes were made to this project's composed artifacts." and stop.
 
 Never recompose automatically. Recomposition only ever happens through the standard activation flow above and only after the user explicitly approves it here.

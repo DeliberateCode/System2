@@ -1,6 +1,6 @@
 """The Claude projection (the only backend this cycle).
 
-Relocated verbatim from the frozen ``composer.py`` oracle (C2/REQ-017 keeps the
+Relocated verbatim from the frozen ``composer.py`` oracle (/ keeps the
 plugin untouched): the CLAUDE.md assembly (``_render_contribution`` /
 ``_generate_claude_md`` / ``_insert_overlay_sections``), the lock generation
 (``_generate_lock`` + the content-fingerprint / ``composed_at``-reuse idempotency
@@ -8,7 +8,7 @@ block lifted from the tail of ``composer.compose``), the content copy
 (``_copy_overlay_content`` / ``_collect_content_files`` / ``_resolve_content_file``),
 and the atomic write/backup/restore (``_write_outputs`` / ``_makedirs_tracked``).
 
-Byte-identity is the gate (REQ-014). Every determinism carrier moves unchanged:
+Byte-identity is the gate. Every determinism carrier moves unchanged:
 the ``<!-- COMPOSED ... -->`` header block, ``_SECTION_RE`` / ``_GATE_LINE_RE``
 scanning, the ``"\\n".join(out)`` join, the EOF-append ordering,
 ``json.dumps(lock, indent=2) + "\\n"``, the lock key insertion order, the
@@ -26,7 +26,7 @@ manifests/anchor map/profiles, this backend reads the ``System2Graph``:
 - ``ir.system2_version`` — the version string.
 - ``ir.warnings.semantic_tensions`` — the lock ``warnings`` array.
 - ``ir.overlay_inputs`` — the validated overlay manifests + resolved source dirs,
-  in front-end order (the CLAUDE-targeted byte-fidelity carrier, design T4): the
+  in front-end order (the CLAUDE-targeted byte-fidelity carrier, design ): the
   per-overlay lock metadata, the fingerprint inputs, the content copies, and the
   auxiliary-agent file references derive from these exactly as the oracle derives
   them from ``validated_manifests`` + ``overlay_path_map``.
@@ -58,7 +58,7 @@ _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 # The backend reads its OWN capability descriptor (a JSON data file, not an
 # ``ir/*`` module import — module-boundaries hold). Every capability present in
 # the IR is enumerated in the lock's ``degradation_report`` with its status from
-# this descriptor (REQ-032/033/037).
+# this descriptor.
 _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "claude_code.json"
 )
@@ -654,13 +654,13 @@ def _build_degradation_report(
     a JSON data file, not an ``ir/*`` import) and enumerates EVERY intent capability
     present in the IR with its per-capability ``status`` / ``mechanism`` from the
     descriptor. "Present in the IR" is the union of ``ir.capabilities.by_agent``
-    values. No IR capability may be absent from the report (REQ-033 no-silent-drop):
+    values. No IR capability may be absent from the report ( no-silent-drop):
     a capability in the IR but missing from the descriptor raises, never silently
     drops. Capability order follows the descriptor (deterministic).
 
     The report is purely additive: it is appended LAST to the lock and feeds neither
     the content fingerprint nor the ``composed_at`` reuse (those are computed over
-    inputs in ``_compute_idempotency``), so idempotency is unaffected (REQ-035).
+    inputs in ``_compute_idempotency``), so idempotency is unaffected.
     """
     with open(descriptor_path, "r", encoding="utf-8") as fh:
         descriptor = json.load(fh)
@@ -685,11 +685,11 @@ def _generate_lock(
     content_fingerprint: str = "",
     degradation_report: Optional[dict] = None,
 ) -> dict:
-    """Generate the lock file structure per spec/design.md schema.
+    """Generate the stable Claude lock structure.
 
-    Key insertion order is load-bearing for byte-identity (REQ-019): preserved
+    Key insertion order is load-bearing for byte-identity: preserved
     exactly as the oracle constructs the dict. The Phase-2 ``degradation_report``
-    is appended LAST (REQ-032/035) so every prior key's bytes are unchanged; it is
+    is appended LAST so every prior key's bytes are unchanged; it is
     omitted entirely when not supplied (preserving the Phase-1 prefix exactly).
     """
 
@@ -731,14 +731,13 @@ def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
 
 
 def _default_file_mode(existing_path: Optional[str] = None) -> int:
-    """The mode a regenerated file should end up at: PRESERVE an existing
-    destination's current mode if one is being overwritten (Codex second-opinion
-    review, round 2: an earlier version unconditionally applied the umask-derived
-    default even over an existing, more restrictive file -- matters most here,
-    since this backend writes into an arbitrary user's own project, not just this
-    repo's own committed distribution trees), else 0o666 masked by the process
-    umask for a genuinely new file (what ``open()``/``touch`` would produce, unlike
-    ``mkstemp``'s fixed 0o600). Duplicated in backends/codex.py and backends/pi.py."""
+    """Return the mode a regenerated file should have.
+
+    Preserve an existing destination's mode when overwriting so a restrictive user
+    permission is never changed silently. For a new file, use 0o666 masked by the
+    process umask, matching ``open`` rather than ``mkstemp``'s fixed 0o600. This
+    behavior is intentionally duplicated in the Pi and Codex writers.
+    """
     if existing_path is not None and os.path.exists(existing_path):
         return os.stat(existing_path).st_mode & 0o777
     umask = os.umask(0)
@@ -945,7 +944,7 @@ def _write_outputs(
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
-                # PR #10 review finding 3: mkstemp() defaults to mode 0600; os.replace()
+                # mkstemp() defaults to mode 0600; os.replace()
                 # does not change it, so a composed project's files would silently
                 # inherit 0600 instead of the normal 0644 for a regular text file.
                 os.chmod(tmp_path, _default_file_mode(file_path))
@@ -1463,7 +1462,7 @@ def _drift_check(base_path: str, project_path: str) -> dict:
 
         overlay_statuses.append(ov_status)
 
-    # Advisory (security F-P5-1): lock sources resolving OUTSIDE the project dir.
+    # Advisory (security ): lock sources resolving OUTSIDE the project dir.
     # Off by default so the frozen claude-doctor CLI contract stays byte-identical
     # (the contract's reused fixture source is legitimately out-of-tree); opt in via
     # SYSTEM2_DOCTOR_ADVISORIES=1. Informational only — never changes status/exit.
@@ -1519,7 +1518,7 @@ class ClaudeCodeBackend:
         self._compose_fn = compose_fn
 
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
-        # Defense-in-depth (REQ-020): never write into an overlay source tree. The
+        # Defense-in-depth: never write into an overlay source tree. The
         # front-end already refuses project_path inside the plugin base; the backend
         # re-guards against the overlay dirs it can see on the IR.
         real_project = os.path.realpath(project_path)
@@ -1592,7 +1591,7 @@ class ClaudeCodeBackend:
         )
 
         # 5. Lock file (warnings = semantic tensions, as the oracle does). The
-        # additive degradation_report is appended LAST (REQ-032/035): it preserves
+        # additive degradation_report is appended LAST: it preserves
         # every prior key's bytes and does not feed the fingerprint/composed_at.
         warnings_for_lock = list(ir.warnings.semantic_tensions)
         lock = _generate_lock(
@@ -1659,7 +1658,7 @@ class ClaudeCodeBackend:
     def read_lock_overlay_sources(self, project_path: str) -> List[str]:
         """Read the applied overlays' ``source_path`` set from the lock.
 
-        Mirrors the oracle's ``--from-lock`` resolution (~L4098): each overlay's
+        Mirrors the oracle's ``--from-lock`` resolution: each overlay's
         ``source_path``, skipping empties. Raises ``FileNotFoundError`` when the lock
         is absent and ``json.JSONDecodeError`` when it is malformed (the CLI maps
         these to the oracle's exact refusals).
@@ -1736,11 +1735,11 @@ class ClaudeCodeBackend:
         Validates the kebab-case name, reads ``spec/overlay-manifest.lock``, refuses
         on malformed lock / missing name / not-installed (with the exact
         installed-list message), and dispatches: on >=1 remaining -> recompose the
-        remaining ``source_path`` set via ``compose_fn`` then ``emit`` (REQ-014
+        remaining ``source_path`` set via ``compose_fn`` then ``emit`` (
         byte-identity holds — same compose->emit path); on 0 remaining -> revert
         ``CLAUDE.md`` to the base template, remove the lock + stale artifacts, clean
         the empty ``.system2/overlays/`` dir, all under the atomic backup/restore
-        (REQ-044). ``allow_newer_schema`` is threaded into the remaining-set recompose
+       . ``allow_newer_schema`` is threaded into the remaining-set recompose
         (matching the oracle's ``_uninstall`` -> ``compose`` forwarding), so a
         remaining overlay declaring a newer schema is accepted exactly as it would be
         on a direct compose. Returns the neutral ``UninstallResult`` the CLI renders.
@@ -1995,7 +1994,7 @@ class ClaudeCodeBackend:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(base_claude_md)
-                # PR #10 review finding 3: mkstemp() defaults to mode 0600; os.replace()
+                # mkstemp() defaults to mode 0600; os.replace()
                 # does not change it, so a project's composed CLAUDE.md would silently
                 # inherit 0600 instead of the normal 0644 for a regular text file.
                 os.chmod(tmp_path, _default_file_mode(claude_path))

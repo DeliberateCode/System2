@@ -110,7 +110,7 @@ function block(reason) {
   process.exit(0);
 }
 function allow() { process.exit(0); }
-// A1 fallback: also emit the honored deny-JSON on stdout BEFORE exiting
+//  fallback: also emit the honored deny-JSON on stdout BEFORE exiting
 // non-zero, so fail-closed holds even if exit-2 denial is not honored.
 function failClosed(reason) {
   try { process.stdout.write(denyJson(reason)); } catch (e) {}
@@ -123,12 +123,12 @@ function activeRole() {
   return (typeof r === "string" && r.length > 0) ? r : DEFAULT_ACTIVE_ROLE;
 }
 
-// F6: parse the nonce from a canary command (touch .system2/canary-<nonce>).
+// Parse the nonce from a canary command (touch .system2/canary-<nonce>).
 function parseNonce(text) {
   const m = /canary-([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(text));
   return m ? m[1] : null;
 }
-// PR #10 review finding 4: a bare CANARY_SENTINEL substring scan over the
+// a bare CANARY_SENTINEL substring scan over the
 // raw payload false-positives on any edit whose CONTENT merely mentions the
 // sentinel (e.g. this backend's own source, or the generated doctor skill's
 // own instructions) -- it is not a real canary probe. A genuine canary probe
@@ -186,7 +186,7 @@ function pathsOf(event) {
 
 function decide(event, raw) {
   const paths = pathsOf(event);
-  // F6: this enforcement hook carries its own canary sentinel (defense-in-depth).
+  // This enforcement hook carries its own canary sentinel (defense-in-depth).
   const cr = canaryReason(paths);
   if (cr) return cr;
   for (const p of paths) {
@@ -212,7 +212,7 @@ function run(raw) {
   }
 }
 
-// F11: a watchdog that resolves to BLOCK (fail closed). If no decision is
+// The watchdog resolves to BLOCK (fail closed). If no decision is
 // reached within WATCHDOG_MS (e.g. stdin never closes), block rather than
 // hang or silently allow.
 let watchdog = setTimeout(() => { failClosed("watchdog timeout before decision"); }, WATCHDOG_MS);

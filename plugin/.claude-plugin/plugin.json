@@ -3,7 +3,7 @@
   "description": "Multi-agent engineering workflows with spec-driven quality gates, safety hooks, and structured verification.",
   "version": "1.2.0",
   "author": {
-    "name": "James Nordlund",
+    "name": "DeliberateCode",
     "url": "https://github.com/DeliberateCode"
   },
   "repository": "https://github.com/DeliberateCode/System2",

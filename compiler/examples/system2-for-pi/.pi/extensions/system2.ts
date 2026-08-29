@@ -198,7 +198,7 @@ export default function (pi: ExtensionAPI) {
     );
   });
 
-  // --- Inject the System2 orchestrator context (OQ-P2: before_agent_start seam). ---
+  // --- Inject the System2 orchestrator context (: before_agent_start seam). ---
   pi.on("before_agent_start", (event) => ({
     systemPrompt: `${event.systemPrompt}\n\nSystem2 orchestrator context is in .pi/SYSTEM.md. Drive the gate graph 0 -> 5 and delegate via /delegate <role>.`,
   }));

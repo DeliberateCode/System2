@@ -1,6 +1,6 @@
-"""TASK-511 — drift-guard self-test: the bundle freshness check has TEETH.
+"""drift-guard self-test: the bundle freshness check has TEETH.
 
-Phase 5 (AC-5.7, G8/NFR-006). ``tools/check_bundle_fresh.py`` is the
+Phase 5 . ``tools/check_bundle_fresh.py`` is the
 machine-enforced freshness gate: a stale or hand-edited vendored bundle CANNOT
 merge. A guard that never fails is worthless, so this self-test proves both
 directions:
@@ -9,17 +9,15 @@ directions:
     current compiler source; the guard reports it fresh (exit 0).
   * **Mutate -> fails (teeth).** Copy the fresh bundle, mutate ONE byte in a
     vendored module, and assert the guard fails (exit non-zero) with the exact
-    stale/tamper message — the same "mutate -> exactly-one-failure" discipline
-    ``spec/evals.md`` asks for.
+    stale/tamper message. This proves the guard fails on a one-byte mutation.
 
 It also pins determinism (two builds -> identical ``compiler_source_sha256``) and
 the minimal layout (``ir/`` + ``backends/`` + ``plugin_adapter.py`` present; the
 multi-target ``evals/`` test tree absent), and exercises the
 ``compute_source_hash`` drift anchor directly.
 
-The doctor ``bundle_tampered`` leg of the self-test is owned by TASK-517 (the
-plugin doctor surface); this module covers the guard-fail teeth, which is the half
-that lands with the guard.
+The plugin doctor suite separately covers its ``bundle_tampered`` surface. This
+module covers the CI guard's fresh and mutated outcomes.
 
 Stdlib ``unittest``; runs under ``python3 -m unittest``. All file contents are
 treated as untrusted data.
@@ -130,8 +128,7 @@ class BundleDriftTest(unittest.TestCase):
             pkg_entries,
             {
                 "__init__.py", "ir", "backends", "plugin_adapter.py", "cli.py",
-                # PR #10 review finding 6 (Codex second-opinion review, round 2):
-                # the Codex user-hooks reference is now real package-data
+                # # the Codex user-hooks reference is now real package-data
                 # (pyproject.toml), so it's vendored along with the rest of the
                 # package -- intentional, not drift. The Claude channel never
                 # reads it; the cost is a few KB of unused data in the bundle.

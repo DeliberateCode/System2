@@ -1,7 +1,6 @@
-"""TASK-311 — ``backends/_yaml`` serializer unit goldens (quoting / multiline / determinism).
+"""Pin ``backends/_yaml`` quoting, multiline, typing, and determinism behavior.
 
-Pins the deterministic, stdlib-only block-YAML serializer's contract in isolation
-(AC-G1/AC-G5; design §"Stdlib-only YAML emission"):
+The deterministic, stdlib-only serializer must preserve:
 
 * determinism — same input -> byte-identical output (re-run stable);
 * insertion order preserved (NOT sorted) — the emitter controls order;

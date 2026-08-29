@@ -12,7 +12,7 @@ compiler CLI against them.
 Both engines are deterministic given the pinned oracle; the comparison normalizes
 only the volatile temp-project / temp-HOME path prefixes (a structural-equivalence
 allowance over otherwise byte-identical contracts). A self-teeth test mutates one
-golden byte and asserts the diff fails (REQ-007 no-auto-rebaseline discipline).
+golden byte and asserts the diff fails ( no-auto-rebaseline discipline).
 
 Everything runs under a hermetic temp HOME so the real ``~/.system2`` is untouched.
 The oracle is invoked ONLY as a subprocess (this module never imports

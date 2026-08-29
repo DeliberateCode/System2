@@ -37,7 +37,7 @@ system2-for-pi/
   system2.pi.lock.json         # composition lock / drift gate
 ```
 
-**Note (PR #10 review finding 9):** `system2.pi.lock.json`'s `overlay_sources` entry is
+**Note:** `system2.pi.lock.json`'s `overlay_sources` entry is
 normalized to the placeholder `<OVERLAY_SRC>` rather than the real absolute path used to
 generate this example (matching the same normalization `compiler/evals/test_pi_snapshots.py`
 applies to its own committed snapshots) — a real absolute path baked into a committed example

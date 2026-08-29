@@ -1,7 +1,7 @@
 """The System2Graph IR schema: frozen, JSON-serializable dataclasses.
 
 Harness-neutral. Contains no Claude mechanism fields (``tools`` / ``hooks`` /
-``permissionMode``) on roles or contributions (REQ-028/040).
+``permissionMode``) on roles or contributions.
 
 The Phase 2 types this schema references — ``AnchorTable`` / ``AnchorDef`` /
 ``AnchorRef`` and ``CapabilitySet`` / ``BlockingSemantic`` — are defined in their
@@ -136,7 +136,7 @@ class Warnings:
 
 @dataclass(frozen=True)
 class BaseTemplate:
-    # CLAUDE-TARGETED: byte-fidelity mechanism for this cycle (design T4);
+    # CLAUDE-TARGETED: byte-fidelity mechanism for this cycle (design );
     # excluded from neutrality assertions.
     text: str
     section_offsets: dict
@@ -145,7 +145,7 @@ class BaseTemplate:
 @dataclass(frozen=True)
 class OverlayInput:
     # CLAUDE-TARGETED byte-fidelity carrier (same quarantine as base_template,
-    # design T4): the validated overlay manifest dict and its resolved source
+    # design ): the validated overlay manifest dict and its resolved source
     # directory, in front-end (validated_manifests) order. The lock's per-overlay
     # metadata, the content fingerprint, the content copies, and the auxiliary
     # agent file references are all derived from these by the backend exactly as

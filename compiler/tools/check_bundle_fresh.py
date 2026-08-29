@@ -1,7 +1,7 @@
 """Drift guard: fail when the committed vendored bundle is stale or hand-edited.
 
-Phase 5 (AC-5.7, G8/NFR-006). The machine-enforced cross-repo freshness check: a
-stale vendored bundle CANNOT merge. It regenerates the bundle from the CURRENT
+This machine-enforced cross-repo freshness check prevents a stale vendored bundle
+from merging. It regenerates the bundle from the CURRENT
 compiler source into a temp dir, recomputes the source hash, and compares it to a
 TARGET bundle's recorded + recomputed hashes:
 

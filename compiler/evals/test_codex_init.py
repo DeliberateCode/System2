@@ -2,9 +2,9 @@
 
 Every case targets a TEMP codex home (``--codex-home`` / the module seam) so the
 real ``~/.codex`` is NEVER written. Covers: a fresh install renders ``hooks.json``
-with an ABSOLUTE command + copies the guard JS (A2); re-run is idempotent; a
+with an ABSOLUTE command + copies the guard JS; re-run is idempotent; a
 pre-existing non-System2 ``hooks.json`` triggers a backup + LOUD warning and is
-NEVER clobbered without ``--force`` (ROQ-1); uninstall removes only System2
+NEVER clobbered without ``--force``; uninstall removes only System2
 artifacts and restores the backup. The committed ``distributions/codex/user-hooks/``
 reference is READ, never modified.
 """
@@ -46,7 +46,7 @@ class CodexInitFreshInstall(unittest.TestCase):
 
             config = json.loads(open(hooks_json, encoding="utf-8").read())
             cmd = config["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-            # A2: the resolved command is an ABSOLUTE node path, no placeholder left.
+            # the resolved command is an ABSOLUTE node path, no placeholder left.
             self.assertNotIn("{{SYSTEM2_HOOKS_DIR}}", json.dumps(config))
             self.assertTrue(cmd.startswith(f"node {hooks_dir}"), cmd)
             self.assertTrue(os.path.isabs(cmd.split(" ", 1)[1].rsplit("/", 1)[0]))
@@ -83,8 +83,7 @@ class CodexInitIdempotent(unittest.TestCase):
 
 
 class CodexInitModifiedSinceWrite(unittest.TestCase):
-    """Codex second-opinion review, round 4: an install-state record proves what
-    System2 wrote, not ownership of arbitrary user edits made afterward."""
+    """Install state proves what System2 wrote, not ownership of later user edits."""
 
     def _install_then_customize(self, home):
         result = codex_init.codex_init(codex_home=home, reference_dir=_REFERENCE)
@@ -302,7 +301,7 @@ class CodexInitEscapeSafe(unittest.TestCase):
 class CodexInitRecovery(unittest.TestCase):
     """S-Recovery: a partial/state-corrupted System2 install must be recognized by
     CONTENT signature, never misclassified as a foreign file (which would invert
-    ROQ-1 under --force)."""
+     under --force)."""
 
     def _bak_files(self, home):
         return [f for f in os.listdir(home)
@@ -331,7 +330,7 @@ class CodexInitRecovery(unittest.TestCase):
 
 
 class CodexInitSymlinkGuard(unittest.TestCase):
-    """S4: never write THROUGH a symlinked hooks.json."""
+    """never write THROUGH a symlinked hooks.json."""
 
     def test_force_over_symlink_does_not_write_through(self):
         with tempfile.TemporaryDirectory() as home:
@@ -373,7 +372,7 @@ class CodexInitDryRunWritesNothing(unittest.TestCase):
 
 
 class CodexInitBadReference(unittest.TestCase):
-    """N3: a missing/invalid --reference is a clean CLI error, not a traceback."""
+    """a missing/invalid --reference is a clean CLI error, not a traceback."""
 
     def test_missing_reference_is_clean_cli_error(self):
         with tempfile.TemporaryDirectory() as home:
@@ -388,7 +387,7 @@ class CodexInitBadReference(unittest.TestCase):
 
 
 class CodexUninstallHardening(unittest.TestCase):
-    """S3: uninstall refuses path-traversal hook_files and out-of-home backups."""
+    """uninstall refuses path-traversal hook_files and out-of-home backups."""
 
     def _write_state(self, home, hook_files, backup_path):
         state_dir = os.path.join(home, "system2")
@@ -419,7 +418,7 @@ class CodexUninstallHardening(unittest.TestCase):
             evil_backup = os.path.join(base, "evil.bak")
             with open(evil_backup, "w") as fh:
                 fh.write('{"evil":"payload"}\n')
-            # PR #10 review finding 7: codex_uninstall now content-signature-checks
+            # codex_uninstall now content-signature-checks
             # hooks.json before deleting it (never delete a file that doesn't
             # actually carry System2's signature) -- this fixture's content must
             # carry a real signature marker (a guard basename) so this test still

@@ -309,7 +309,7 @@ class _RealStoreGuard:
 # ---------------------------------------------------------------------------
 
 class TestActivationByteIdentity(unittest.TestCase, _RealStoreGuard):
-    """T13-1: activating a profile equals composing its ordered paths."""
+    """activating a profile equals composing its ordered paths."""
 
     def setUp(self):
         self._capture_real_store()
@@ -397,7 +397,7 @@ class TestActivationByteIdentity(unittest.TestCase, _RealStoreGuard):
 # ---------------------------------------------------------------------------
 
 class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
-    """T13-2..T13-5: dry-run, activation note, stale hard-fail, unknown."""
+    """..: dry-run, activation note, stale hard-fail, unknown."""
 
     def setUp(self):
         self._capture_real_store()
@@ -423,7 +423,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         return ordered
 
     def test_dry_run_writes_nothing(self):
-        """T13-2: dry-run activation produces no project artifacts."""
+        """dry-run activation produces no project artifacts."""
         self._create()
         lock_path = os.path.join(self.project, "spec", "overlay-manifest.lock")
         claude_path = os.path.join(self.project, "CLAUDE.md")
@@ -438,7 +438,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(os.path.exists(claude_path))
 
     def test_dry_run_subprocess_writes_nothing(self):
-        """T13-2: --profile P --dry-run subprocess: exit 0, no artifact."""
+        """--profile P --dry-run subprocess: exit 0, no artifact."""
         self._create()
         env = dict(os.environ)
         # Point the store at our temp store by copying it under a temp HOME.
@@ -464,7 +464,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(os.path.exists(os.path.join(self.project, "CLAUDE.md")))
 
     def test_activation_note_in_report(self):
-        """T13-3: success sets report.profile.activated + source_paths."""
+        """success sets report.profile.activated + source_paths."""
         ordered = self._create()
         with _temp_store_defaults(self.store):
             result = composer._activate_profile(
@@ -476,7 +476,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(prof["source_paths"], ordered)
 
     def test_activation_note_printed_text_path(self):
-        """T13-3: text CLI prints the one-line activation note."""
+        """text CLI prints the one-line activation note."""
         self._create()
         home = os.path.join(self.tmp, "home2")
         os.makedirs(os.path.join(home, ".system2"), exist_ok=True)
@@ -495,7 +495,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertIn("Activating profile 'eff-profile'", proc.stdout)
 
     def test_hard_fail_on_stale_path(self):
-        """T13-4: removing an overlay dir makes activation hard-fail."""
+        """removing an overlay dir makes activation hard-fail."""
         self._create()
         # Remove one overlay directory to make its path stale.
         shutil.rmtree(self.ov2)
@@ -515,7 +515,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(os.path.exists(claude_path))
 
     def test_hard_fail_on_stale_subprocess_no_traceback(self):
-        """T13-4: stale activation exits 1 with no Python traceback."""
+        """stale activation exits 1 with no Python traceback."""
         self._create()
         shutil.rmtree(self.ov2)
         home = os.path.join(self.tmp, "home3")
@@ -537,7 +537,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertNotIn("Traceback (most recent call last)", combined)
 
     def test_unknown_profile_errors(self):
-        """T13-5: activating a non-existent profile -> exit 1, clear message."""
+        """activating a non-existent profile -> exit 1, clear message."""
         # No profile created; store is empty/absent.
         with _temp_store_defaults(self.store):
             result = composer._activate_profile(
@@ -556,7 +556,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_unknown_profile_lists_available(self):
-        """T13-5: with profiles defined, unknown message lists them."""
+        """with profiles defined, unknown message lists them."""
         self._create(name="known-one")
         with _temp_store_defaults(self.store):
             result = composer._activate_profile(
@@ -573,7 +573,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
 # ---------------------------------------------------------------------------
 
 class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
-    """T13-6: injection-flagged overlay -> exit 4 without --allow-injection."""
+    """injection-flagged overlay -> exit 4 without --allow-injection."""
 
     def setUp(self):
         self._capture_real_store()
@@ -615,7 +615,7 @@ class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_injection_blocks_without_flag(self):
-        """T13-6: activation without --allow-injection -> exit 4, no lock."""
+        """activation without --allow-injection -> exit 4, no lock."""
         proc = self._run()
         self.assertEqual(proc.returncode, 4, proc.stdout + proc.stderr)
         self.assertIn(
@@ -628,7 +628,7 @@ class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_injection_allowed_with_flag(self):
-        """T13-6: activation with --allow-injection -> exit 0, lock written."""
+        """activation with --allow-injection -> exit 0, lock written."""
         proc = self._run("--allow-injection")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertTrue(
@@ -822,7 +822,7 @@ class TestMutationActiveSignal(unittest.TestCase, _RealStoreGuard):
 # ---------------------------------------------------------------------------
 
 class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
-    """T13-8: create/save/edit/delete summaries carry the required fields."""
+    """create/save/edit/delete summaries carry the required fields."""
 
     def setUp(self):
         self._capture_real_store()
@@ -840,7 +840,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_create_summary_fields(self):
-        """T13-8: create summary has name, ordered overlay set, store location."""
+        """create summary has name, ordered overlay set, store location."""
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
                 self.project, "create", "sum-profile",
@@ -857,7 +857,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(names, ["alpha-one", "beta-two"])
 
     def test_save_captures_lock_source_paths_in_order(self):
-        """T13-8: save-from-lock captures the lock's source_paths in order."""
+        """save-from-lock captures the lock's source_paths in order."""
         _compose_and_write(self.project, [self.ov1, self.ov2])
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
@@ -870,7 +870,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(paths, [self.ov1, self.ov2])
 
     def test_edit_and_delete_summaries(self):
-        """T13-8: edit and delete return summaries with name + storage."""
+        """edit and delete return summaries with name + storage."""
         with _temp_store_defaults(self.store):
             composer._run_profile_mutation(
                 self.project, "create", "edit-me", paths=[self.ov1]
@@ -898,7 +898,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
 # ---------------------------------------------------------------------------
 
 class TestMutualExclusion(unittest.TestCase, _RealStoreGuard):
-    """T13-9: invalid CLI flag combinations each exit 1."""
+    """invalid CLI flag combinations each exit 1."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1201,7 +1201,7 @@ class TestMutationRejectsDryRun(unittest.TestCase, _RealStoreGuard):
 # ---------------------------------------------------------------------------
 
 class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
-    """T13-10: mutation failures exit with the ProfileError's own code."""
+    """mutation failures exit with the ProfileError's own code."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1218,7 +1218,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_edit_no_add_remove_exit_1(self):
-        """T13-10: edit with no --add/--remove -> exit 1 via _run_profile_mutation."""
+        """edit with no --add/--remove -> exit 1 via _run_profile_mutation."""
         with _temp_store_defaults(self.store):
             profiles.create_profile(
                 "ec-edit", [self.ov1], os.getcwd(), store_path=self.store
@@ -1230,7 +1230,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_delete_unknown_exit_1(self):
-        """T13-10: delete unknown profile -> exit 1 (carried ProfileError code)."""
+        """delete unknown profile -> exit 1 (carried ProfileError code)."""
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
                 self.project, "delete", "no-such-profile"
@@ -1239,7 +1239,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_create_duplicate_without_force_exit_1(self):
-        """T13-10: create duplicate without force -> exit 1."""
+        """create duplicate without force -> exit 1."""
         with _temp_store_defaults(self.store):
             profiles.create_profile(
                 "ec-dup", [self.ov1], os.getcwd(), store_path=self.store
@@ -1251,7 +1251,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_save_no_lock_exit_1(self):
-        """T13-10: save-from-lock with no lock -> exit 1."""
+        """save-from-lock with no lock -> exit 1."""
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
                 self.project, "save", "ec-cap"
@@ -1260,7 +1260,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_exit_codes_are_authoritative_from_profile_error(self):
-        """T13-10: the carried exit_code equals the ProfileError's own code."""
+        """the carried exit_code equals the ProfileError's own code."""
         with _temp_store_defaults(self.store):
             # delete-unknown raises ProfileError(exit_code=1) at the profiles
             # layer; the dispatcher must surface that exact code, not a

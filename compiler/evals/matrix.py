@@ -2,9 +2,9 @@
 
 Each :class:`Cell` records the overlay source paths, the optional profile name,
 the expected artifact classes, and whether the cell is a refusal cell. Cells whose
-fixtures land in later tasks (TASK-007/008/009) are declared now and marked
+fixtures land in later tasks are declared now and marked
 ``pending=True``; ``assert_complete`` still requires a snapshot dir for every
-declared cell so an incomplete baseline fails loudly (REQ-001).
+declared cell so an incomplete baseline fails loudly.
 """
 
 import os
@@ -22,21 +22,21 @@ _COMPILER_FIXTURES = os.path.join(_THIS_DIR, "fixtures")
 
 TEST_OVERLAY = os.path.join(_PLUGIN_FIXTURES, "test-overlay")
 
-# Profile store fixture (TASK-007) and its profile name.
+# Profile store fixture and its profile name.
 PROFILE_NAME = "test-profile"
 PROFILE_STORE_FIXTURE = os.path.join(_COMPILER_FIXTURES, "profiles", PROFILE_NAME + ".json")
 
-# Conflict-cell overlays (TASK-008).
+# Conflict-cell overlays.
 CONFLICT_A = os.path.join(_COMPILER_FIXTURES, "conflict-a")
 CONFLICT_B = os.path.join(_COMPILER_FIXTURES, "conflict-b")
 
-# Tension-cell overlays (TASK-009).
+# Tension-cell overlays.
 TENSION_A = os.path.join(_COMPILER_FIXTURES, "tension-a")
 TENSION_B = os.path.join(_COMPILER_FIXTURES, "tension-b")
 
 # Anchor-file cell: a prompt_sections contribution to an UNKNOWN anchor that
 # carries a content_file. Exercises the anchor-aware content-file selection the
-# backend was skipping (blocker B1) — known.md is copied/fingerprinted, extra.md
+# backend was skipping (blocker ) — known.md is copied/fingerprinted, extra.md
 # (the unknown-anchor file) is excluded exactly as the frozen oracle excludes it.
 ANCHORFILE = os.path.join(_COMPILER_FIXTURES, "anchorfile")
 
@@ -84,7 +84,7 @@ _CELLS = (
         pending=True,
         notes=(
             "Profile resolving >=1 overlay via the hermetic temp-HOME store. Profile store "
-            "fixture lands in TASK-007."
+            "fixture lands in ."
         ),
     ),
     Cell(
@@ -93,7 +93,7 @@ _CELLS = (
         expected_artifacts=ARTIFACTS_REFUSAL,
         refusal=True,
         pending=True,
-        notes="known_conflicts pair -> refusal. Overlay fixtures land in TASK-008.",
+        notes="known_conflicts pair -> refusal. Overlay fixtures land in .",
     ),
     Cell(
         name="core+tension",
@@ -101,7 +101,7 @@ _CELLS = (
         pending=True,
         notes=(
             "Shared review_when_combined_with_tags tag -> semantic-tension warning (proceeds). "
-            "Overlay fixtures land in TASK-009."
+            "Overlay fixtures land in ."
         ),
     ),
     Cell(
@@ -110,7 +110,7 @@ _CELLS = (
         notes=(
             "prompt_sections to an UNKNOWN anchor carrying a content_file. The applied (anchor-"
             "filtered) collector copies/fingerprints known.md only; extra.md (unknown anchor) is "
-            "silently excluded. Exposes blocker B1 (backend was collecting unfiltered)."
+            "silently excluded. Exposes blocker  (backend was collecting unfiltered)."
         ),
     ),
 )
@@ -129,7 +129,7 @@ def get_cell(name: str) -> Cell:
 
 
 def assert_complete(goldens_dir: str) -> None:
-    """Fail if any declared cell lacks a snapshot dir under ``goldens_dir`` (REQ-001)."""
+    """Fail if any declared cell lacks a snapshot dir under ``goldens_dir``."""
     missing = [
         cell.name
         for cell in _CELLS

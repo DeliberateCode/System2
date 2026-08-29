@@ -4,10 +4,10 @@ Builds a per-agent ``AnchorTable`` from ``anchor-map.json`` for all pipeline
 agents and resolves contributions by **anchor identity** ``(agent, anchor_name)``
 — not by literal-heading string matching. The literal ``after_section`` heading
 in the anchor map is a Claude-targeted *rendering location* the backend owns; the
-IR's resolution mechanism is identity (REQ-025).
+IR's resolution mechanism is identity.
 
 Filtering of contributions to non-existent anchors is performed against this table
-(REQ-027), preserving the oracle's silent exclusion exactly: a ``prompt_sections``
+(), preserving the oracle's silent exclusion exactly: a ``prompt_sections``
 contribution to an ``(agent, anchor_name)`` not present here is dropped without a
 warning, just as ``composer._build_contribution_index(..., valid_anchors_by_agent)``
 drops it today.
@@ -36,7 +36,7 @@ class AnchorDef:
     ``purpose`` is the neutral description from the anchor map; the literal
     rendering heading (``after_section``) is intentionally **not** carried here —
     it is a backend-owned rendering location, not part of the IR resolution
-    mechanism (REQ-025/040).
+    mechanism.
     """
 
     agent: str
@@ -86,7 +86,7 @@ def build_anchor_table(anchor_map: dict) -> AnchorTable:
 
     For each agent, every named anchor under ``agents.<agent>.anchors`` becomes an
     ``AnchorDef`` keyed by ``(agent, anchor_name)``. Every ``(agent, anchor)`` pair
-    in the map is representable and resolvable (REQ-027).
+    in the map is representable and resolvable.
     """
     by_agent: Dict[str, Dict[str, AnchorDef]] = {}
     for agent, info in anchor_map.get("agents", {}).items():

@@ -192,7 +192,7 @@ additive (reached only via `--target pi`).
   role-switch, not a claimed isolated sub-session), and a top-level `FIDELITY`
   banner making the mixed story explicit. Completeness is asserted — a capability in
   the IR but absent from the descriptor raises (no silent drop).
-- **Shared degradation helper (`backends/_degradation.py`, PG6).** A backend-agnostic,
+- **Shared degradation helper (`backends/_degradation.py`).** A backend-agnostic,
   stdlib-only, descriptor-driven helper that lifts the per-capability report-record
   assembly and the total `status → (enforced, gated)` flag rule out of each
   backend's own builder so all backends share one source of
@@ -225,14 +225,14 @@ additive (reached only via `--target pi`).
 
 #### Folded hardening
 
-- **Vendored-pin drift guard (`evals/test_vendored_pin.py`, F-03).** Pins the
+- **Vendored-pin drift guard (`evals/test_vendored_pin.py`, ).** Pins the
   vendored `ir/profiles.py` / `ir/_hook_security.py` byte-for-byte against their
   plugin originals (`System2/plugin/scripts/`), failing loudly ("vendored copy
   drifted / re-vendor required") on any non-sanctioned diff, with a negative
   control proving the guard has teeth.
 - **Eval-breadth tests (`evals/test_breadth.py`).** Asserts argument-ordering
-  determinism (REQ-041 — composition is independent of `--overlays` order) and
-  anchor-exclusion (REQ-025/027 — a contribution to a non-existent
+  determinism ( — composition is independent of `--overlays` order) and
+  anchor-exclusion ( — a contribution to a non-existent
   `(agent, anchor)` is excluded exactly as the oracle excludes it) **directly**,
   not only transitively via the golden byte-diff.
 
@@ -324,7 +324,7 @@ additive (reached only via `--target pi`).
   the preserved-verbatim `composer.py.preflip`. The compiler is now the single
   source of truth; the Claude end-user experience is unchanged (byte-identical
   output, identical CLI contract, zero dependency).
-- **The degradation report is now a shared helper (Phase 4, PG6).** The
+- **The degradation report is now a shared helper (Phase 4, ).** The
   per-capability record assembly and the `status → (enforced, gated)` flag rule
   moved into `backends/_degradation.py`, shared by both backends. The refactor
   is byte-preserving: the Claude lock `degradation_report` is byte-identical
@@ -381,7 +381,7 @@ additive (reached only via `--target pi`).
   completeness assertion guarantee no capability is silently downgraded, and the Pi
   native blocks are *proven* by a synthetic-`tool_call` harness rather than merely
   asserted.
-- **Vendored-pin drift guard (F-03).** The vendored `profiles.py` /
+- **Vendored-pin drift guard.** The vendored `profiles.py` /
   `_hook_security.py` are pinned byte-for-byte to the plugin originals so a
   tightened hook-security ban cannot silently lag the vendored copy.
 
@@ -403,7 +403,7 @@ additive (reached only via `--target pi`).
   bundle-equivalence gate and the plugin's own evals-on-the-bundle prove the default
   reproduces the pre-flip behavior byte-for-byte. `SYSTEM2_USE_BUNDLE=0` runs the
   frozen engine in-place; the backout is one commit.
-- **Structured-policy-only gap on Pi (T5/OQ-G3).** Policy that exists only
+- **Structured-policy-only gap on Pi.** Policy that exists only
   as Claude-targeted `base_template` prose has no structured IR representation and is
   not re-expressed on Pi; this is recorded as a future IR-enrichment
   question, not implied parity.

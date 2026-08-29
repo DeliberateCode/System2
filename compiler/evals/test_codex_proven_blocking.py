@@ -1,52 +1,19 @@
-"""TASK-019 (F8) — END-TO-END generated-hook bypass corpus + F11 fault cases.
+"""Exercise generated Codex hooks end to end against bypass and fault corpora.
 
-The single most important enforcement-fidelity guard in the cycle. It drives the
-**actual generated Node hook scripts end-to-end**: for every corpus case it spawns
-the emitted ``node hooks/system2-<shell|edit>-guard.js`` as Codex would, feeds a
-REALISTIC Codex ``PreToolUse`` event as JSON on stdin, and asserts the decision at
-the **stdout/exit-code boundary** — exactly the event -> command-string/path
-normalization glue where the Pi post-exec's 3 HIGH bypasses lived (design line 171,
-security F8). Byte-preserving the ported constants (proven by the Pi goldens) does
-NOT protect this new wiring, so this test exercises the wiring, not the regexes.
+Each case launches the emitted shell or edit guard, sends a realistic Codex
+``PreToolUse`` event on stdin, and checks the stdout and exit-code boundary where an
+event becomes a command or path. A block uses
+``hookSpecificOutput.permissionDecision = deny`` or exits fail-closed; an allow exits
+zero without a decision. The removed legacy ``{"decision":"block"}`` form never counts
+as a block.
 
-Decision boundary (matches ``backends/codex.py`` / design §4a.B — the modern Codex
-``permissionDecision`` schema; the legacy ``{"decision":"block"}`` is REMOVED and no
-longer counts as a block, REQ-078.1):
-  * BLOCK   -> stdout ``{"hookSpecificOutput":{"permissionDecision":"deny",
-              "permissionDecisionReason":R}}`` (exit 0), OR exit 2 (a fail-closed
-              internal error is still a block, never a silent allow);
-  * ALLOW   -> exit 0 with NO decision on stdout (the negative control: if the gate
-              blocked everything, the allow cases would fail);
-  * FAIL-CLOSED (F11) -> exit 2 with a reason on stderr AND the same deny-JSON on
-              stdout (the A1 fallback: fail-closed holds regardless of exit-2
-              semantics), never an allow.
-
-Corpus (``fixtures/codex_corpus/corpus.json``) covers real Codex event shapes:
-shell calls as command STRINGS **and** argv ARRAYS, ``&&``/``;``/``|`` multi-command
-chains, heredocs, alternate event keys (``tool_input``/``arguments``/top-level), and
-``apply_patch``/``Edit``/``Write`` payload variants. Each corpus event is wrapped in
-the CAPTURED codex-cli 0.142.5 ``PreToolUse`` envelope (``hook_event_name``,
-``tool_name``, ``cwd``, ``tool_use_id`` — F-033-3) before it is fed to the hook, so
-the test drives the exact stdin shape a real Codex fires. **Pi-corpus parity is asserted
-at the normalized-input boundary** (``test_pi_corpus_parity_zero_uncovered``): every
-Pi proven-blocking corpus case has a Codex-event-shaped counterpart, enumerated with
-ZERO uncovered cases. Happy-path-only coverage is a failed acceptance (REQ-033).
-
-F11 fault cases are exercised end-to-end via ``node``: an oversized command is capped
-and STILL decided (blocks, never crash-open); an oversized stdin fails closed
-(exit 2); a pathological/slow input (stdin held open) hits the watchdog and resolves
-to BLOCK (exit 2), never silent-allow; malformed JSON fails closed (exit 2).
-
-node dependency (skip-count-0 discipline, mirrors ``test_pi_proven_blocking``): node
-is REQUIRED. If node is genuinely absent the test LOUD-SKIPs (``skipTest``) — and the
-CI skip-guard (``.github/workflows/ci.yml``: skip count MUST be 0) escalates that
-skip to a job FAILURE, so a missing node can never silently pass. node present but a
-hook subprocess misbehaving is a HARD failure, never a skip. Path-parameterized: the
-hooks under test come from ``SYSTEM2_CODEX_DIST``/``distributions/codex/user-hooks/hooks``
-when that committed tree exists, else from a fresh in-test emission to a tempdir.
-
-Stdlib-only ``unittest``; emits to a tempdir; no product code / ``System2/`` edits;
-all IR/overlay/event contents are untrusted data (matched, never eval'd).
+The corpus covers string and argv shell forms, command chains, heredocs, alternate
+event keys, and patch/edit/write payloads. Every Pi proven-blocking case has a Codex
+event-shaped counterpart at the normalized-input boundary. Oversized commands and
+stdin, a held-open stdin, watchdog expiry, malformed JSON, and internal errors must
+all decide or fail closed rather than crash open. Node is required; a local skip is
+made loud and CI rejects all skips. Tests use committed hooks when available or a
+fresh temporary emission, and treat all event and IR content as untrusted data.
 """
 
 import json
@@ -60,7 +27,7 @@ from system2_compiler import ir
 from system2_compiler.backends.codex import CodexBackend
 from evals import matrix, oracle
 
-# Pi proven-blocking corpus — the parity reference (design line 171, F8).
+# The Pi proven-blocking corpus is the parity reference at normalized input.
 from evals.test_pi_proven_blocking import (
     _ALLOW_CASES as _PI_ALLOW_CASES,
     _BLOCK_CASES as _PI_BLOCK_CASES,
@@ -83,14 +50,14 @@ _SHELL_HOOK = "system2-shell-guard.js"
 _EDIT_HOOK = "system2-edit-guard.js"
 _HOOK_FILE = {"shell": _SHELL_HOOK, "edit": _EDIT_HOOK}
 
-# F11 caps mirrored from backends/codex.py (asserted behaviorally, not imported, so a
+#  caps mirrored from backends/codex.py (asserted behaviorally, not imported, so a
 # drift in the generated hook is caught here rather than silently tracked).
 _MAX_MATCH_LEN = 16384
 _MAX_INPUT_BYTES = 1048576
 _WATCHDOG_MS = 2000
 
 
-# The CAPTURED codex-cli 0.142.5 PreToolUse event envelope (F-033-3, verbatim shape).
+# The CAPTURED codex-cli 0.142.5 PreToolUse event envelope (verbatim shape).
 # Each corpus case's ``event`` is merged OVER this so the hook receives the real stdin
 # shape a live Codex fires; the case's own keys (tool_input/arguments/top-level command)
 # win, and the envelope adds the surrounding real fields the guard tolerates/ignores.
@@ -131,7 +98,7 @@ def _pi_corpus_names():
 
 def _resolve_hooks_dir(tmp_project):
     """Path-parameterized hooks dir: the committed user-scope reference
-    ``distributions/codex/user-hooks/hooks`` when present (§4a.C — the guard JS bytes
+    ``distributions/codex/user-hooks/hooks`` when present; the guard JavaScript bytes
     are location-independent, so driving them directly by path is unaffected by the
     user- vs project-scope delivery move), else a fresh emission into ``tmp_project``.
     Set SYSTEM2_CODEX_DIST to override the distributions root.
@@ -180,7 +147,7 @@ def _run_hook(hooks_dir, hook_kind, stdin_bytes, env_extra=None, timeout=30):
 def _deny_of(obj):
     """The modern-schema deny reason if *obj* is a Codex ``permissionDecision:"deny"``
     block, else None. The legacy ``{"decision":"block"}`` is deliberately NOT honored
-    (REQ-078.1): it returns None here so a hook still emitting it fails the block tests.
+   : it returns None here so a hook still emitting it fails the block tests.
     """
     if not isinstance(obj, dict):
         return None
@@ -194,7 +161,7 @@ def _classify(returncode, stdout):
     """Map (exit code, stdout) to a decision: 'block' | 'allow' | 'error'.
 
     block  = a modern permissionDecision:"deny" (stdout) OR exit 2 (fail-closed = still
-             a block, and the A1 fallback also puts the deny-JSON on stdout).
+             a block, and fail-closed handling also puts the deny JSON on stdout).
     allow  = exit 0 with no decision on stdout (the negative control).
     error  = anything else, incl. a legacy {"decision":"block"} (no longer a pass).
     """
@@ -216,7 +183,7 @@ def _classify(returncode, stdout):
 
 
 class CodexProvenBlockingTest(unittest.TestCase):
-    """End-to-end: the generated Node hooks block the whole bypass corpus (F8)."""
+    """End-to-end: the generated Node hooks block the whole bypass corpus."""
 
     @classmethod
     def setUpClass(cls):
@@ -266,7 +233,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         return [c for c in self.corpus if predicate(c)]
 
     def _assert_not_allow(self, out, ctx):
-        """A fail-closed exit must never emit an ALLOW. Under the A1 fallback the deny
+        """A fail-closed exit must never emit an allow. The fallback deny
         JSON is written to stdout before the non-zero exit, so stdout is either empty or
         a modern ``permissionDecision:"deny"`` — never a silent allow."""
         text = (out or "").strip()
@@ -344,7 +311,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_block_json_is_modern_permission_decision_schema(self):
-        """REQ-078.1: a stdout block is the MODERN Codex schema — an emitted block case
+        """a stdout block is the MODERN Codex schema — an emitted block case
         (exit 0) carries ``hookSpecificOutput.permissionDecision == "deny"`` with the
         reason in ``permissionDecisionReason``, and NO legacy top-level ``decision`` key.
         Codex 0.142.5 silently ignores the legacy form, so its presence is a real defect."""
@@ -380,7 +347,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_shell_string_and_argv_forms_both_block(self):
-        """F8: a dangerous shell call blocks whether Codex delivers it as a command
+        """a dangerous shell call blocks whether Codex delivers it as a command
         STRING or an argv ARRAY (the array-join normalization glue under test)."""
         for name in ("dangerous_bash_string", "dangerous_bash_argv"):
             res = self.results[name]
@@ -395,7 +362,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_multi_command_chains_block(self):
-        """F8: a dangerous command embedded after a `&&`, `;`, or `|` chain operator is
+        """a dangerous command embedded after a `&&`, `;`, or `|` chain operator is
         still caught (chain parsing is exactly the normalization glue that can hide a
         bypass while the hook reports itself active)."""
         for name in ("chain_and_rm", "chain_semi_sudo_rm", "chain_pipe_rm",
@@ -406,7 +373,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             )
 
     def test_heredoc_blocks(self):
-        """F8: a dangerous command carried inside a heredoc body (multi-line command
+        """a dangerous command carried inside a heredoc body (multi-line command
         string) is still caught (the `m` flag on the ported regexes; the newline glue
         must not defeat it)."""
         self.assertEqual(
@@ -426,7 +393,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             self.assertIn("block-dangerous", res["reason"] or "")
 
     def test_event_key_variants_block(self):
-        """F8: the shell guard normalizes the command from `tool_input`, `arguments`,
+        """the shell guard normalizes the command from `tool_input`, `arguments`,
         and the top-level `command` key alike — no event-key shape bypasses it."""
         for name in ("key_arguments_danger", "key_toplevel_danger"):
             self.assertEqual(
@@ -497,13 +464,13 @@ class CodexProvenBlockingTest(unittest.TestCase):
             "an empty-scope (read-only) role's write must fail CLOSED",
         )
 
-    # -- Pi-corpus parity at the normalized-input boundary (F8, design line 171) ---
+    # -- Pi-corpus parity at the normalized-input boundary ------------------
 
     def test_pi_corpus_parity_zero_uncovered(self):
         """Every Pi proven-blocking corpus case has a Codex-event-shaped counterpart —
-        enumerated with ZERO uncovered cases. This mechanizes the F8 parity mandate at
-        the normalized-input boundary (design line 171): Codex's stdin-JSON event model
-        is new wiring, so happy-path-only coverage is a failed acceptance (REQ-033)."""
+        enumerated with zero uncovered cases. This enforces parity at
+        the normalized-input boundary: Codex's stdin-JSON event model
+        is new wiring, so happy-path-only coverage is a failed acceptance."""
         pi_names = _pi_corpus_names()
         covered = set()
         for case in self.corpus:
@@ -518,7 +485,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         uncovered = pi_names - covered
         self.assertFalse(
             uncovered,
-            "Pi corpus cases WITHOUT a Codex-event-shaped counterpart (F8 parity "
+            "Pi corpus cases WITHOUT a Codex-event-shaped counterpart ( parity "
             f"failure — happy-path-only is a failed acceptance): {sorted(uncovered)}",
         )
         # And each covered Pi case's Codex counterpart(s) must actually have been
@@ -545,10 +512,10 @@ class CodexProvenBlockingTest(unittest.TestCase):
             + "\n".join(f"  {n} [{h}]: {json.dumps(e)}" for n, h, e in bypasses),
         )
 
-    # -- F11 fault cases (end-to-end, fail-closed) --------------------------
+    # --  fault cases (end-to-end, fail-closed) --------------------------
 
-    def test_f11_oversized_command_capped_and_decided(self):
-        """F11: a command longer than the match cap is CAPPED and STILL DECIDED — it
+    def test_oversized_command_is_capped_and_decided(self):
+        """a command longer than the match cap is CAPPED and STILL DECIDED — it
         blocks (never crash-open, never a silent allow)."""
         big = "echo " + ("a" * (_MAX_MATCH_LEN + 4096))
         rc, out, err = _run_hook(
@@ -562,8 +529,8 @@ class CodexProvenBlockingTest(unittest.TestCase):
         if rc == 0:
             self.assertIn("safe match length", reason or "")
 
-    def test_f11_oversized_stdin_fails_closed(self):
-        """F11: stdin above the hard input cap fails closed (exit 2), never allow."""
+    def test_oversized_stdin_fails_closed(self):
+        """stdin above the hard input cap fails closed (exit 2), never allow."""
         payload = json.dumps({"tool_input": {"command": "x" * (_MAX_INPUT_BYTES + 2048)}})
         rc, out, err = _run_hook(self.hooks_dir, "shell", payload)
         self.assertEqual(
@@ -572,8 +539,8 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
         self._assert_not_allow(out, "oversized stdin")
 
-    def test_f11_watchdog_timeout_blocks(self):
-        """F11: a pathological/slow input (stdin held open, EOF never arrives) hits the
+    def test_watchdog_timeout_blocks(self):
+        """a pathological/slow input (stdin held open, EOF never arrives) hits the
         watchdog and resolves to BLOCK (exit 2) — never a hang or silent allow."""
         hook_path = os.path.join(self.hooks_dir, _HOOK_FILE["shell"])
         proc = subprocess.Popen(
@@ -592,7 +559,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             proc.communicate()
             self.fail(
                 "watchdog did NOT fire — the hook hung on never-closed stdin instead "
-                "of failing closed (F11 silent-hang regression)"
+                "of failing closed ( silent-hang regression)"
             )
         self.assertEqual(
             proc.returncode, 2,
@@ -601,8 +568,8 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
         self._assert_not_allow(out, "watchdog timeout")
 
-    def test_f11_malformed_json_fails_closed_both_hooks(self):
-        """F11: malformed JSON on stdin fails closed (exit 2 with a reason) on BOTH the
+    def test_malformed_json_fails_closed_in_both_hooks(self):
+        """malformed JSON on stdin fails closed (exit 2 with a reason) on BOTH the
         shell and edit guards — a parse failure is never a silent allow."""
         for hook_kind in ("shell", "edit"):
             rc, out, err = _run_hook(self.hooks_dir, hook_kind, "not json {")

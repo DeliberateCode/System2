@@ -1,13 +1,12 @@
-"""TASK-320 — Eval-breadth hardening: arg-ordering determinism + anchor-exclusion.
+"""Eval-breadth hardening: arg-ordering determinism + anchor-exclusion.
 
-Folds in the two cheap, high-value eval-breadth gaps the eval-engineer queued
-before Phase 3 (``spec/evals.md`` G1 + G2), asserted **directly** rather than only
-transitively via the golden byte-diff:
+Directly checks two high-value composition behaviors rather than relying only on
+a transitive golden byte diff:
 
-* **G1 — argument-ordering determinism (REQ-041).** Composing the same overlay set
+* **argument-ordering determinism.** Composing the same overlay set
   with ``--overlays`` in two different orders yields the *same composition*. The
-  substantive REQ-041 guarantee — contribution ordering is independent of CLI
-  argument order (governed by the front-end ``(overlay_name, id)`` pre-sort) — is
+  contribution ordering is independent of CLI argument order because the front end
+  uses a stable ``(overlay_name, id)`` pre-sort. This is
   asserted at the IR level (``ir.contributions`` ordered output identical under
   input reorder) AND at the emitted ``CLAUDE.md`` level modulo the oracle-faithful
   provenance header.
@@ -16,10 +15,10 @@ transitively via the golden byte-diff:
   ... overlays: ... -->`` provenance header echoes overlays in *input order*, and
   the ``<!-- Composed at: ... -->`` line carries a timestamp. Both are present in
   the frozen oracle's own output (verified by parity), so byte-identity of the
-  *composed body* (everything except those two provenance lines) is the correct
-  encoding of REQ-041; reordering the header is not a composition regression.
+  *composed body* (everything except those two provenance lines) is the relevant
+  invariant; reordering the header is not a composition regression.
 
-* **G2 — anchor-exclusion (REQ-025/027).** A ``prompt_sections`` contribution to a
+* **anchor-exclusion.** A ``prompt_sections`` contribution to a
   non-existent ``(agent, anchor)`` is silently excluded from the IR exactly as the
   frozen oracle excludes it, while a known anchor resolves to an identity
   ``AnchorRef``. Asserted directly against ``ir.anchors.build_anchor_table`` /
@@ -96,7 +95,7 @@ _ORDER_BA = (matrix.TEST_OVERLAY, matrix.ANCHORFILE)
 
 
 class ArgOrderingDeterminismTest(unittest.TestCase):
-    """G1 / REQ-041 — composition is independent of CLI overlay ordering."""
+    """Composition is independent of CLI overlay ordering."""
 
     def test_ir_ordered_contributions_identical_under_reorder(self):
         scopes_ab = _composed_scopes(_ORDER_AB)
@@ -110,8 +109,8 @@ class ArgOrderingDeterminismTest(unittest.TestCase):
             scopes_ab, scopes_ba,
             msg=(
                 "ir.contributions ordered output changed when --overlays order was "
-                "reversed; REQ-041 requires order-independence (front-end "
-                "(overlay_name, id) pre-sort)"
+                "reversed; the front-end (overlay_name, id) pre-sort must make "
+                "composition order-independent"
             ),
         )
 
@@ -123,7 +122,7 @@ class ArgOrderingDeterminismTest(unittest.TestCase):
             msg=(
                 "composed CLAUDE.md body (excluding the provenance header) differs "
                 "under --overlays reorder; the substantive composition must be "
-                "order-independent (REQ-041)"
+                "order-independent"
             ),
         )
 
@@ -138,7 +137,7 @@ class ArgOrderingDeterminismTest(unittest.TestCase):
                 any(ln.startswith(p) for p in _PROVENANCE_PREFIXES),
                 msg=(
                     "an order-dependent CLAUDE.md line is NOT a provenance/timestamp "
-                    f"line: {ln!r} — this would be a real REQ-041 regression"
+                    f"line: {ln!r} — this would be a real ordering regression"
                 ),
             )
 
@@ -178,7 +177,7 @@ def _overlay_basename(overlay_name):
 
 
 class AnchorExclusionTest(unittest.TestCase):
-    """G2 / REQ-025/027 — anchor identity resolution + non-existent-anchor exclusion."""
+    """Check anchor identity and non-existent-anchor exclusion."""
 
     @classmethod
     def setUpClass(cls):
@@ -206,7 +205,7 @@ class AnchorExclusionTest(unittest.TestCase):
             self.table.resolve("executor", "nonexistent_anchor_zzz"),
             msg=(
                 "resolution of a non-existent anchor must return None (the IR "
-                "signal for the oracle's silent exclusion, REQ-027)"
+                "signal for the oracle's silent exclusion, )"
             ),
         )
 
@@ -237,8 +236,7 @@ class AnchorExclusionTest(unittest.TestCase):
                 self.table.resolve(other, anchor_name),
                 msg=(
                     f"anchor {anchor_name!r} (defined only on {owner!r}) must not "
-                    f"resolve on agent {other!r} — per-agent identity scoping "
-                    "(REQ-025)"
+                    f"resolve on agent {other!r}; anchor identity is scoped per agent"
                 ),
             )
 
@@ -262,8 +260,7 @@ class AnchorExclusionTest(unittest.TestCase):
             [], unknown_scopes,
             msg=(
                 "a contribution to a non-existent anchor leaked into the IR; it "
-                "must be silently excluded exactly as the oracle excludes it "
-                "(REQ-027)"
+                "must be silently excluded exactly as the oracle excludes it"
             ),
         )
 
@@ -308,8 +305,7 @@ class AnchorExclusionTest(unittest.TestCase):
             claude,
             msg=(
                 "unknown-anchor content (extra.md) leaked into CLAUDE.md; it must "
-                "be excluded from composition exactly as the oracle excludes it "
-                "(REQ-027)"
+                "be excluded from composition exactly as the oracle excludes it"
             ),
         )
 

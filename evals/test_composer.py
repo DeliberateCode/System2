@@ -1,4 +1,4 @@
-"""Tests for TASK-007: compose(), lock generation, content copying, atomic writes."""
+"""Tests for : compose(), lock generation, content copying, atomic writes."""
 
 import hashlib
 import json
@@ -211,7 +211,7 @@ class TestWriteOutputs(unittest.TestCase):
 
     @unittest.skipIf(
         hasattr(os, "geteuid") and os.geteuid() == 0,
-        "PR #10 review finding 12: root bypasses all POSIX permission checks, so "
+        "root bypasses all POSIX permission checks, so "
         "a read-only directory does not actually block a write under root -- this "
         "test's premise (permission denial) does not hold.",
     )

@@ -10,8 +10,8 @@ The Pi channel is an npm package under the `@deliberatecode` scope, auto-discove
 the [Pi coding agent](https://github.com/earendil-works/pi-coding-agent).
 
 **The install command is intentionally withheld here.** The `@deliberatecode` npm scope was
-claimed and secured on 2026-07-04 (recorded in the consolidation cycle's authorization ledger,
-row 034 — James-confirmed; not independently verifiable from an unauthenticated host). The
+claimed and secured on 2026-07-04 (recorded in the consolidation cycle's authorization ledger;
+not independently verifiable from an unauthenticated host). The
 install one-liner remains withheld until the package is actually published with build
 provenance: publishing a runnable command before the package exists would still direct users
 at an unservable name. See the Pi package README at

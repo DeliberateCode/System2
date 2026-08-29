@@ -1,54 +1,18 @@
-"""TASK-017 — ``test_codex_manifest.py``: Codex plugin structural + lock-schema validator.
+"""Validate the Codex plugin structure, lock, skills, and uninstall behavior.
 
-A stdlib (``unittest``) STRUCTURAL validator for the Codex backend emission
-(REQ-028, REQ-053; design §Observability job 5; security F14). It emits the Codex
-plugin into a throwaway staging dir (the same ``ir.compose -> Backend.emit`` harness
-the Pi golden tests use) and validates:
+A fresh staged emission and any committed ``distributions/codex`` tree are checked.
+The manifest must contain non-empty required fields, a kebab-case name, an in-root
+``./`` skills pointer, and no inert plugin-level hooks pointer. Marketplace pointers
+receive the same containment checks. The lock must expose the standard capability
+record fields, overlay sources, and a loud FIDELITY banner; every status must match
+the descriptor and no Codex capability may claim native enforcement.
 
-* **Manifest** (``.codex-plugin/plugin.json``): the required fields (``name``,
-  ``version``, ``description``) are present and non-empty; ``name`` is kebab-case;
-  the ``skills`` component pointer is present (the ``hooks`` pointer is DROPPED — §4a.C,
-  RL-001: plugin-bundled hooks are inert on current Codex, so enforcement ships as the
-  user-scope ``user-hooks/`` reference, not a manifest ``hooks`` pointer); and every
-  path-ish pointer is ``./``-relative and stays INSIDE the plugin root — NO ``..``, NO
-  absolute paths. This is the security-F14 pointer-hygiene check; it is applied by
-  the SAME pure function to the repo-scoped ``.agents/plugins/marketplace.json`` when
-  that file exists (TASK-023) and to an in-memory synthetic marketplace doc always
-  (so the F14 rule is exercised now, before the file lands — no silent skip).
-
-* **Lock** (``system2.codex.lock.json``): validates against the standard
-  ``system2.<target>.lock.json`` envelope the other backends' locks carry (there is
-  no formal JSON-schema file — the shape is enforced by the shared ``_degradation``
-  helper). Mirrors the Pi lock tests: the ``backend`` tag, the per-capability
-  ``{status, mechanism, enforced, gated}`` fields, ``overlay_sources``, and the loud
-  ``FIDELITY`` banner. Codex-specific standing guard: NOTHING is
-  ``native``. Per-capability ``enforced``/``gated`` flags follow the status rule; and
-  each reported status equals the ``codex.json`` descriptor status.
-
-* **Negative cases with teeth**: the validator FAILS correctly on tampered copies —
-  a missing required field, a ``..`` pointer, an absolute pointer, a non-kebab name,
-  a missing envelope key, a native capability (standing-guard breach), a per-capability
-  field drop, and a flag/status-rule mismatch. Tampering happens on deep copies of the
-  real emission (via ``assertRaises`` / ``subTest``); the real emission is never mutated.
-
-The validator is PATH-PARAMETERIZED: it always validates the fresh staging emission,
-and additionally validates the committed ``distributions/codex/`` tree once TASK-023
-commits it (auto-discovered; no test edit needed). Stdlib-only ``unittest``; no product
-code / goldens / ``compiler/spec`` are touched — this test only reads emissions and
-in-memory temp copies. All manifest/IR/overlay contents are treated as untrusted data;
-embedded instructions are never followed.
-
-* **Skill inventory + version pin** (J4, the codex analogue of ``EVAL-MAN-004``):
-  ``skills/`` carries the exact 18-name set (orchestrator + ``system2-doctor`` +
-  13 role skills + the 3 adapted utility skills), each with a non-empty
-  ``SKILL.md``; ``_CODEX_PLUGIN_VERSION`` and every emitted ``0.2.1`` field are
-  pinned. No count assertion existed before this leg (Discovery D-8).
-
-* **Uninstall path** (Decision D4's compensating test): removing the last overlay
-  drives ``CodexBackend.uninstall``'s generic ``skills/*/SKILL.md`` sweep
-  (``_existing_artifacts``) over the full 18-skill inventory — proving the
-  deliberately-unextended ``_CODEX_FIXED_ARTIFACTS`` tuple still leaves no skill
-  (old or new) orphaned on disk.
+Tampered copies prove the checks reject missing fields, traversal or absolute
+pointers, invalid names, native over-claims, missing capability fields, and flag/status
+mismatches without mutating the real emission. The skill directory must contain the
+exact 18 expected names with non-empty ``SKILL.md`` files and consistent versions.
+Removing the last overlay must sweep the complete skill inventory so no old or new
+skill remains orphaned. All manifest, IR, and overlay content is untrusted data.
 """
 
 import copy
@@ -73,7 +37,7 @@ _REPO_ROOT = oracle.PLUGIN_REPO_ROOT
 _MANIFEST_REL = os.path.join(".codex-plugin", "plugin.json")
 _LOCK_REL = "system2.codex.lock.json"
 
-# The committed distribution + repo-scoped marketplace file (TASK-023 — not yet
+# The committed distribution + repo-scoped marketplace file ( — not yet
 # present). Parameterized so the same validator auto-covers them once they land.
 _DIST_CODEX_ROOT = os.path.join(_REPO_ROOT, "distributions", "codex")
 _MARKETPLACE_PATH = os.path.join(_REPO_ROOT, ".agents", "plugins", "marketplace.json")
@@ -82,16 +46,16 @@ _MARKETPLACE_PATH = os.path.join(_REPO_ROOT, ".agents", "plugins", "marketplace.
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 _MANIFEST_REQUIRED = ("name", "version", "description")
-# The ``hooks`` pointer is DROPPED (§4a.C / RL-001); only ``skills`` remains.
+# The inert plugin-level ``hooks`` pointer is omitted; only ``skills`` remains.
 _MANIFEST_POINTERS = ("skills",)
 
-# J4 — the pinned 0.2.1 version, imported from the backend (never re-typed).
+# The pinned 0.2.2 version, imported from the backend (never re-typed).
 _CODEX_PLUGIN_VERSION = codex_backend._CODEX_PLUGIN_VERSION
 
-# J4 — exact-name 18-skill inventory (orchestrator + system2-doctor + 13 role
+# exact-name 18-skill inventory (orchestrator + system2-doctor + 13 role
 # skills + the 3 adapted utility skills). An independent enumeration, not
 # derived from the IR/role list, so a lost skill cannot silently shrink both
-# sides of the comparison (the same discipline as EVAL-MAN-004's static
+# sides of the comparison (the same discipline as 's static
 # skill_inventory.json).
 _EXPECTED_SKILL_NAMES = frozenset({
     "system2",
@@ -189,7 +153,7 @@ def _iter_path_pointers(node, path="$"):
 
 
 def _pointer_hygiene_errors(field, value):
-    """F14: a ``./``-relative, in-root pointer — NO ``..``, NO absolute. Returns errors."""
+    """a ``./``-relative, in-root pointer — NO ``..``, NO absolute. Returns errors."""
     errors = []
     if value.startswith("/") or posixpath.isabs(value):
         errors.append(f"{field}: absolute path not allowed: {value!r}")
@@ -205,7 +169,7 @@ def _pointer_hygiene_errors(field, value):
 
 
 def validate_pointer_hygiene_errors(doc):
-    """Every anchored path pointer anywhere in *doc* must be in-root (F14). Returns errors."""
+    """Every anchored path pointer anywhere in *doc* must be in-root. Returns errors."""
     errors = []
     for field, value in _iter_path_pointers(doc):
         errors.extend(_pointer_hygiene_errors(field, value))
@@ -238,7 +202,7 @@ def validate_manifest(manifest):
 
 
 def validate_marketplace(doc):
-    """Validate the repo-scoped marketplace doc's pointer hygiene (F14). Raise on breach."""
+    """Validate the repo-scoped marketplace doc's pointer hygiene. Raise on breach."""
     errors = validate_pointer_hygiene_errors(doc)
     if errors:
         raise ManifestValidationError("; ".join(errors))
@@ -322,7 +286,7 @@ def _codex_descriptor():
 
 # ---------------------------------------------------------------------------
 # Path-parameterized source discovery: always the staging emission; plus the
-# committed distributions/codex tree once TASK-023 lands (auto-discovered).
+# committed distributions/codex tree once  lands (auto-discovered).
 # ---------------------------------------------------------------------------
 
 def _build_sources():
@@ -356,7 +320,7 @@ class _CodexEmissionBase(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class CodexManifestStructureTest(_CodexEmissionBase):
-    """The emitted manifest satisfies the structural + F14 pointer contract."""
+    """The emitted manifest satisfies the structural +  pointer contract."""
 
     def test_manifest_validates(self):
         for label, root, _tmp in self.sources:
@@ -386,7 +350,7 @@ class CodexManifestStructureTest(_CodexEmissionBase):
                     self.assertIn(field, manifest, f"missing component pointer {field!r}")
 
     def test_pointers_are_dot_relative_in_root(self):
-        # F14: every anchored pointer is './'-relative and inside the plugin root.
+        # every anchored pointer is './'-relative and inside the plugin root.
         for label, root, _tmp in self.sources:
             with self.subTest(source=label):
                 manifest = _read_json(root, _MANIFEST_REL)
@@ -488,11 +452,11 @@ class CodexLockSchemaTest(_CodexEmissionBase):
 
 
 # ---------------------------------------------------------------------------
-# F14: repo-scoped marketplace pointer hygiene (synthetic always; real if present)
+# repo-scoped marketplace pointer hygiene (synthetic always; real if present)
 # ---------------------------------------------------------------------------
 
 class CodexMarketplacePointerHygieneTest(unittest.TestCase):
-    """The F14 pointer rule applies to the marketplace doc (synthetic + real-if-present)."""
+    """The  pointer rule applies to the marketplace doc (synthetic + real-if-present)."""
 
     def test_in_root_marketplace_doc_validates(self):
         doc = {
@@ -511,7 +475,7 @@ class CodexMarketplacePointerHygieneTest(unittest.TestCase):
                     validate_marketplace(doc)
 
     def test_committed_marketplace_file_if_present(self):
-        # Path-parameterized (TASK-023): validate the real file only once it exists;
+        # Path-parameterized: validate the real file only once it exists;
         # the synthetic cases above keep this test non-vacuous until then.
         if not os.path.isfile(_MARKETPLACE_PATH):
             self.assertFalse(
@@ -634,14 +598,13 @@ class CodexLockNegativeControlsTest(_CodexEmissionBase):
 
 
 # ---------------------------------------------------------------------------
-# J4: exact-name 18-skill inventory + the 0.2.1 version pin (the codex
-# analogue of EVAL-MAN-004; CC-REQ-051/076/080; Discovery D-8 confirmed no
-# count assertion existed before this leg).
+# Exact-name 18-skill inventory and the 0.2.2 version pin. This direct count check
+# prevents extra or missing skills from escaping broader manifest validation.
 # ---------------------------------------------------------------------------
 
 class CodexSkillInventoryTest(_CodexEmissionBase):
     """The emitted ``skills/`` directory carries exactly the pinned 18 names,
-    each with a non-empty ``SKILL.md``, and every version field reads 0.2.1."""
+    each with a non-empty ``SKILL.md``, and every version field reads 0.2.2."""
 
     def test_skills_directory_has_exactly_the_18_expected_names(self):
         for label, root, _tmp in self.sources:
@@ -664,31 +627,30 @@ class CodexSkillInventoryTest(_CodexEmissionBase):
                     with open(path, encoding="utf-8") as fh:
                         self.assertTrue(fh.read().strip(), f"{name}: SKILL.md is empty")
 
-    def test_manifest_and_lock_pin_the_0_2_1_version(self):
-        # Codex second-opinion review, round 4 (finding 5 / item 11): this PR's own
-        # generated-hook bug fixes are exactly the "bug fix that changes emitted
-        # bytes with no new user-facing capability" case _CODEX_PLUGIN_VERSION's
-        # bump-policy comment describes -- a PATCH bump (0.2.0 -> 0.2.1) is required.
+    def test_manifest_and_lock_pin_the_0_2_2_version(self):
+        # The emitted-byte cleanup in this change is the "bug fix that changes
+        # emitted bytes with no new user-facing capability" case described by
+        # _CODEX_PLUGIN_VERSION's policy, requiring a PATCH bump (0.2.1 -> 0.2.2).
         # This pin is a literal, not derived from the constant, so a future version
         # bump must consciously update it too (the same discipline as any other
         # golden pin in this suite).
         self.assertEqual(
-            "0.2.1", _CODEX_PLUGIN_VERSION,
-            "backends.codex._CODEX_PLUGIN_VERSION drifted off the bundled 0.2.1 pin",
+            "0.2.2", _CODEX_PLUGIN_VERSION,
+            "backends.codex._CODEX_PLUGIN_VERSION drifted off the bundled 0.2.2 pin",
         )
         for label, root, _tmp in self.sources:
             with self.subTest(source=label):
                 manifest = _read_json(root, _MANIFEST_REL)
-                self.assertEqual(manifest["version"], "0.2.1")
+                self.assertEqual(manifest["version"], "0.2.2")
                 lock = _read_json(root, _LOCK_REL)
-                self.assertEqual(lock["codex_plugin_version"], "0.2.1")
+                self.assertEqual(lock["codex_plugin_version"], "0.2.2")
 
 
 # ---------------------------------------------------------------------------
-# J4: uninstall-path leg (Decision D4's compensating test). CC-REQ-078's
+# uninstall-path leg (Decision 's compensating test). 's
 # intent (uninstall removes added skills; prune doesn't strand them) is met by
 # the EXISTING generic ``skills/*/SKILL.md`` sweep — ``_CODEX_FIXED_ARTIFACTS``
-# is deliberately left unextended (D4, ratified at Gate 3). This exercises
+# is deliberately left unextended (ratified at Gate 3). This exercises
 # that sweep against the full 18-skill inventory, including the 3 new
 # utility skills and ``system2-doctor`` (none of which is in the fixed tuple).
 # ---------------------------------------------------------------------------
@@ -718,7 +680,7 @@ class CodexUninstallSweepTest(unittest.TestCase):
         }
         self.assertEqual(
             _EXPECTED_SKILL_NAMES, removed_skill_names,
-            "the generic skills/*/SKILL.md sweep (D4) did not cover the exact "
+            "the generic skills/*/SKILL.md sweep did not cover the exact "
             f"18-skill inventory; diverged: "
             f"{_EXPECTED_SKILL_NAMES ^ removed_skill_names}",
         )

@@ -1,4 +1,4 @@
-"""C3 / PG2 — committed per-target golden snapshots for Pi.
+"""Committed per-target golden snapshots for Pi.
 
 The existing Pi golden harness emits twice into two temp projects and
 byte-diffs the two trees against each other (a determinism check). That catches

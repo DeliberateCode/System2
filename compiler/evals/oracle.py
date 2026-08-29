@@ -115,7 +115,7 @@ def verify_pin(lock_path: str = LOCK_PATH) -> dict:
     """Recompute hashes and compare to the pinned lock.
 
     Raises ``RuntimeError(DRIFT_MESSAGE)`` on any mismatch. Never regenerates the
-    lock automatically (REQ-007).
+    lock automatically.
     """
     pinned = load_lock(lock_path)
     current = compute_lock()

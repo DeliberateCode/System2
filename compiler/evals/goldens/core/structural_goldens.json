@@ -1,5 +1,5 @@
 {
-  "description": "Static inventory invariant (13-agent/6-gate + hook/allowlist bindings). Captured by reference to the plugin's read-only structural goldens; the oracle is not invoked for the core cell because it refuses empty overlay sets (design T3).",
+  "description": "Static inventory invariant for the 13-agent, 6-gate workflow and its hook and allowlist bindings.",
   "base_template_sha256": "bbf92beacc749f37c6f0e3515332d7e000e25832264be0abaa94ba9643ae90f5",
   "structural_goldens": [
     {
@@ -32,19 +32,19 @@
     },
     {
       "path": "evals/goldens/manifest_schemas.json",
-      "sha256": "a7e3ef925faa1c7cfc3d4419f2b12f495d223a1a66b2734989dc32a5ef07a218"
+      "sha256": "ea3ddf6784b4b471bcc9433c417340d41c8fabebe469c76fe96842b63ddb8f8f"
     },
     {
       "path": "evals/goldens/prohibited_patterns.json",
-      "sha256": "1e10275a28237a85a98182dafbc7d06996af8a6920720d314da7d89e659acf1b"
+      "sha256": "641616dd0eef7240e376428bde921ca2c1fd93a0cc258037de55575072f7d4cc"
     },
     {
       "path": "evals/goldens/required_readme_patterns.json",
-      "sha256": "d0ad09125e430e8949b686d0ad2225b74ad460280ca0ab501b8bebd837045f77"
+      "sha256": "2bbeb048fe69ea08369427dd871a9c4673f6a6b935b95684d71eb661aa369827"
     },
     {
       "path": "evals/goldens/skill_inventory.json",
-      "sha256": "a6b1d08fdbdac6d9e35eb1e019cf2975247cf9d9c4cfc2a469f559737aa1a376"
+      "sha256": "8579147b0e669a41386f38d8e18f16c0c2916b339ca1c8600491b5751036fe69"
     }
   ]
 }

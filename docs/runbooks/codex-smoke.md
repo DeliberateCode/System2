@@ -1,8 +1,9 @@
 # Runbook: Codex marketplace-resolution + hook-trust smoke test
 
-**Owner:** James (executed personally with the `codex` CLI).
-**When:** once, before Gate 5 (TASK-033). Resolves ODQ-1 and confirms the advisory-state
-honesty messaging (REQ-032) and the F6 canary marker-file protocol on a real Codex install.
+**Owner:** Release owner (executed with the `codex` CLI).
+**When:** once, before release. Confirms marketplace resolution, advisory-state
+honesty messaging, and both directions of the canary marker-file protocol on a real
+Codex install.
 **Records to:** `spec/codex-smoke-record.md` (workspace-root cycle home). Paste every command
 and its output there as you go.
 
@@ -22,10 +23,10 @@ and post-trust (marker absent + nonce-bearing block payload → active).
    and install it out of band, then record how.
 2. The Phase 2 commits (including `distributions/codex/` and root
    `.agents/plugins/marketplace.json`) are reachable by the `codex` CLI at
-   `DeliberateCode/System2`. Confirm with James which ref the CLI will resolve (branch vs
-   default branch). Pushing to the already-public Core repo is routine development, not an
-   outward "action" — James confirms the ref before you start.
-3. The System2 compiler CLI is available for §3's `system2 codex init` (the console script
+   `DeliberateCode/System2`. Confirm with the release owner which ref the CLI will resolve
+   (branch vs default branch). Pushing to the already-public Core repo is routine development,
+   not an outward "action" — the release owner confirms the ref before you start.
+3. The System2 compiler CLI is available for the hook-materialization step's `system2 codex init` (the console script
    `system2`, or `python3 -m system2_compiler.cli` from a checkout). Confirm:
    ```
    system2 codex init --help    # or: python3 -m system2_compiler.cli codex init --help
@@ -37,7 +38,7 @@ and post-trust (marker absent + nonce-bearing block payload → active).
 
 ---
 
-## 1. Marketplace add (ODQ-1 resolution)
+## 1. Marketplace resolution
 
 ```
 codex plugin marketplace add DeliberateCode/System2
@@ -47,12 +48,12 @@ codex plugin marketplace add DeliberateCode/System2
 (which points at `./distributions/codex`), or does it demand a plugin manifest at the repo
 root?
 
-- **If it resolves via `.agents/plugins/marketplace.json`** → ODQ-1 is answered "root pointer
-  honored". Continue.
-- **If it requires a root plugin** → STOP. This is the ODQ-1 fallback. Do NOT improvise a fix.
-  Record the exact error, then route a corrective amendment task to add a root
-  `.codex-plugin/plugin.json` whose pointers stay inside `distributions/codex/` (F14: no
-  `..`, no absolute paths). Resume this runbook after that lands.
+- **If it resolves via `.agents/plugins/marketplace.json`** → record "root pointer
+  honored" and continue.
+- **If it requires a root plugin** → STOP and do not improvise a fix. Record the exact
+  error, then route a corrective amendment to add a root `.codex-plugin/plugin.json`
+  whose pointers stay inside `distributions/codex/` with no `..` or absolute paths.
+  Resume this runbook after that lands.
 
 Record the marketplace listing:
 ```
@@ -81,7 +82,7 @@ Confirm no error.
 **The plugin delivers the skills and the advisory messaging only.** On current codex-cli,
 plugin-bundled hooks are NOT dispatched (`plugin_hooks` is removed/false), so enforcement is
 delivered separately through the user-level `~/.codex/hooks.json` config layer — that is
-§3 (`system2 codex init`). Until §3 runs and the hooks are trusted, System2 is advisory-only.
+the hook-materialization step (`system2 codex init`). Until that command runs and the hooks are trusted, System2 is advisory-only.
 
 ---
 
@@ -94,7 +95,7 @@ From the compiler checkout (the console script `system2`, or
 system2 codex init
 ```
 
-This (A2) copies the committed guard scripts from `distributions/codex/user-hooks/hooks/*.js`
+This copies the committed guard scripts from `distributions/codex/user-hooks/hooks/*.js`
 into `~/.codex/system2/hooks/` and renders `distributions/codex/user-hooks/hooks.json.tmpl`
 into `~/.codex/hooks.json`, substituting `{{SYSTEM2_HOOKS_DIR}}` for the RESOLVED ABSOLUTE
 `~/.codex/system2/hooks` — a user-scope hook fires with cwd = the current project, never
@@ -107,7 +108,7 @@ ls -l ~/.codex/system2/hooks/
 
 Confirm no `{{SYSTEM2_HOOKS_DIR}}` placeholder remains and the `command` paths are absolute.
 
-**Pre-existing `~/.codex/hooks.json` (ROQ-1 — machine-wide stakes).** If you already have a
+**Pre-existing `~/.codex/hooks.json` (machine-wide stakes).** If you already have a
 non-System2 `~/.codex/hooks.json`, `init` REFUSES and prints a LOUD warning rather than
 clobbering it. Re-run with `--force` to write a timestamped `.bak` beside it and install:
 ```
@@ -115,12 +116,12 @@ system2 codex init --force
 ```
 Record which path fired (fresh install vs backup-then-install).
 
-The install is advisory-only until you trust the hooks (§5). It is idempotent — re-running
+The install is advisory-only until you complete the hook review and trust step. It is idempotent — re-running
 `system2 codex init` re-renders identically and preserves any original backup.
 
 ---
 
-## 4. Unreviewed-hooks advisory check (REQ-032 — BEFORE trusting anything)
+## 4. Unreviewed-hooks advisory check (before trusting anything)
 
 The whole point: right after `init`, the user-scope hooks are installed but untrusted and
 MUST report advisory-only — **nothing may report as enforced.**
@@ -155,7 +156,7 @@ MUST report advisory-only — **nothing may report as enforced.**
      ```
      ls -l .system2/canary-* 2>&1   # expect: no such file
      ```
-   Record: marker existed → ADVISORY verdict. This is the F6 marker-EXISTS direction.
+   Record: marker existed → ADVISORY verdict. This exercises the marker-exists direction.
 
 ---
 
@@ -176,10 +177,10 @@ stays advisory-only and cannot be overridden in-session — note it and skip ste
 
 ---
 
-## 6. Post-trust canary doctor (F6 marker-ABSENT + modern block reason → active)
+## 6. Post-trust canary doctor (marker absent + modern block reason → active)
 
-Re-run the `system2-doctor` skill now that the user-scope hooks are trusted. To also confirm
-**A2** (the absolute-path command fires from any project cwd), run this from a SECOND project
+Re-run the `system2-doctor` skill now that the user-scope hooks are trusted. To confirm
+that the absolute command path works from any project cwd, run this from a second project
 directory different from where you ran `init`:
 
 - It generates a NEW fresh nonce `<nonce2>` and runs the canary command carrying the
@@ -199,7 +200,7 @@ directory different from where you ran `init`:
   carries its own sentinel; state can change afterwards).
 
 Record: marker absent AND `system2-canary-blocked:<nonce2>` observed in the block reason →
-ACTIVE verdict. This is the F6 marker-ABSENT + nonce-payload direction.
+ACTIVE verdict. This exercises the marker-absent plus nonce-payload direction.
 
 **Fail-closed cross-check:** if the marker was absent but you did NOT see the nonce-bearing
 `system2-canary-blocked:<nonce2>` payload, the correct verdict is **UNVERIFIED — advisory,
@@ -223,11 +224,12 @@ never healthy**. Confirm the doctor does not claim "healthy" without the concret
    codex plugin marketplace remove system2
    ```
 3. Remove the scratch project directory.
-4. In `spec/codex-smoke-record.md`, record: `codex` version; ODQ-1 outcome (root pointer
-   honored vs fallback required); the `system2 codex init` outcome (fresh vs `--force` backup);
-   the pre-trust ADVISORY verdict (marker existed); the post-trust ACTIVE verdict (marker absent
-   + modern `permissionDecisionReason` nonce payload); A2 (cross-project absolute-path fire);
-   confirmation that nothing reported enforced before trusting; and an explicit PASS/FAIL line.
+4. In `spec/codex-smoke-record.md`, record: the `codex` version; marketplace outcome
+   (root pointer honored vs fallback required); the `system2 codex init` outcome (fresh vs
+   `--force` backup); the pre-trust ADVISORY verdict (marker existed); the post-trust ACTIVE
+   verdict (marker absent plus modern `permissionDecisionReason` nonce payload); whether the
+   absolute hook command fired from another project; confirmation that nothing reported
+   enforced before trusting; and an explicit PASS/FAIL line.
 
 **PASS criteria:** marketplace add resolved (or the fallback was routed as an amendment);
 `system2 codex init` rendered `~/.codex/hooks.json` with absolute commands (no placeholder);

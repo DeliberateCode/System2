@@ -1,4 +1,4 @@
-// Positive control for the F12 import scanner: only the pi type package, node: builtins,
+// Positive control for the import scanner: only the Pi type package, Node builtins,
 // and relative imports. The scanner must report ZERO external specifiers for this file.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";

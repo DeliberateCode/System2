@@ -1,4 +1,4 @@
-"""MODULE-IMPORT FACET GATE (Codex second-opinion review on PR #10).
+"""Pin the composer shim's in-process module-import behavior.
 
 ``plugin/scripts/composer.py``'s own docstring documents a real, deliberately
 accepted architectural gap (tracked debt, not fixed -- see the docstring's
@@ -105,9 +105,8 @@ class ModuleImportFacetTest(unittest.TestCase):
         (e.g. defined its own no-op ``compose``) must fail the REAL identity check
         above -- not a reimplementation of it.
 
-        Codex second-opinion review, round 4: the prior version of this test
-        asserted ``_FakeModule.compose is not preflip.compose`` directly, which is
-        true of ANY two distinct function objects and would pass even if
+        A direct ``_FakeModule.compose is not preflip.compose`` assertion is
+        true of any two distinct function objects and would pass even if
         ``_check_facet_matches_preflip`` itself were broken (e.g. always returning
         without asserting anything) -- it never exercised the production check at
         all. ``subTest`` swallows its ``AssertionError`` locally rather than

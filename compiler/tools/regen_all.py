@@ -1,5 +1,4 @@
-"""``regen_all.py`` — the single regeneration entrypoint + freshness guard for every
-committed generated artifact (REQ-037; design §Public Interfaces 2, §Data Flow).
+"""Regenerate and freshness-check every committed generated artifact.
 
     python3 compiler/tools/regen_all.py [--check] [--only bundle|codex|pi]
 
@@ -7,38 +6,38 @@ committed generated artifact (REQ-037; design §Public Interfaces 2, §Data Flow
   ``bundle -> codex -> pi`` into its committed location (each writes its
   lock + provenance).
 * **--check** — regenerate each artifact into a temp dir and byte-diff it against the
-  committed tree; exit 1 on the FIRST divergence with the REQ-057 message
-  ``"<artifact> is stale: regenerate via python3 compiler/tools/regen_all.py"``. An
-  artifact with no committed tree yet (``codex`` until TASK-023) is skipped with a
-  note. Exit 0 when every checked artifact matches.
+  committed tree; exit 1 on the first divergence with
+  ``"<artifact> is stale: regenerate via python3 compiler/tools/regen_all.py"``.
+  An artifact without a committed tree is skipped with a note. Exit 0 when every
+  checked artifact matches.
 * **--only <artifact>** — operate on just that artifact.
 
-Determinism contract (F13): every builder's output is byte-stable given identical
+Determinism contract: every builder's output is byte-stable given identical
 source. Freshness is checked per artifact:
 
 * **bundle** — delegated to ``check_bundle_fresh.py``'s authoritative criterion
   (``compiler_source_sha256`` match, the bundle's DESIGNED drift anchor). We do NOT
   byte-diff ``BUNDLE.json``, because its ``generated_from`` (a git-rev stamp) and
   ``bundled_at`` legitimately vary; reusing the oracle also means bundle ``--check``
-  and ``check_bundle_fresh.py`` can never disagree (REQ-038).
+  and ``check_bundle_fresh.py`` can never disagree.
 * **distributions (codex/pi)** — regenerated into a temp dir and byte-diffed
   vs the committed tree. The ONLY fields allowed to differ are the breadcrumb
   provenance fields in ``IGNORED_PROVENANCE_FIELDS`` (``generated_at`` and the
   one-commit-lagging ``generated_from``), which live ONLY in ``PROVENANCE.json`` and
   are compared field-wise. Keep that ignore set MINIMAL and EXPLICIT: a broadened
-  ignore set is itself a defect (TASK-022 asserts the set is exactly this list).
+  ignore set is itself a defect; the regeneration guard asserts the set exactly.
 
-This module WRAPS ``build_bundle.py`` / ``check_bundle_fresh.py`` (it does not
-reimplement or weaken either — REQ-038). Stdlib-only.
+This module wraps ``build_bundle.py`` and ``check_bundle_fresh.py`` without
+reimplementing or weakening either. It uses only the standard library.
 
 Builder registry
 ----------------
 ``REGISTRY`` is the ordered list of artifacts. ``bundle``, ``codex`` and ``pi`` are
 active now. A future artifact can be registered as a PLACEHOLDER slot
 (``builder=None``, which errors clearly on an explicit ``--only`` and is skipped
-with a note otherwise) until its builder lands: a follow-up task then defines its
-``_build_<name>(dest_abs, ctx)`` function and sets that entry's ``builder=`` to it
-(TASK-024 activated pi this way, via ``build_pi_package.py``). A newly activated
+with a note otherwise) until its builder lands. Activation defines
+``_build_<name>(dest_abs, ctx)`` and assigns that function to ``builder``;
+Pi was activated this way through ``build_pi_package.py``. A newly activated
 builder is automatically covered by ``regen_all --check`` and by
 ``test_regen_guards.py`` (it iterates ``REGISTRY``).
 """
@@ -80,13 +79,13 @@ __all__ = [
     "main",
 ]
 
-# The command the REQ-057 stale message names — the single documented way to refresh.
+# The stale diagnostic names this single documented refresh command.
 _REGEN_COMMAND = "python3 compiler/tools/regen_all.py"
 
 # Identifies this generator in every distribution's PROVENANCE.json.
 GENERATOR = "compiler/tools/regen_all.py"
 
-# The MINIMAL, EXPLICIT provenance-field ignore set (F13). Every field here is a
+# The MINIMAL, EXPLICIT provenance-field ignore set. Every field here is a
 # non-correctness BREADCRUMB that legitimately varies between two regens, NOT a
 # freshness property:
 #   * bundled_at / generated_at — wall-clock regen timestamps.
@@ -119,7 +118,7 @@ _WALK_EXCLUDE_DIRS = frozenset(
 # absolute paths, so ``regen_all --check`` reproduces it byte-for-byte on any machine
 # or CI. (Composing a fixture overlay would bake this machine's absolute overlay path
 # into the lock's ``overlay_sources``, breaking portability. Overlays are applied by
-# end users via the CLI, not vendored into the base plugin — OQ-B.)
+# end users via the CLI rather than being vendored into the base plugin.)
 _CODEX_OVERLAY_RELPATHS: tuple = ()
 
 
@@ -256,9 +255,9 @@ class _Artifact:
 
 # Fixed order: codex -> pi -> bundle. Bundle deliberately runs LAST: it vendors
 # the system2_compiler/ tree verbatim, and codex's builder mutates a part of that
-# same tree (the _packaged_data/codex_user_hooks/ mirror -- PR #10 review finding
-# 6). Codex second-opinion review, round 3: with bundle running FIRST, a single
-# default `regen_all.py` invocation vendored the PRE-mirror-update tree, silently
+# same tree through the _packaged_data/codex_user_hooks/ mirror. If the bundle runs
+# first, a single default `regen_all.py` invocation vendors the pre-mirror-update tree,
+# silently
 # leaving the bundle one full regen run behind any hook-source change -- confirmed
 # by direct reproduction. Bundle must run after every builder capable of touching
 # system2_compiler/ itself, not just after the artifacts it merely reads from.
@@ -273,12 +272,12 @@ REGISTRY: List[_Artifact] = [
 
 
 def stale_message(artifact: str) -> str:
-    """The REQ-057 divergence message: names the artifact AND the exact regen command."""
+    """The  divergence message: names the artifact AND the exact regen command."""
     return f"{artifact} is stale: regenerate via {_REGEN_COMMAND}"
 
 
 def _version_drift_note(artifact: str, committed_root: str, regen_root: str) -> Optional[str]:
-    """PR #10 review (finding 11 + Codex second-opinion): advisory-only diagnostic,
+    """advisory-only diagnostic,
     never a new failure mode -- ``--check`` already fails on staleness by itself.
     Appends a note to that SAME failure when the emitted content genuinely changed
     but the channel's version constant (``PROVENANCE.json``'s ``channel_version``,
@@ -393,9 +392,7 @@ def _regen(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
         dest_abs = os.path.join(ctx.repo_root, art.dest_rel)
         art.builder(dest_abs, ctx)
         if art.name == "codex":
-            # PR #10 review finding 6 (Codex second-opinion review, round 2 -- a
-            # documentation-only fix was correctly rejected as not resolving
-            # this): mirror the freshly-emitted user-hooks/ subtree into a
+            # mirror the freshly-emitted user-hooks/ subtree into a
             # location INSIDE the system2_compiler package (real package-data,
             # pyproject.toml) so `system2 codex init` works from a `pip
             # install`ed wheel regardless of install method -- verified
@@ -416,8 +413,8 @@ def _bundle_is_fresh(ctx: _Context, committed_root: str) -> bool:
     (its DESIGNED drift anchor). Reusing it — rather than re-deriving freshness as a
     BUNDLE.json byte-diff — removes the ``generated_from``/``bundled_at`` one-commit
     lag entirely and guarantees bundle ``--check`` never disagrees with
-    ``check_bundle_fresh.py`` (REQ-038). Its diagnostics are captured so ``--check``
-    speaks with a single REQ-057 voice.
+    ``check_bundle_fresh.py``. Its diagnostics are captured so ``--check``
+    speaks with a single  voice.
     """
     sink = io.StringIO()
     with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
@@ -463,7 +460,7 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
                     sys.stderr.write(drift + "\n")
                 return 1
         if art.name == "codex":
-            # PR #10 review finding 6 (Codex second-opinion review, round 2): the
+            # the
             # committed distributions/codex/user-hooks/ tree is verified fresh
             # above; separately verify the package-data mirror
             # (system2_compiler/_packaged_data/codex_user_hooks/) still matches it

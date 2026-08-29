@@ -43,7 +43,7 @@ vendored compiler bundle.
 | **Phase 0 — Freeze** | Output-level golden suite snapshotting the live `composer.py`; the plugin's `composer.py` is the hash-pinned frozen reference oracle. | Done |
 | **Phase 1 — Extract IR / split compose-from-render** | Front-end lifted into `ir/` (produces a `System2Graph`); Claude projection lifted behind `Backend.emit(ir, project_path)` as `backends/claude_code.py`; `cli.py` added. Output is byte-identical to the oracle across the golden matrix. | Done |
 | **Phase 2 — Anchors → IR + capability model** | Overlay anchors resolved against the IR (not literal-heading matching); agents declare *intent* capabilities; per-backend capability descriptors and a per-capability degradation report appended to the lock file. | Done |
-| **Phase 4 — Pi backend** | A second backend (`backends/pi.py`) lowering the same IR to a Pi **extension** plus context/skill/prompt markdown. The generated `.pi/extensions/system2.ts` gate **natively blocks** via `on("tool_call")`; a shared degradation helper (PG6) drives the honest MIXED report; native blocking is proven by a synthetic-`tool_call` node harness. No `ir/` change to the `claude-code` byte output. | Done |
+| **Phase 4 — Pi backend** | A second backend (`backends/pi.py`) lowering the same IR to a Pi **extension** plus context/skill/prompt markdown. The generated `.pi/extensions/system2.ts` gate **natively blocks** via `on("tool_call")`; a shared degradation helper drives the honest MIXED report; native blocking is proven by a synthetic-`tool_call` node harness. No `ir/` change to the `claude-code` byte output. | Done |
 | **Phase 5 — Convergence & Lifecycle Parity** | The `Backend` contract grows from a single `emit` into a four-method **lifecycle** (`emit` + `uninstall` + `doctor` + `recompose_from_lock`); the CLI reaches **full parity** with `composer.py` (`compile`/`uninstall`/`doctor`/`from-lock`/`profile`); and the **live plugin converges** onto a vendored, stdlib-only compiler bundle behind a thin `composer.py` shim, guarded by a tamper + staleness drift check. Byte-identical Claude output preserved across the flip. | Done |
 
 The Pi backend remains purely additive — selected only via
@@ -73,7 +73,7 @@ System2-Compiler/
 │   │   ├── base.py              Backend protocol: emit + uninstall + doctor + from-lock lifecycle
 │   │   ├── claude_code.py       The Claude projection (byte-identical reference) + lifecycle
 │   │   ├── pi.py                The Pi projection (native TS-gate extension, Phase 4) + lifecycle
-│   │   ├── _degradation.py      Shared descriptor-driven degradation helper (PG6, Phase 4)
+│   │   ├── _degradation.py      Shared descriptor-driven degradation helper (Phase 4)
 │   │   ├── _yaml.py             Internal, stdlib-only block-YAML serializer (retained shared infra)
 │   │   └── capabilities/
 │   │       ├── claude_code.json Per-capability status descriptor (all native)
@@ -252,7 +252,7 @@ IR but absent from the descriptor, emit raises rather than dropping it. For
 Claude lock byte-untouched).
 
 Both backends derive that report through one shared, descriptor-driven
-helper, **`backends/_degradation.py` (PG6)**. It owns the per-capability
+helper, **`backends/_degradation.py`**. It owns the per-capability
 report-record assembly and the total `status → (enforced, gated)` flag rule over
 the four-value enum (`native` → enforced; `adapted` → gated; `advisory`/
 `unsupported` → neither). Each backend keeps its own report envelope and `fields`
@@ -576,7 +576,7 @@ These cover path safety, atomic-write/restore, dry-run, refusal text, module
 boundaries, the mechanism → capability mapping, the degradation report
 (completeness + no-silent-drop) for both backends, lowering invariance,
 unknown-capability warnings, the Pi goldens (`discoverAndLoadExtensions` load +
-the proven-blocking node harness), the shared `_degradation` helper (PG6) and its
+the proven-blocking node harness), the shared `_degradation` helper and its
 byte-identity gate, the stdlib YAML serializer, the
 **Phase 5 lifecycle verbs** (uninstall / doctor / from-lock parity across both
 targets; the CLI-contract goldens pinning the claude-code path to the frozen
@@ -584,7 +584,7 @@ oracle's exit codes + stdout/stderr; the additive `overlay_sources[]` lock), the
 **convergence flip** (the bundle-equivalence gate and the plugin's own evals on
 the bundle), the **bundle drift guard** (tamper + staleness), no-regression (Claude
 goldens stay empty-diff; the Claude lock stays byte-identical across the
-PG6 refactor; `ir/` and `backends/claude_code.py` byte output unchanged), the
+ refactor; `ir/` and `backends/claude_code.py` byte output unchanged), the
 vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determinism
 + anchor-exclusion).
 
@@ -609,8 +609,8 @@ vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determini
   the convergence flip safe (the plugin now runs the bundle for those paths). The
   Phase 2 lock `degradation_report` is the single additive Claude key; stripping it
   yields the baseline lock byte-for-byte. Adding the Pi backend and
-  growing the lifecycle did not perturb any of this; the PG6 degradation refactor
-  is byte-preserving for the Claude report.
+  growing the lifecycle did not perturb any of this; the shared degradation
+  refactor preserves the Claude report bytes.
 - **Validate-as-oracle for new backends.** Pi has no byte oracle; the
   emitted extension must load under Pi's own `discoverAndLoadExtensions` and its
   native blocks must be proven by the synthetic-`tool_call` harness. The backend
@@ -662,7 +662,7 @@ vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determini
 - Overlay anchor contributions are rendered into `CLAUDE.md` delegation /
   agent-augmentation instructions (Claude), and into `.pi/SYSTEM.md` / role
   prompt templates (Pi), not into pipeline-agent system prompts.
-- **Structured-policy-only gap on Pi (T5/OQ-G3).** The Pi
+- **Structured-policy-only gap on Pi.** The Pi
   backend faithfully renders the *structured* policy (roles, gate graph,
   delegation contract, capabilities). Any policy that exists only as
   Claude-targeted `base_template` prose has no structured IR representation and is

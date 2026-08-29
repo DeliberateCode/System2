@@ -1,4 +1,4 @@
-"""Phase 4 (PG6): the shared, descriptor-driven degradation helper.
+"""Phase 4: the shared, descriptor-driven degradation helper.
 
 Backend-agnostic; lifts the per-capability report-record assembly and the
 status->flags rule out of each backend's own ``_build_degradation_report`` so all

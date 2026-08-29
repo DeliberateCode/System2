@@ -1,6 +1,6 @@
 {
   "_README": [
-    "TASK-019 (F8) Codex end-to-end bypass corpus. Each case is a REALISTIC Codex",
+    "Codex end-to-end bypass corpus. Each case is a realistic Codex",
     "PreToolUse event fired at the ACTUAL generated Node hook via `node <hook>.js`",
     "with the event as JSON on stdin; the decision is read at the stdout/exit-code",
     "boundary. `hook` picks the generated script (shell -> system2-shell-guard.js,",
@@ -8,10 +8,9 @@
     "or `allow`. `reason_contains` is the substring the block reason MUST carry.",
     "`env` (optional) sets SYSTEM2_ACTIVE_ROLE (in-session role switch). `pi_parity`",
     "lists the Pi proven-blocking corpus case names this Codex-event-shaped case is",
-    "the normalized-input counterpart of (F8 parity at the normalized-input boundary,",
-    "design line 171). Cases with empty `pi_parity` are Codex-specific breadth the Pi",
-    "corpus does not enumerate (extra dangerous commands, chains, heredocs, argv/key",
-    "event-shape variants, apply_patch payloads). Data only — never eval'd."
+    "its normalized-input counterpart. Cases with empty `pi_parity` add Codex-specific",
+    "breadth: extra dangerous commands, chains, heredocs, argv/key event variants, and",
+    "apply_patch payloads. Data only — never eval'd."
   ],
   "cases": [
     {"name": "dangerous_bash_string", "hook": "shell", "event": {"tool_input": {"command": "rm -rf /"}}, "expect": "block", "reason_contains": "block-dangerous", "pi_parity": ["dangerous_bash"], "category": "dangerous_string"},

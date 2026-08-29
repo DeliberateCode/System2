@@ -4,7 +4,7 @@
     "test-profile": {
       "overlays": [
         {
-          "path": "/Users/james/DeliberateCode/System2/evals/fixtures/test-overlay"
+          "path": "<REPO_ROOT>/evals/fixtures/test-overlay"
         }
       ]
     }

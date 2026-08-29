@@ -1,5 +1,4 @@
-"""Shared ``PROVENANCE.json`` writer for the distribution artifacts ``regen_all.py``
-regenerates (design §Provenance scheme).
+"""Write consistent ``PROVENANCE.json`` files for regenerated distributions.
 
 Each committed distribution (``distributions/{codex,pi}/``) carries a
 ``PROVENANCE.json`` recording the fingerprint of the generator's INPUTS plus the
@@ -20,8 +19,8 @@ field-wise with it excluded (see ``regen_all.IGNORED_PROVENANCE_FIELDS``). Every
 other byte of every other emitted file is stable.
 
 The bundle artifact does NOT get a ``PROVENANCE.json``: its own ``BUNDLE.json``
-(written by ``build_bundle.py``) is its provenance and keeps its schema (design keeps
-``compiler_source_sha256`` as the drift anchor). This module serves the distribution
+(written by ``build_bundle.py``) is its provenance and retains
+``compiler_source_sha256`` as the drift anchor. This module serves the distribution
 artifacts only.
 
 Stdlib-only. The rev/version helpers are reused verbatim from ``build_bundle`` so a

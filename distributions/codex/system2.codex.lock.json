@@ -1,6 +1,6 @@
 {
   "backend": "codex",
-  "codex_plugin_version": "0.2.1",
+  "codex_plugin_version": "0.2.2",
   "enforcement": "conditional-node-hooks",
   "subagent_isolation": "adapted",
   "FIDELITY": "System2 workflows for Codex. NOTE: safety enforcement is INACTIVE until you review and trust the bundled hooks via /hooks; until then System2 runs advisory-only. On Codex the safety gates (enforce-lease, block-dangerous, protect-sensitive) are ADAPTED, never native: they are deterministic pre-execution blocks (modern deny schema: hookSpecificOutput.permissionDecision=deny) ONLY once the guard is active \u2014 materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks; until then they are advisory-only, and an admin requirements.toml override can disable them immutably. budget is ADAPTED (a Stop-event report, not a block). format/typecheck are ADVISORY (skill instruction only). Even with hooks trusted, Codex hooks intercept shell commands and apply_patch-matched edits; they do NOT intercept WebSearch or other non-shell, non-MCP tools. Enforcement on Codex is therefore ADAPTED, never total. EMPTY-SCOPE (UNSCOPED) ROLES FAIL CLOSED: one or more roles carry an empty write_scope (read-only roles); when the hooks are trusted the lease BLOCKS every write for them. This is fail-closed enforcement, not a silent allow.",

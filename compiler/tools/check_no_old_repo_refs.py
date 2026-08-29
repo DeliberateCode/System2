@@ -1,6 +1,6 @@
 """Grep oracle: fail on any LIVE reference to a now-dead source repo.
 
-Enforces AC1/REQ-002 for the consolidation: the plugin, utilities, compiler and
+Enforces / for the consolidation: the plugin, utilities, compiler and
 distributions now live in ONE repo, so nothing outside a deliberate
 historical-record allowlist may still point at the old standalone repos
 (``System2``-``Compiler`` / ``System2``-``UtilitySkills``). A live pointer means a
@@ -63,13 +63,13 @@ ALLOWLIST = (
     # ``run_goldens._normalize_lock_paths`` redacts before the byte compare — inert
     # test data, not live coupling. Editing would churn goldens (forbidden this cycle).
     "compiler/evals/goldens/",
-    # User doc: TASK-031/039 refreshes its install pointers; allowlisted this cycle
+    # User doc:  refreshes its install pointers; allowlisted this cycle
     # so the oracle can pass while the historical URLs still stand.
     "compiler/README.md",
-    # User doc (examples): TASK-031/039 refreshes its install pointers.
+    # User doc (examples):  refreshes its install pointers.
     "compiler/examples/README.md",
     # Migration doc: deliberately names the old standalone utility-skills repo so
-    # former standalone-marketplace users can find their origin. CD-1, ADOPTED
+    # former standalone-marketplace users can find their origin. , ADOPTED
     # option (c) — see spec-consolidation-completion/decisions/
     # old-repo-name-guard-vs-migration-text.md. README.md's pointer stays
     # name-free and fully guarded; only this one migration-history-bearing doc is
@@ -109,7 +109,7 @@ def scan(root: str):
     root = os.path.abspath(root)
     hits = []
     for dirpath, dirnames, filenames in os.walk(root):
-        # PR #10 review finding 12: `pip install -e compiler/` writes
+        # `pip install -e compiler/` writes
         # <pkg>.egg-info/PKG-INFO next to the source, which embeds
         # compiler/README.md's prose verbatim -- including the old repo name --
         # as the package long-description. The directory name varies per

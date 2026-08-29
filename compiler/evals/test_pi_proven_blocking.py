@@ -1,4 +1,4 @@
-"""TASK-408 — PROVEN-BLOCKING node harness (synthetic ``tool_call``; no LLM).
+"""Prove Pi blocking behavior with synthetic ``tool_call`` events and no LLM.
 
 The strongest native-fidelity evidence for Pi. A node harness (generated into a
 tempdir) loads the SHIPPED ``system2.ts`` gate — path-parameterized like the codex
@@ -6,8 +6,7 @@ proven-blocking test: the committed ``distributions/pi/extensions/system2.ts`` w
 present (the published bytes), else the in-process emission (pre-commit fallback) —
 through Pi's own ``discoverAndLoadExtensions``, captures the registered
 ``on("tool_call")`` handler and the ``/delegate`` command, and fires SYNTHETIC
-events at them directly (no LLM in the loop). It asserts (design §"Test/validity
-strategy" leg 2; AC-P3/AC-P8; OQ-P1/OQ-P2):
+events at them directly with no LLM in the loop. It asserts:
 
 * **Blocks (the gates have teeth):**
   - an off-``write_scope`` write (``/etc/passwd``, outside the executor role's
@@ -19,12 +18,12 @@ strategy" leg 2; AC-P3/AC-P8; OQ-P1/OQ-P2):
   (handler returns no ``block``). If the gate blocked everything these would fail —
   so the allowed cases ARE the negative control proving the gate discriminates.
 * **/delegate dispatcher:** accepts a valid role; rejects an unknown role (an
-  ``error`` notification, no role switch). Bounded over the 13 roles (AC-P8).
-* **Isolation honesty (OQ-P1/OQ-P2):** the report's ``subagent_isolation`` value
-  matches the empirical seam — ``/delegate`` is an in-session role-switch (it
+  ``error`` notification, no role switch). Bounded over the 13 roles.
+* **Isolation honesty:** the report's ``subagent_isolation`` value matches the
+  observed runtime behavior — ``/delegate`` is an in-session role-switch (it
   mutates ``activeRole``), so the honest value is ``adapted``, and the report says
   so (no silently-claimed native isolation). The ``before_agent_start`` injection
-  seam (OQ-P2) is exercised and confirmed to survive.
+  seam is exercised and confirmed to survive.
 
 node/pi present → MUST run and pass; absent → LOUD SKIP (never a silent pass).
 Hermetic temp HOME + hermetic ``.pi`` for the whole test; the real ``~/.pi`` is
@@ -105,7 +104,7 @@ _BLOCK_CASES = (
     ("off_scope_write", "write", {"path": "/etc/passwd", "content": "x"}, "enforce-lease"),
     ("dangerous_bash", "bash", {"command": "rm -rf /"}, "block-dangerous"),
     ("sensitive_read", "read", {"path": ".env"}, "protect-sensitive"),
-    # F-P1 bypass corpus: obfuscated dangerous commands (flag order, whitespace, long flags).
+    #  bypass corpus: obfuscated dangerous commands (flag order, whitespace, long flags).
     ("danger_rm_fr", "bash", {"command": "rm -fr /"}, "block-dangerous"),
     ("danger_rm_double_space", "bash", {"command": "rm  -rf /"}, "block-dangerous"),
     ("danger_rm_separated", "bash", {"command": "rm -r -f /"}, "block-dangerous"),
@@ -113,7 +112,7 @@ _BLOCK_CASES = (
     ("danger_sudo_rm", "bash", {"command": "sudo  rm -rf /etc"}, "block-dangerous"),
     ("danger_chmod_777", "bash", {"command": "chmod -R  777 /srv"}, "block-dangerous"),
     ("danger_git_push_f", "bash", {"command": "git push -f origin main"}, "block-dangerous"),
-    # F-P2 traversal corpus: ../-escaping paths must be blocked regardless of suffix.
+    #  traversal corpus: ../-escaping paths must be blocked regardless of suffix.
     ("traversal_write", "write", {"path": "../../etc/cron.d/x.sh", "content": "x"}, "enforce-lease"),
     ("traversal_py_write", "write", {"path": "../secret.py", "content": "x"}, "enforce-lease"),
 )
@@ -237,7 +236,7 @@ if (delegate && delegate.handler) {
   await delegate.handler("executor", ctx);
 }
 
-// OQ-P2: the before_agent_start injection seam survives and augments the prompt.
+// The before_agent_start injection seam survives and augments the prompt.
 const basList = ext.handlers.get("before_agent_start") || [];
 if (basList.length) {
   const r = await basList[0]({ systemPrompt: "ORIGINAL_PROMPT" });
@@ -250,7 +249,7 @@ process.stdout.write(JSON.stringify(out));
 
 
 class PiProvenBlockingTest(unittest.TestCase):
-    """Synthetic tool_call events prove the native gate blocks (AC-P3, no LLM)."""
+    """Synthetic tool_call events prove the native gate blocks (no LLM)."""
 
     @classmethod
     def setUpClass(cls):
@@ -378,7 +377,7 @@ class PiProvenBlockingTest(unittest.TestCase):
         )
 
     def test_obfuscated_dangerous_commands_are_blocked(self):
-        # F-P1 regression: the OLD substring matcher let these through. Each must
+        #  regression: the OLD substring matcher let these through. Each must
         # now BLOCK via the ported flag-permutation regexes.
         for name in (
             "danger_rm_fr",
@@ -398,7 +397,7 @@ class PiProvenBlockingTest(unittest.TestCase):
             self.assertIn("block-dangerous", case["reason"])
 
     def test_traversal_writes_are_blocked(self):
-        # F-P2 regression: ../-escaping paths must fail closed regardless of suffix.
+        #  regression: ../-escaping paths must fail closed regardless of suffix.
         for name in ("traversal_write", "traversal_py_write"):
             case = self.result["blocks"][name]
             self.assertTrue(
@@ -409,7 +408,7 @@ class PiProvenBlockingTest(unittest.TestCase):
             self.assertIn("enforce-lease", case["reason"])
 
     def test_multiline_scope_role_allows_in_scope_blocks_off_scope(self):
-        # F-P3 regression: design-architect's 3-line allowlist (now OR-joined) must
+        #  regression: design-architect's 3-line allowlist (now OR-joined) must
         # ALLOW its own spec/design.md and BLOCK an off-scope src/x.py.
         in_scope = self.result["roleBlocks"]["da_in_scope"]
         self.assertFalse(
@@ -425,7 +424,7 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertIn("enforce-lease", off_scope["reason"])
 
     def test_empty_scope_role_write_fails_closed(self):
-        # Q2: a write by a read-only role (code-reviewer, empty write_scope) must be
+        # a write by a read-only role (code-reviewer, empty write_scope) must be
         # BLOCKED (fail-closed), not allowed.
         case = self.result["roleBlocks"]["reviewer_write_fail_closed"]
         self.assertTrue(
@@ -451,14 +450,14 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertIn("Unknown role", notes[0]["msg"])
 
     def test_injection_seam_survives_and_augments_prompt(self):
-        # OQ-P2: before_agent_start is the surviving context-injection seam.
+        # before_agent_start is the surviving context-injection seam.
         augmented = self.result["seams"]["beforeAgentStart"]
         self.assertIsNotNone(augmented, "before_agent_start did not augment the prompt")
         self.assertIn("ORIGINAL_PROMPT", augmented, "the seam dropped the base prompt")
         self.assertIn(".pi/SYSTEM.md", augmented, "the seam did not inject System2 context")
 
     def test_subagent_isolation_reported_honestly(self):
-        # OQ-P1: /delegate is an in-session role switch, not an isolated sub-session,
+        # /delegate is an in-session role switch, not an isolated sub-session,
         # so the honest report value is `adapted`. Assert the emitted report agrees
         # (no silently-claimed native isolation).
         with open(

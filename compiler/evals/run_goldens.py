@@ -6,8 +6,8 @@ every produced artifact against its captured snapshot under ``evals/goldens/<cel
 - ``--driver oracle`` (default): re-runs the frozen ``composer.py`` as a subprocess
   (the Phase 0 cross-check / rollout-backout path).
 - ``--driver compiler``: runs the in-process compiler (``ir.compose`` then
-  ``ClaudeCodeBackend().emit``) per cell. This is the DoD-1 keystone: the seam-cut
-  compose→emit path must be byte-identical to the frozen TASK-006 baseline (REQ-014).
+  ``ClaudeCodeBackend().emit``) per cell. This is the seam-cut compatibility gate:
+  compose→emit path must be byte-identical to the frozen  baseline.
 
 Both drivers seed the prior golden lock first so ``composed_at`` is reused
 (idempotency), and both compare under the same per-artifact-class comparison policy
@@ -18,10 +18,10 @@ A clean run vs the unmodified oracle yields an empty diff.
 The per-artifact-class comparison policy is loaded from ``comparison_policy.json``
 (``CLAUDE.md``, ``agents``, ``lock``, ``warnings``). The default mode is
 ``byte-identical``; selecting ``semantic-equivalent`` for a class WITHOUT a non-empty
-``justification`` is rejected at load (REQ-005). This cycle ships every class
+``justification`` is rejected at load. This cycle ships every class
 ``byte-identical``.
 
-A normal run NEVER rewrites snapshots (REQ-007). Only an explicit ``--rebaseline`` flag
+A normal run NEVER rewrites snapshots. Only an explicit ``--rebaseline`` flag
 re-materializes the baseline (delegating to ``capture.capture_all``).
 
 The oracle is invoked ONLY as a subprocess via ``oracle.invoke_oracle``; this module never
@@ -46,7 +46,7 @@ POLICY_PATH = os.path.join(_THIS_DIR, "comparison_policy.json")
 # by checkout location (the frozen baseline baked the original author's path). Normalize
 # any ``…/evals/fixtures/<name>`` source path to a stable token on BOTH the produced lock
 # and the frozen baseline so the byte-comparison is checkout-independent. The content
-# hashes that actually pin overlay bytes are unaffected (REQ-035 byte fidelity intact).
+# hashes that actually pin overlay bytes are unaffected ( byte fidelity intact).
 _FIXTURE_PATH_RE = re.compile(rb'("source_path":\s*")[^"]*/evals/fixtures/')
 _FIXTURE_TOKEN = rb"\1<FIXTURES>/"
 
@@ -75,7 +75,7 @@ def _validate_entry(label: str, entry: dict) -> dict:
         if not isinstance(justification, str) or not justification.strip():
             raise PolicyError(
                 f"comparison policy {label!r} selects 'semantic-equivalent' without a non-empty "
-                "justification; rejected (REQ-005)"
+                "justification; rejected"
             )
     return {"mode": mode, "justification": justification}
 
@@ -130,7 +130,7 @@ _DEGRADATION_STATUS_ENUM = ("native", "adapted", "advisory", "unsupported")
 def _compare_lock(
     label: str, expected: bytes, actual: bytes, *, require_report: bool
 ) -> list:
-    """Structural-additive lock comparison applied UNIFORMLY to both drivers (REQ-035).
+    """Structural-additive lock comparison applied UNIFORMLY to both drivers.
 
     Parse the produced lock, remove the additive ``degradation_report`` key if
     present, re-serialize with the canonical ``json.dumps(stripped, indent=2) + "\\n"``
@@ -142,7 +142,7 @@ def _compare_lock(
       path).
     - compiler driver: the report is removed, and the remaining keys/values must be
       byte-identical to the baseline -> the ONLY lock delta is the additive report
-      (REQ-035 additive-only).
+      ( additive-only).
 
     When *require_report* is True (compiler driver), additionally assert the
     ``degradation_report`` IS present and complete (non-empty, every entry carries a
@@ -165,12 +165,12 @@ def _compare_lock(
 
     if require_report:
         if not isinstance(report, dict):
-            failures.append(f"{label}: missing additive degradation_report (REQ-032)")
+            failures.append(f"{label}: missing additive degradation_report")
             return failures
         caps = report.get("capabilities")
         if not isinstance(caps, dict) or not caps:
             failures.append(
-                f"{label}: degradation_report.capabilities is empty (REQ-033)"
+                f"{label}: degradation_report.capabilities is empty"
             )
             return failures
         for cap, entry in caps.items():
@@ -178,16 +178,16 @@ def _compare_lock(
             if status not in _DEGRADATION_STATUS_ENUM:
                 failures.append(
                     f"{label}: degradation_report[{cap!r}].status {status!r} not in "
-                    f"{_DEGRADATION_STATUS_ENUM} (REQ-036)"
+                    f"{_DEGRADATION_STATUS_ENUM}"
                 )
             if not (entry or {}).get("mechanism"):
                 failures.append(
-                    f"{label}: degradation_report[{cap!r}] has no mechanism (REQ-037)"
+                    f"{label}: degradation_report[{cap!r}] has no mechanism"
                 )
             if status != "native":
                 failures.append(
                     f"{label}: claude-code degradation_report[{cap!r}].status is "
-                    f"{status!r}, expected 'native' (REQ-034)"
+                    f"{status!r}, expected 'native'"
                 )
     return failures
 
@@ -236,7 +236,7 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
             expected = _read_bytes(snap_path)
             if mode == "byte-identical":
                 if cls == "lock":
-                    # Structural-additive lock comparison (REQ-035). The oracle lock
+                    # Structural-additive lock comparison. The oracle lock
                     # has no degradation_report, so the strip is a no-op and this is
                     # an exact match against the immutable baseline.
                     failures.extend(
@@ -336,7 +336,7 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
             expected = _read_bytes(snap_path)
             if mode == "byte-identical":
                 if cls == "lock":
-                    # Structural-additive lock comparison (REQ-035): strip the
+                    # Structural-additive lock comparison: strip the
                     # additive degradation_report, byte-match the remainder to the
                     # immutable baseline, and assert the report is present+complete.
                     failures.extend(
@@ -350,7 +350,7 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
                     if msg:
                         failures.append(msg)
         failures.extend(_extra_overlay_content(cell, cell_dir, project_dir))
-    except Exception as exc:  # noqa: BLE001 — surface as a failure, not a crash
+    except Exception as exc:  # noqa:  — surface as a failure, not a crash
         failures.append(f"[{cell.name}] compiler driver error: {exc!r}")
     finally:
         if project_dir is not None:
@@ -366,7 +366,7 @@ def _extra_overlay_content(cell: "matrix.Cell", cell_dir: str, project_dir: str)
     Snapshot-file iteration only catches missing/mismatched files; an EXTRA copied
     file (e.g. an unknown-anchor content_file the backend wrongly collects) would slip
     through. This reconciles the produced overlay-content tree against the golden so a
-    spurious copy is a hard failure (blocker B1).
+    spurious copy is a hard failure (blocker ).
     """
     failures = []
     produced_root = os.path.join(project_dir, ".system2", "overlays")
@@ -391,7 +391,7 @@ def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str) -> str:
 
     Re-composes in-process (no emit) and feeds the report through the relocated
     ``cli._emit_stderr_warnings`` via an in-memory stderr, producing the exact
-    bytes the CLI writes — the parity surface vs the oracle baseline (REQ-046).
+    bytes the CLI writes — the parity surface vs the oracle baseline.
     """
     import importlib
     import io
@@ -435,7 +435,7 @@ def _diff_refusal_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) -> 
     """Compiler-driver refusal check: compose returns graph=None + errors.
 
     Compares the compiler's refusal exit-code classification and refusal text to the
-    frozen oracle baseline (REQ-021). The oracle emits its refusal as a JSON report on
+    frozen oracle baseline. The oracle emits its refusal as a JSON report on
     stdout; the CLI mirrors that JSON shape, so refusal.txt is compared against the
     CLI's stdout JSON.
     """
@@ -554,7 +554,7 @@ def run_goldens(
     """Run every cell and return the list of failure messages (empty == green).
 
     ``driver`` selects ``oracle`` (subprocess cross-check) or ``compiler``
-    (in-process ``ir.compose`` -> ``ClaudeCodeBackend().emit`` — the DoD-1 gate).
+    (in-process ``ir.compose`` -> ``ClaudeCodeBackend().emit``).
     The ``core`` inventory-invariant cell is driver-independent.
     """
     oracle.verify_pin()
@@ -590,7 +590,7 @@ def main(argv=None) -> int:
         "--driver",
         choices=["oracle", "compiler"],
         default="oracle",
-        help="oracle: frozen subprocess cross-check; compiler: in-process compose->emit (DoD-1).",
+        help="oracle: frozen subprocess cross-check; compiler: in-process compose->emit.",
     )
     args = parser.parse_args(argv)
 

@@ -1,10 +1,8 @@
-"""TASK-409 — Mixed-status Pi degradation tests (the PG6 win, applied to Pi).
+"""Validate Pi's mixed native, adapted, and advisory degradation report.
 
 Pure artifact inspection (no node/pi needed). Emits a ``core+overlay`` IR (a
 multi-capability pipeline) into a temp ``project_path`` and asserts the Pi
-degradation report (``system2.pi.lock.json``) is real, honest, and **MIXED** — the
-inverse of a nothing-native invariant (design §"Degradation report", §"Test/
-validity strategy" leg 4; AC-P4/AC-P5):
+degradation report (``system2.pi.lock.json``) is real, honest, and **MIXED**:
 
 * (a) per-capability ``status`` **equals** the ``pi.json`` descriptor status;
 * (b) the report **mixes** native + adapted + advisory in one backend
@@ -14,7 +12,8 @@ validity strategy" leg 4; AC-P4/AC-P5):
   (native ⇒ enforced:true,gated:false; adapted ⇒ enforced:false,gated:true;
   advisory ⇒ both false);
 * (d) completeness — every IR capability appears (no silent drop);
-* (e) ``subagent_isolation`` is reported ``adapted`` (the OQ-P1 honest value);
+* (e) ``subagent_isolation`` is reported ``adapted`` because delegation switches
+  roles in the current session rather than creating isolated subagents;
 * (f) the loud ``FIDELITY`` banner is present; the enforce-lease mechanism text
   reflects the **actual** scope state. Because the real ``core+overlay`` IR carries
   at least one role with an empty ``write_scope``, the report MUST carry the
@@ -78,7 +77,7 @@ def _descriptor():
 
 
 class PiDegradationReportTest(unittest.TestCase):
-    """The emitted system2.pi.lock.json is honest, mixed, and complete (AC-P4)."""
+    """The emitted system2.pi.lock.json is honest, mixed, and complete."""
 
     @classmethod
     def setUpClass(cls):
@@ -151,7 +150,7 @@ class PiDegradationReportTest(unittest.TestCase):
         self.assertEqual([], extra, f"report carries non-IR capabilities: {extra}")
 
     def test_subagent_isolation_reported_adapted(self):
-        # (e) OQ-P1 honest value.
+        # (e)  honest value.
         self.assertEqual(self.report["subagent_isolation"], "adapted")
 
     def test_fidelity_banner_present(self):

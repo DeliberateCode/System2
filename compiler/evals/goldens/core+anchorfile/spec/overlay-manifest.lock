@@ -7,7 +7,7 @@
     {
       "name": "anchorfile",
       "version": "1.0.0",
-      "source_path": "/Users/james/DeliberateCode/System2/compiler/evals/fixtures/anchorfile",
+      "source_path": "<REPO_ROOT>/compiler/evals/fixtures/anchorfile",
       "local_path": ".system2/overlays/anchorfile/",
       "manifest_hash": "sha256:67c8e321b35716f1156cf3f3c452b054928ea3ab485750cf1a22dd6e1ea54a61",
       "content_hash": "sha256:c74261d02a9d35f908e05c404a01b14a3c48511a38f4c386b945136eff8858f8"

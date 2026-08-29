@@ -1,4 +1,4 @@
-"""Phase 4 (PG6/TASK-402): direct unit tests for backends/_degradation.py.
+"""Direct unit tests for the shared degradation helper.
 
 The shared, descriptor-driven degradation helper is the single source of truth for
 the per-capability report-record assembly + the status->flags rule. These tests
@@ -48,7 +48,7 @@ class IrCapabilityUnionTest(unittest.TestCase):
 
 
 class FourStatusFixtureTest(unittest.TestCase):
-    """The PG6 mixed-status fixture: all four statuses through one builder."""
+    """The  mixed-status fixture: all four statuses through one builder."""
 
     def test_all_four_statuses_flagged_correctly(self):
         union = set(_FOUR_STATUS_CAPS)

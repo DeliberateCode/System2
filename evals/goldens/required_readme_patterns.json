@@ -68,7 +68,7 @@
     {
       "id": "no-namespace-unchanged-promise",
       "pattern": "namespace is unchanged",
-      "description": "The exact promise the merge breaks must not resurface. (OD-3 include, ratified 2026-08-01.)"
+      "description": "The obsolete namespace promise must not resurface in user documentation."
     }
   ]
 }

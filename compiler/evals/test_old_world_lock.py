@@ -1,18 +1,18 @@
-"""TASK-011 — pre-consolidation ("old-world") lock graceful handling.
+"""pre-consolidation ("old-world") lock graceful handling.
 
 Guards existing user projects whose `spec/overlay-manifest.lock` was written by the
 compiler/composer BEFORE this monorepo consolidation. Such a lock carries
 pre-consolidation *provenance* values — an older `system2_version` stamp and the
 `content_fingerprint` that version produces — while the engine bytes (hence the lock
-FORMAT) are identical pre/post move (TASK-007's sha-identity HALT proved it).
+FORMAT) are identical pre/post move ('s sha-identity HALT proved it).
 
-Contract proven here (REQ-046/071/043): feeding an old-world lock to `doctor` and
+Contract proven here: feeding an old-world lock to `doctor` and
 `recompose_from_lock` produces **at most** the standard stale-base nudge — the
 version-mismatch finding + "run --from-lock" remediation, exit 1 — and NEVER a
 schema error, an unreadable-lock error, a `broken`/`stale_overlay` status, an
 uncaught exception, or any other hard failure. `recompose_from_lock` completes and
 correctly refreshes the fingerprint; the `content_fingerprint` semantics are
-unchanged (it differs only when content/version differs — REQ-043).
+unchanged (it differs only when content/version differs — ).
 
 Fixture: `fixtures/old_world_lock/overlay-manifest.lock` is a REAL captured lock
 (compose of the committed `test-overlay`) hand-set to `system2_version 1.1.0` +
@@ -217,7 +217,7 @@ class OldWorldLockTest(unittest.TestCase):
         # A post-recompose doctor is clean (`current`) — the nudge is resolved.
         self.assertEqual(backend.doctor(project).status, "current")
 
-    # -- (c) content_fingerprint semantics unchanged (REQ-043) --------------
+    # -- (c) content_fingerprint semantics unchanged --------------
 
     def test_recompose_refreshes_fingerprint_only_for_version_change(self):
         project = self._project_with_old_world_lock()
@@ -232,11 +232,11 @@ class OldWorldLockTest(unittest.TestCase):
         self.assertNotEqual(recomposed_fp, self.old_fingerprint)
         # (ii) IDENTICAL to a plain fresh compose of the same content+version — the
         # recompute ignores the stale locked value; fingerprint tracks content+version
-        # alone, unperturbed by the old-world lock (REQ-043).
+        # alone, unperturbed by the old-world lock.
         self.assertEqual(recomposed_fp, self._fresh_fingerprint())
 
     def test_fingerprint_is_version_sensitive_and_deterministic(self):
-        # Directly demonstrate REQ-043 over identical content: the fingerprint
+        # Directly demonstrate  over identical content: the fingerprint
         # changes ONLY when the version changes, and is deterministic otherwise.
         project = tempfile.mkdtemp(prefix="owl-fp-")
         self.addCleanup(shutil.rmtree, project, True)

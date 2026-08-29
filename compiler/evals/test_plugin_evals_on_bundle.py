@@ -3,7 +3,7 @@
 Run the plugin's OWN structural + behavioral suite (``System2/evals/test_*.py``)
 against the FLIPPED plugin — the shim delegating to the vendored bundle
 (``SYSTEM2_USE_BUNDLE=1``) — and assert it stays green. The flip is not done until
-the plugin's own suite passes on the bundle (AC-5.6).
+the plugin's own suite passes on the bundle.
 
 ``System2/evals/`` is run READ-ONLY as a subprocess (it is never imported or
 modified here). A hermetic temp HOME isolates the run from the real ``~/.system2``.

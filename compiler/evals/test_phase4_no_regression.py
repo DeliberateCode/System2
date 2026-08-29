@@ -1,36 +1,35 @@
-"""TASK-410 — Phase-4 DoD sign-off (DoD-P): no claude-code regression.
+"""Phase-4 DoD sign-off: no claude-code regression.
 
-The integrity gate proving the Pi backend + PG6 shared helper landed **additively**:
-they changed no claude-code bytes, confined the ``ir/`` change to ``write_scope``
-population, and ``pi.py`` / ``_degradation.py`` honor the import boundaries (design
-§"Test/validity strategy" leg 5; AC-P1/AC-P7; REQ-014/015/040/016/043/047).
+This integrity gate proves the Pi backend and shared degradation helper remain
+additive: they change no Claude bytes, confine the neutral graph change to
+``write_scope`` population, and honor product import boundaries.
 
 Assertions:
 
-1. **Registry / CLI (REQ-049).** ``PiBackend`` is registered in ``cli._BACKENDS``
+1. **Registry / CLI.** ``PiBackend`` is registered in ``cli._BACKENDS``
    under ``"pi"``; claude-code is still registered; ``--target`` accepts
    claude-code / pi and rejects an unknown target.
 
-2. **Claude keystone preserved (REQ-014, AC-P1).** The in-process
+2. **Claude keystone preserved.** The in-process
    ``ir.compose -> ClaudeCodeBackend().emit`` path is byte-identical to the frozen
    Phase-0/1 baseline across the full matrix (reuses ``evals.run_goldens``,
    ``--driver compiler``).
 
-3. **Pi emit perturbs no claude-code artifact (AC-P1).** Emitting Pi into a
+3. **Pi emit perturbs no claude-code artifact.** Emitting Pi into a
    project and then composing+emitting claude-code into a separate project yields
    the same claude-code bytes as without the Pi emit.
 
-4. **Import boundaries (REQ-015/040/016/043/047, AC-P7).** ``backends/pi.py`` imports
+4. **Import boundaries.** ``backends/pi.py`` imports
    only ``ir.graph`` + ``backends._degradation`` + stdlib (never ``ir.base_template``
    / ``ir.overlay_inputs`` / any manifest/anchor/profile/schema loader);
    ``backends/_degradation.py`` imports only stdlib and **no ``ir/*``**. Both are
    stdlib-only with no network calls.
 
-5. **IR change is write_scope-only (OQ-P3).** Composing two IRs shows the only
+5. **IR change is write_scope-only.** Composing two IRs shows the only
    behavioral delta vs an empty-scope projection is non-empty ``write_scope`` — no
    other field; and the claude bytes are unchanged.
 
-6. **TS emitted as text (AC-P7).** ``backends/pi.py`` imports no ``node`` / ``tsc`` /
+6. **TS emitted as text.** ``backends/pi.py`` imports no ``node`` / ``tsc`` /
    third-party transpiler — it writes TypeScript as plain text.
 
 Stdlib ``unittest``; runs under ``python3 -m unittest``. No product code or
@@ -58,7 +57,7 @@ _DEGRADATION_FILE = "system2_compiler/backends/_degradation.py"
 
 _FIRST_PARTY_TOP = frozenset({"system2_compiler"})
 
-# Loaders a backend must never import (REQ-015).
+# Loaders a backend must never import.
 _FORBIDDEN_IR_LOADERS = frozenset({
     "system2_compiler.ir.manifest",
     "system2_compiler.ir.profiles",
@@ -166,7 +165,7 @@ def _emit_bytes(project_dir, backend):
 
 
 class BackendRegistryTest(unittest.TestCase):
-    """REQ-049 — pi registered additively; --target accepts both."""
+    """pi registered additively; --target accepts both."""
 
     def test_both_backends_registered(self):
         from system2_compiler import cli
@@ -198,7 +197,7 @@ class BackendRegistryTest(unittest.TestCase):
 
 
 class ClaudeKeystoneGoldenGate(unittest.TestCase):
-    """REQ-014 / AC-P1 — claude-code goldens empty-diff across the matrix."""
+    """Claude Code goldens remain empty-diff across the matrix."""
 
     def test_compiler_driver_empty_diff(self):
         failures = run_goldens.run_goldens(driver="compiler")
@@ -219,7 +218,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
 
 
 class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
-    """AC-P1 — emitting Pi alters no claude-code artifact bytes."""
+    """emitting Pi alters no claude-code artifact bytes."""
 
     def test_claude_bytes_identical_with_or_without_pi_emit(self):
         from system2_compiler.backends.claude_code import ClaudeCodeBackend
@@ -280,7 +279,7 @@ class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
 
 
 class PiBoundaryTest(unittest.TestCase):
-    """REQ-015/040/016/043/047 / AC-P7 — pi.py + _degradation.py import boundaries."""
+    """Pi and degradation helpers preserve their import boundaries."""
 
     def test_pi_imports_only_allowed_modules(self):
         imported = _imported_module_paths(_PI_FILE)
@@ -289,7 +288,7 @@ class PiBoundaryTest(unittest.TestCase):
             {"system2_compiler.ir.graph"}, ir_imports,
             msg=(
                 f"{_PI_FILE} may import only ir.graph from ir/, got: "
-                f"{sorted(ir_imports)} (REQ-015)"
+                f"{sorted(ir_imports)}"
             ),
         )
         forbidden = imported & _FORBIDDEN_IR_LOADERS
@@ -323,7 +322,7 @@ class PiBoundaryTest(unittest.TestCase):
         offenders = _external_imports(_PI_FILE)
         self.assertEqual(
             [], offenders,
-            msg=f"{_PI_FILE} imports third-party package(s): {offenders} (AC-P7)",
+            msg=f"{_PI_FILE} imports third-party package(s): {offenders}",
         )
 
     def test_degradation_is_stdlib_only_and_ir_free(self):
@@ -351,7 +350,7 @@ class PiBoundaryTest(unittest.TestCase):
             violations = check_no_network_calls(_abspath(rel))
             self.assertEqual(
                 [], violations,
-                msg=f"{rel} contains network call pattern(s): {violations} (REQ-047)",
+                msg=f"{rel} contains network call pattern(s): {violations}",
             )
 
     def test_pi_never_references_quarantined_carriers(self):
@@ -371,19 +370,19 @@ class PiBoundaryTest(unittest.TestCase):
         )
 
     def test_pi_emits_ts_as_text_no_transpiler(self):
-        # AC-P7: the compiler emits TS as TEXT — no node/tsc/transpiler import.
+        # the compiler emits TS as TEXT — no node/tsc/transpiler import.
         offenders = [
             top for top, _level in _iter_imports(_read(_PI_FILE), _PI_FILE)
             if top in _FORBIDDEN_TRANSPILE_TOKENS
         ]
         self.assertEqual(
             [], offenders,
-            msg=f"{_PI_FILE} imports a TS transpiler/runtime: {offenders} (AC-P7)",
+            msg=f"{_PI_FILE} imports a TS transpiler/runtime: {offenders}",
         )
 
 
 class IrChangeIsWriteScopeOnlyTest(unittest.TestCase):
-    """OQ-P3 — the only behavioral IR delta is non-empty write_scope; claude unchanged."""
+    """the only behavioral IR delta is non-empty write_scope; claude unchanged."""
 
     def test_roles_carry_non_empty_write_scope(self):
         from system2_compiler import ir
@@ -394,13 +393,13 @@ class IrChangeIsWriteScopeOnlyTest(unittest.TestCase):
             result = ir.compose(oracle.PLUGIN_ROOT, list(cell.overlays), project)
             self.assertIsNotNone(result.graph)
             roles = result.graph.roles
-            # OQ-P3 populated write_scope from the .regex allowlists: at least the
+            #  populated write_scope from the .regex allowlists: at least the
             # pipeline-implementing roles carry a non-empty scope (the enrichment is
             # real, not a no-op). Some roles (e.g. code-reviewer) are honestly empty.
             non_empty = [r.name for r in roles if (r.write_scope or "").strip()]
             self.assertGreater(
                 len(non_empty), 0,
-                "OQ-P3 enrichment must populate write_scope for >=1 role",
+                " enrichment must populate write_scope for >=1 role",
             )
             # And the field is the carrier of the delta: every role still exposes the
             # write_scope attribute (no other new neutral field was introduced).

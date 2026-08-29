@@ -137,7 +137,7 @@ def _ts_escape(value: str) -> str:
 
     Every IR-derived string interpolated into the generated ``.ts`` (role names,
     write-scope regexes, reasons, the SYSTEM prompt) passes through here so no raw
-    overlay/IR text is spliced into executable TS (REQ-042 injection posture).
+    overlay/IR text is spliced into executable TS ( injection posture).
     Uses ``json.dumps`` (a superset-safe JS string literal) so quotes, backslashes,
     newlines, and control characters are all escaped canonically.
     """
@@ -477,12 +477,9 @@ def _build_orchestrator_prompt(ir: System2Graph) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Per-skill frontmatter (K1a; Decision D5,
-# decisions/pi-base-skill-frontmatter-description-source.md). All six Pi skills carry a YAML
-# frontmatter block ahead of the body: the K0 format oracle (pi-skill-format-oracle.md,
-# branch (b)) found a non-empty `description` field is the minimum Pi needs to discover and
-# invoke a skill at all — the prior frontmatter-less form for init/compose/doctor was latently
-# undiscoverable.
+# Every Pi skill carries YAML frontmatter with a non-empty description, which is
+# the minimum shape Pi needs for discovery. Frontmatter-less init, compose, and doctor
+# skills would be undiscoverable.
 def _skill_frontmatter(name: str, description: str) -> str:
     """Emit frontmatter through the canonical YAML serializer.
 
@@ -493,9 +490,8 @@ def _skill_frontmatter(name: str, description: str) -> str:
     return "---\n" + _yaml.dump({"name": name, "description": description}) + "---\n\n"
 
 
-# K1a-pinned frontmatter descriptions for all six Pi skills. The three base skills' descriptions
-# are sourced from Pi's OWN already-emitted purpose line (Decision D5 option (b)) rather than
-# the Claude counterpart's frontmatter description, which names Claude-specific mechanics that
+# The base-skill descriptions come from Pi's own emitted purpose lines rather than
+# Claude frontmatter, which names Claude-specific mechanics that
 # would be factually wrong here (e.g. init's Claude description cites writing CLAUDE.md, which
 # the Pi body never does). The three new skills' descriptions are adapted from each merged
 # source SKILL.md's own frontmatter description — verbatim match to codex.py's identical
@@ -519,7 +515,7 @@ _SKILL_DESCRIPTIONS = {
     ),
 }
 
-# K2 rule 4 (CC-REQ-090): each new utility skill's external-CLI prerequisite.
+#  rule 4: each new utility skill's external-CLI prerequisite.
 _UTILITY_SKILL_PREREQUISITES = {
     "codex": "the OpenAI Codex CLI (`codex`) on PATH",
     "gemini": "Google's Antigravity CLI (`agy`) on PATH",
@@ -529,17 +525,16 @@ _UTILITY_SKILL_PREREQUISITES = {
     ),
 }
 
-# K2 rule 5: the fresh-non-interactive-codex honesty sentence, system2-codex ONLY. Verbatim
-# match to codex.py's identical constant.
+# Only the Codex utility skill needs to state that it launches a fresh,
+# non-interactive process. Keep this text identical to the Codex backend.
 _FRESH_CODEX_HONESTY = (
     "This spawns a NEW non-interactive `codex exec` subprocess — a fresh Codex "
     "instance with none of this session's context. It is a second opinion from a "
     "clean slate, not a fork of the current session."
 )
 
-# K2 rule 7 (Decision D3): the OA-14 honest note, mandatory in each of the three NEW
-# utility-skill bodies only. The base init/compose/doctor skills invoke no external CLI and
-# sit outside the OA-14 gate's utility-skill framing, so they carry no such note.
+# Each external-CLI utility skill states this Pi-specific limitation. The base
+# init, compose, and doctor skills invoke no external CLI and need no such note.
 _KNOWN_PI_LIMITATION = (
     "The System2 Pi extension's protect-sensitive gate scans the ENTIRE bash command, "
     "with no override, and Pi has no permission prompt to bypass it — so a prompt "
@@ -1179,7 +1174,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("    );")
     lines.append("  });")
     lines.append("")
-    lines.append("  // --- Inject the System2 orchestrator context (OQ-P2: before_agent_start seam). ---")
+    lines.append("  // --- Inject the System2 orchestrator context (: before_agent_start seam). ---")
     lines.append("  pi.on(\"before_agent_start\", (event) => ({")
     lines.append("    systemPrompt: `${event.systemPrompt}\\n\\nSystem2 orchestrator context is in .pi/SYSTEM.md. Drive the gate graph 0 -> 5 and delegate via /delegate <role>.`,")
     lines.append("  }));")
@@ -1212,7 +1207,7 @@ def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
     """Assemble the standalone Pi lock dict.
 
     The MIXED degradation report is unchanged; ``overlay_sources`` is appended LAST
-    (additive — OQ-5.1/T10), mirroring the Claude lock's additive
+    (additive — /), mirroring the Claude lock's additive
     ``degradation_report`` discipline: every prior key keeps its bytes and only a
     new trailing key is introduced. The recorded sources are the overlay
     ``source_path`` set that produced this tree, taken from the neutral IR
@@ -1274,13 +1269,13 @@ def _planned_files(
 
 
 def _default_file_mode(existing_path: Optional[str] = None) -> int:
-    """The mode a regenerated file should end up at: PRESERVE an existing
-    destination's current mode if one is being overwritten (Codex second-opinion
-    review, round 2: an earlier version unconditionally applied the umask-derived
-    default even over an existing, more restrictive file), else 0o666 masked by the
-    process umask for a genuinely new file (what ``open()``/``touch`` would
-    produce, unlike ``mkstemp``'s fixed 0o600). Duplicated in backends/codex.py and
-    backends/claude_code.py."""
+    """Return the mode a regenerated file should have.
+
+    Preserve an existing destination's mode when overwriting. For a new file, use
+    0o666 masked by the process umask, matching ``open`` rather than ``mkstemp``'s
+    fixed 0o600. This behavior is intentionally duplicated in the Claude and Codex
+    writers.
+    """
     if existing_path is not None and os.path.exists(existing_path):
         return os.stat(existing_path).st_mode & 0o777
     umask = os.umask(0)
@@ -1315,7 +1310,7 @@ def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[st
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
-                # PR #10 review finding 3: mkstemp() defaults to mode 0600; os.replace()
+                # mkstemp() defaults to mode 0600; os.replace()
                 # does not change it. Codex's identical write path shipped 25/26 files at
                 # 0600 in the committed distribution -- this backend has avoided the same
                 # symptom only because build_pi_package.build() repackages the staged
@@ -1567,7 +1562,7 @@ class PiBackend:
         ``emit`` (re-recording the trimmed set); on 0 remaining -> remove the
         generated Pi tree (the extension, ``SYSTEM.md``, ``AGENTS.md``, the
         orchestrator + 13 role prompts, the three skills, the lock) and clean empty
-        ``.pi/`` dirs, all under the atomic backup/restore (REQ-044). Writes only
+        ``.pi/`` dirs, all under the atomic backup/restore. Writes only
         under ``project_path`` — never the operator's real ``~/.pi``.
         ``allow_newer_schema`` is threaded into the remaining-set recompose (matching
         the oracle's uninstall -> compose forwarding), so a remaining overlay
@@ -1668,7 +1663,7 @@ class PiBackend:
 
         Removes the extension, context, prompts, skills, and lock; cleans the
         now-empty ``.pi/`` subdirectories. Backs up every removed file and restores
-        on any failure (REQ-044). Writes/removes only under ``project_path``.
+        on any failure. Writes/removes only under ``project_path``.
         """
         artifacts = self._existing_artifacts(project_path)
 
@@ -1776,7 +1771,7 @@ class PiBackend:
         load probe run under a hermetic HOME (the real ``~/.pi`` is never touched).
         When ``node``/``pi`` is absent the structural checks still run and a LOUD
         ``validator_unavailable`` finding is recorded with ``validator_available =
-        False`` — never a silent ``current`` (OQ-5.2). Per OQ-5.2 the exit code
+        False`` — never a silent ``current``. Per  the exit code
         tracks ``status`` alone: exit 0 when ``status == current`` (an absent
         validator is surfaced LOUDLY, not punished with a non-zero exit), exit 1
         otherwise.
@@ -1875,7 +1870,7 @@ class PiBackend:
 
         locked_version = lock_data.get("pi_version_assumed", "")
         # Exit 0 when nothing is stale/broken. A LOUD validator_unavailable finding
-        # is exit 0 (the operator is not faulted for an absent validator — OQ-5.2),
+        # is exit 0 (the operator is not faulted for an absent validator — ),
         # never a silent "current": the finding is always recorded above.
         exit_code = 0 if status == "current" else 1
         return DoctorReport(

@@ -1,11 +1,10 @@
-"""TASK-206 — Mechanism->capability mapping completeness test (REQ-029).
+"""Mechanism->capability mapping completeness test.
 
-Encodes the design's mechanism->capability table (spec/design.md, "Mechanism ->
-capability mapping table (REQ-029)") as an explicit fixture and asserts the IR's
-capability model faithfully covers the enforced Claude surface:
+Encodes the enforced Claude mechanism-to-capability relationship as an explicit
+fixture and asserts that the neutral capability model covers the complete surface:
 
 * Every enforced Claude mechanism maps to **exactly one** intent capability
-  (REQ-029): no mechanism is unmapped, no mechanism maps to two capabilities.
+ : no mechanism is unmapped, no mechanism maps to two capabilities.
 * The **union** of mapped capabilities exactly covers the enforced intent surface
   (the six-term ``INTENT_CAPABILITIES`` vocabulary) — no enforced mechanism is left
   unrepresented and no capability is invented.
@@ -35,12 +34,10 @@ from system2_compiler.ir.capabilities import (
 
 
 # ---------------------------------------------------------------------------
-# The design's mechanism -> capability table, encoded verbatim (REQ-029).
-# Source: spec/design.md, "Mechanism -> capability mapping table (REQ-029)".
 # Each enforced Claude mechanism maps to exactly one intent capability. Where a
 # mechanism participates in two intent "arms" (validate-file-paths.py: per-task
 # lease + per-agent path scope; sensitive-file/boundary-check: sensitive + boundary
-# arm) the design folds BOTH arms under a SINGLE intent capability, so the mapping
+# arm) both behaviors remain under a single intent capability, so the mapping
 # stays one mechanism -> one capability.
 # ---------------------------------------------------------------------------
 
@@ -56,15 +53,14 @@ _MECHANISM_TO_CAPABILITY = {
     "change-budget-reporter.py": "budget",
 }
 
-# Mechanisms that are deliberately NOT capabilities (design note (3) on the table):
+# Mechanisms that are deliberately not capabilities:
 # tts-notify.py is a notification side-effect, not a safety mechanism. It remains a
 # static frontmatter line the backend reproduces verbatim; recording it here keeps
 # the mapping exhaustive (every enforcement-surface frontmatter mechanism is either
 # mapped to one capability or explicitly classified a non-capability).
 _NON_CAPABILITY_MECHANISMS = frozenset({"tts-notify.py"})
 
-# Valid enforcement points for a BlockingSemantic (spec/design.md blocking-semantics
-# representation).
+# Valid enforcement points for a blocking-semantics record.
 _VALID_ENFORCEMENT_POINTS = frozenset({
     "PreToolUse",
     "PostToolUse",
@@ -74,7 +70,7 @@ _VALID_ENFORCEMENT_POINTS = frozenset({
 
 
 class MechanismMappingTest(unittest.TestCase):
-    """REQ-029: each enforced mechanism maps to exactly one intent capability."""
+    """each enforced mechanism maps to exactly one intent capability."""
 
     def test_every_mechanism_maps_to_exactly_one_capability(self):
         # Each value is a single capability string (not a list/tuple) -> exactly one.
@@ -117,7 +113,7 @@ class MechanismMappingTest(unittest.TestCase):
             self.assertNotIn(
                 mechanism, _MECHANISM_TO_CAPABILITY,
                 f"{mechanism!r} is a notification side-effect; it must not be mapped "
-                "to a safety capability (REQ-029 note (3))",
+                "to a safety capability ( note (3))",
             )
         self.assertIn(
             "tts-notify.py", _NON_CAPABILITY_MECHANISMS,
@@ -127,7 +123,7 @@ class MechanismMappingTest(unittest.TestCase):
 
 
 class BlockingSemanticsTest(unittest.TestCase):
-    """REQ-029: every BlockingSemantic has a valid enforcement_point + blocking."""
+    """every BlockingSemantic has a valid enforcement_point + blocking."""
 
     def setUp(self):
         self.records = blocking_semantics()

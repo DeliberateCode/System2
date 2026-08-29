@@ -1,5 +1,5 @@
 {
-  "description": "Exact skill inventory for the merged system2 plugin. Exhaustive by design: a missing OR extra skill directory fails EVAL-MAN-004.",
+  "description": "Exact skill inventory for the merged System2 plugin. A missing or extra skill directory fails the inventory check.",
   "skills_dir": "plugin/skills",
   "required_skills": ["codex", "compose", "doctor", "gemini", "init", "profile", "stateless-loop"],
   "require_skill_md": true

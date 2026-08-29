@@ -207,13 +207,13 @@ def _render_composed_text(graph: System2Graph, backend: Backend) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Shared stderr warning emission (relocated verbatim from the oracle, REQ-046)
+# Shared stderr warning emission (relocated verbatim from the oracle, )
 # ---------------------------------------------------------------------------
 
 def _emit_stderr_warnings(report: dict) -> None:
     """Emit all warning categories to stderr (verbatim from ``composer._emit_stderr_warnings``).
 
-    Order is load-bearing for byte-identity with the oracle (REQ-046):
+    Order is load-bearing for byte-identity with the oracle:
     size_warning, validation_warnings, injection_warnings, then semantic tensions.
     """
     if "size_warning" in report:
@@ -319,7 +319,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
     Reproduces ``composer.main()``'s compose/profile-activation/from-lock branch:
     overlay resolution, refusal classification, stderr warnings, the dry-run
     preview, the injection-block (exit 4), the write, and the success report — all
-    byte-identical for the claude-code target (REQ-049/046).
+    byte-identical for the claude-code target.
     """
     base_path = os.path.abspath(args.base)
     project_path = os.path.abspath(args.project)
@@ -1060,8 +1060,8 @@ def _do_codex(argv: List[str]) -> int:
 
     ``init`` materializes ``~/.codex/hooks.json`` + ``~/.codex/system2/hooks/*.js``
     from the committed ``distributions/codex/user-hooks/`` reference, resolving the
-    hook ``command`` to an ABSOLUTE path (A2). ``--codex-home``/``$CODEX_HOME`` is the
-    test seam (production default = real ``~/.codex``). ROQ-1: a pre-existing
+    hook ``command`` to an ABSOLUTE path. ``--codex-home``/``$CODEX_HOME`` is the
+    test seam (production default = real ``~/.codex``). : a pre-existing
     non-System2 ``hooks.json`` is never silently clobbered — ``init`` refuses without
     ``--force`` and, with it, writes a timestamped ``.bak`` first. ``uninstall``
     removes exactly the System2 artifacts and restores that backup.
@@ -1097,7 +1097,7 @@ def _do_codex(argv: List[str]) -> int:
                 dry_run=args.dry_run,
             )
         except (FileNotFoundError, ValueError) as exc:
-            # N3: a missing/invalid --reference is a clean CLI error, not a traceback.
+            # a missing/invalid --reference is a clean CLI error, not a traceback.
             sys.stderr.write(f"error: {exc}\n")
             return 2
     else:

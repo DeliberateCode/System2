@@ -1,4 +1,4 @@
-"""TASK-025 — Pi package supply-chain policy (F12) + init-materializer semantics (F5).
+"""Pi package supply-chain policy + init-materializer semantics.
 
 Two machine-enforced postures over the ``@deliberatecode/pi-system2`` package that
 ``build_pi_package.py`` produces (built fresh into a temp dir here exactly the way
@@ -6,7 +6,7 @@ Two machine-enforced postures over the ``@deliberatecode/pi-system2`` package th
 overlays -> ``PiBackend.emit`` -> ``build_pi_package.build``). The Pi backend and the
 builder are read-only here; this file only observes their output.
 
-F12 — supply-chain posture (no node required; always runs):
+Supply-chain posture (no Node required; always runs):
   * ``package.json`` declares NO ``scripts`` (hence no ``postinstall``), NO
     ``dependencies``, NO ``devDependencies``; it DOES carry the ``pi`` manifest, the
     ``pi-package`` keyword, the ``files`` whitelist, and a ``license``.
@@ -19,7 +19,7 @@ F12 — supply-chain posture (no node required; always runs):
   ``postinstall``, injected ``dependencies``, an external npm import) so a green result
   means the checker has teeth, not that it is vacuous.
 
-F5 — init-materializer semantics (node REQUIRED; LOUD-skip if absent):
+Init-materializer semantics (Node required; loud skip if absent):
   The generated ``extensions/system2-init.ts`` is driven through ``node`` (v22 native
   TS type-stripping) by a small ``.mjs`` harness that imports the module, feeds it a
   mock ``ExtensionAPI`` to capture the ``/system2-init`` command, and invokes the
@@ -31,8 +31,7 @@ F5 — init-materializer semantics (node REQUIRED; LOUD-skip if absent):
   an injected hostile ``MANAGED_FILES``); unmanaged files are never touched.
 
 node handling (skip-count-0 discipline, mirrors ``test_pi_proven_blocking`` /
-``test_codex_proven_blocking``): node is REQUIRED. If genuinely absent the F5 legs
-LOUD-skip via ``skipTest`` — and the CI skip-guard (``.github/workflows/ci.yml``: skip
+``test_codex_proven_blocking``): node is REQUIRED. If genuinely absent, the Node-dependent legs loud-skip via ``skipTest`` — and the CI skip-guard (``.github/workflows/ci.yml``: skip
 count MUST be 0) escalates that skip to a job FAILURE, so a missing node can never
 silently pass. node present but the harness subprocess failing is a HARD failure, never
 a skip. Stdlib-only ``unittest``; no product code / ``System2/`` edits; all package
@@ -63,7 +62,7 @@ _FIXTURES = os.path.join(_HERE, "fixtures", "pi_package")
 
 _NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
 _LOUD_SKIP = (
-    "node not installed — Pi init-materializer (F5) legs SKIPPED (LOUD skip, not a "
+    "node not installed — Pi init-materializer legs SKIPPED (LOUD skip, not a "
     "silent pass; the CI skip-count-0 gate escalates this to a failure)"
 )
 
@@ -87,7 +86,7 @@ def _build_package(dest):
 
 
 # ---------------------------------------------------------------------------
-# F12 policy checkers (pure, testable in isolation against hostile fixtures).
+# Supply-chain policy checkers, tested in isolation against hostile fixtures.
 # ---------------------------------------------------------------------------
 
 # Import-specifier extractors covering every surface a dependency could sneak in on.
@@ -125,7 +124,7 @@ def _external_imports(ts_source):
 
 
 def _package_policy_violations(pkg):
-    """Return a list of F12 policy violations for a parsed ``package.json`` object."""
+    """Return supply-chain policy violations for a parsed package manifest."""
     violations = []
     for key in _FORBIDDEN_PACKAGE_KEYS:
         if key in pkg:
@@ -139,7 +138,7 @@ def _package_policy_violations(pkg):
 
 
 # ---------------------------------------------------------------------------
-# F5 node harness — drives the generated system2-init.ts command handler.
+# Node harness that drives the generated system2-init.ts command handler.
 # ---------------------------------------------------------------------------
 
 # Imports the built (or hostile-variant) system2-init.ts, hands it a mock ExtensionAPI to
@@ -256,12 +255,12 @@ def _rejected_from_notes(notes):
 
 
 # ===========================================================================
-# F12 — supply-chain policy (no node; always runs).
+# supply-chain policy (no node; always runs).
 # ===========================================================================
 
 
 class PiPackagePolicyTest(unittest.TestCase):
-    """F12: package.json declares no scripts/deps; extensions import nothing external."""
+    """package.json declares no scripts/deps; extensions import nothing external."""
 
     @classmethod
     def setUpClass(cls):
@@ -284,17 +283,17 @@ class PiPackagePolicyTest(unittest.TestCase):
         violations = _package_policy_violations(self.pkg)
         self.assertEqual(
             violations, [],
-            f"the shipped package.json violates F12 supply-chain policy: {violations}",
+            f"the shipped package.json violates  supply-chain policy: {violations}",
         )
         for key in _FORBIDDEN_PACKAGE_KEYS:
             self.assertNotIn(
-                key, self.pkg, f"package.json must not declare {key!r} (F12)")
+                key, self.pkg, f"package.json must not declare {key!r}")
 
     def test_package_json_declares_no_postinstall(self):
         # Explicit: even if `scripts` ever returned, no install-time execution hook.
         scripts = self.pkg.get("scripts", {})
         self.assertNotIn("postinstall", scripts)
-        self.assertEqual(scripts, {}, "the package must ship zero scripts (F12)")
+        self.assertEqual(scripts, {}, "the package must ship zero scripts")
 
     def test_package_json_has_required_fields(self):
         self.assertIsInstance(self.pkg.get("pi"), dict, "missing pi manifest")
@@ -313,7 +312,7 @@ class PiPackagePolicyTest(unittest.TestCase):
             self.assertEqual(
                 external, [],
                 f"{name} imports external npm modules {external} — only "
-                f"{_PI_TYPE_PACKAGE!r} + node: builtins are permitted (F12)",
+                f"{_PI_TYPE_PACKAGE!r} + node: builtins are permitted",
             )
 
     def test_extension_sources_reference_only_pi_type_package(self):
@@ -329,7 +328,7 @@ class PiPackagePolicyTest(unittest.TestCase):
             )
 
     def test_init_extension_guard_clauses_present(self):
-        # Structural belt-and-suspenders for the F5 fail-closed guard: the out-of-root
+        # Structural defense in depth for the fail-closed out-of-root guard:
         # rejection and package-relative payload anchor must be in the shipped source.
         src = self.ext_sources["system2-init.ts"]
         self.assertIn("resolveWithinRoot", src)
@@ -376,12 +375,12 @@ class PiPackagePolicyTest(unittest.TestCase):
 
 
 # ===========================================================================
-# F5 — init-materializer semantics (node REQUIRED; LOUD-skip if absent).
+# init-materializer semantics (node REQUIRED; LOUD-skip if absent).
 # ===========================================================================
 
 
 class PiInitMaterializerTest(unittest.TestCase):
-    """F5: the generated /system2-init command materializes safely and idempotently."""
+    """the generated /system2-init command materializes safely and idempotently."""
 
     @classmethod
     def setUpClass(cls):
@@ -466,7 +465,7 @@ class PiInitMaterializerTest(unittest.TestCase):
         with open(target, "rb") as fh:
             self.assertEqual(
                 fh.read(), user_bytes,
-                f"{rel} was overwritten WITHOUT --force (F5 violation)",
+                f"{rel} was overwritten WITHOUT --force ( violation)",
             )
         counts = _summary_counts(out["notes"])
         self.assertEqual(counts["replaced"], 0, "nothing may be replaced without --force")
@@ -503,7 +502,7 @@ class PiInitMaterializerTest(unittest.TestCase):
         self.assertEqual(
             out["replaceSnapshots"][rel], user_bytes.decode(),
             "the 'replacing user-modified' message was printed AFTER the write — the "
-            "user's clobbered content must be announced BEFORE it is destroyed (F5)",
+            "user's clobbered content must be announced BEFORE it is destroyed",
         )
 
     def test_out_of_root_managed_paths_rejected_fail_closed(self):
@@ -544,13 +543,13 @@ class PiInitMaterializerTest(unittest.TestCase):
         # Fail-closed: NOTHING was written outside the project root.
         self.assertFalse(
             os.path.exists(abs_escape),
-            "an absolute managed target was written outside the project root (F5)",
+            "an absolute managed target was written outside the project root",
         )
         parent_target = os.path.abspath(
             os.path.join(self.project, os.pardir, os.path.basename(parent_escape)))
         self.assertFalse(
             os.path.exists(parent_target),
-            "a ../-escaping managed target was written outside the project root (F5)",
+            "a ../-escaping managed target was written outside the project root",
         )
         # The legitimate in-root entry still materialized (rejection is targeted, not
         # a blanket abort — the negative control that the guard discriminates).
@@ -568,8 +567,8 @@ class PiInitMaterializerTest(unittest.TestCase):
             fh.write(b"print('keep me')\n")
         self.driver.run(self.init_mod, self.project)
         with open(unrelated, "rb") as fh:
-            self.assertEqual(fh.read(), payload_val, "an unmanaged file was modified (F5)")
-        self.assertTrue(os.path.isfile(nested), "an unmanaged file was deleted (F5)")
+            self.assertEqual(fh.read(), payload_val, "an unmanaged file was modified")
+        self.assertTrue(os.path.isfile(nested), "an unmanaged file was deleted")
         with open(nested, "rb") as fh:
             self.assertEqual(fh.read(), b"print('keep me')\n")
 

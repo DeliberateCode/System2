@@ -7,7 +7,7 @@ name: CI
 
 on: [push, pull_request]
 
-# F9: least privilege. Read-only token; no job consumes secrets, and there is no
+# Least privilege: use a read-only token; no job consumes secrets, and there is no
 # publish job. The PR-target trigger is deliberately absent — PR code must never run
 # with write scope or secret access.
 permissions:
@@ -48,7 +48,7 @@ jobs:
           node-version: "22"
 
       # --- Validators: installing these flips the LOUD-SKIP legs to PASS-REQUIRED ---
-      # F10: validator versions are DELIBERATELY PINNED to the validated releases and
+      # Validator versions are deliberately pinned to validated releases and
       # are bumped intentionally (never floating). Pi resolves via `npm root -g`
       # (test_pi_goldens._resolve_pi_pkg_entry), so a global install is all it needs.
       - name: Install Pi (validator for the Pi load leg)
@@ -82,8 +82,8 @@ jobs:
       # absent — and on CI the step above guarantees they are present.
       #
       # Channel coverage (all discovered as test_*.py, so they RUN here, not as separate
-      # named legs): codex — test_codex_manifest / test_codex_honesty (F4) /
-      # test_codex_proven_blocking (F8+F11, spawns the generated Node hooks, needs node);
+      # named legs): Codex runs manifest, honesty, and end-to-end generated-hook
+      # blocking checks; Pi runs package, golden, and proven-blocking checks.
       # pi — test_pi_package / test_pi_goldens / test_pi_proven_blocking (needs node).
       # node 22 and the pinned Pi validator are installed above so none of these skip.
       - name: Run eval suite (skip count MUST be 0)
@@ -102,7 +102,7 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-      - name: Golden driver — compiler (in-process compose -> emit, DoD-1)
+      - name: Golden driver — compiler (in-process compose -> emit)
         working-directory: compiler
         run: python -m evals.run_goldens --driver compiler
 
@@ -132,9 +132,9 @@ jobs:
         run: python compiler/tools/check_no_old_repo_refs.py
 
       # Secret scan over the WHOLE checked-out working tree, including the now-populated
-      # distributions/ (codex+pi) and the vendored bundle (F7 defense-in-depth).
+      # distributions/ (codex+pi) and the vendored bundle for defense in depth.
       #
-      # F9: this deliberately invokes the gitleaks BINARY rather than the
+      # This deliberately invokes the gitleaks binary rather than the
       # `gitleaks/gitleaks-action` wrapper. That action requires a paid GITLEAKS_LICENSE
       # for ORGANIZATION-owned repos (DeliberateCode is an org), so it failed closed on
       # every run and its only remedy is storing a secret — in a workflow whose entire
@@ -142,7 +142,7 @@ jobs:
       # needs no license, token, or secret. Swapping it out also removes a third-party
       # action from the supply chain.
       #
-      # F1/F10: the release is pinned to an exact version (never a floating tag) AND the
+      # The release is pinned to an exact version (never a floating tag), and the
       # download is verified against a pinned sha256 BEFORE it is executed. A tampered or
       # truncated download fails the job instead of running.
       - name: Secret scan (gitleaks CLI — pinned + checksum-verified)
@@ -163,7 +163,7 @@ jobs:
           # --redact keeps a matched secret out of this public repo's build logs.
           "${tmp}/gitleaks" dir . --no-banner --redact --exit-code 1
 
-  # PR #10 review nit (+ Codex second-opinion review, round 4, finding 4): SYSTEM2_USE_BUNDLE
+  # SYSTEM2_USE_BUNDLE
   # defaults to bundle-ON (anything except the literal string "0" counts as on) for the
   # CLI-subprocess dispatch path (composer.py's `__main__` guard) -- so the handful of
   # subprocess-invoked `composer.py` calls within core-evals above already exercise the

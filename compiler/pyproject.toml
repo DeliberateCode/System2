@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
-    { name = "James Nordlund", email = "james.nordlund@gmail.com" },
+    { name = "DeliberateCode" },
 ]
 keywords = ["system2", "compiler", "overlays", "claude-code", "pi", "codex", "agent"]
 classifiers = [
@@ -49,8 +49,7 @@ packages = [
 
 [tool.setuptools.package-data]
 "system2_compiler.backends.capabilities" = ["*.json"]
-# PR #10 review finding 6 (Codex second-opinion review, round 2): `system2 codex
-# init` needs its user-hooks reference tree available regardless of install
+# `system2 codex init` needs its user-hooks reference tree regardless of install
 # method. Mirrored into the package by compiler/tools/regen_all.py's
 # _mirror_user_hooks_into_package (single source of truth: CodexBackend's own
 # emit output, never a second hand-authored copy) -- see

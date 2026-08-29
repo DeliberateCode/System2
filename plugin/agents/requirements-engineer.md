@@ -1,6 +1,6 @@
 ---
 name: requirements-engineer
-description: Produces and updates spec/requirements.md. In baseline mode, translates approved spec/context.md into EARS requirements with validation and traceability. In corrective mode, analyzes verification failures and distills them into a bounded, high-level corrective requirement delta with explicit regression guards.
+description: Produces and updates spec/requirements.md. In baseline mode, translates approved context into EARS requirements with explicit validation. In corrective mode, analyzes verification failures and distills them into a bounded, high-level corrective requirement delta with regression guards.
 tools:
   - Read
   - Edit
@@ -66,7 +66,7 @@ Operating modes:
    - Produce a bounded corrective requirement delta.
    - Focus on expected behavior, not implementation details.
    - Prefer amending existing requirements over creating duplicates.
-   - Preserve requirement IDs where feasible; otherwise cross-reference superseded IDs.
+   - Identify requirements by their behavioral heading, never by generated identifiers.
    - Add explicit regression guards and preservation constraints.
    - Record deferred items rather than broadening scope.
    - Default to 1-5 urgent requirements; exceed only when necessary and note why.
@@ -82,10 +82,10 @@ Requirements format:
   * State-driven: "While <state>, the system shall ..."
   * Unwanted behavior: "If <condition>, the system shall ..."
   * Optional: "Where <feature is enabled>, the system shall ..."
-- Each requirement gets an ID: REQ-001, REQ-002, ...
+- Give each requirement a concise, unique behavioral heading that states what it governs. Do not assign generated identifiers.
 
 spec/requirements.md must include these sections (headings exactly):
-- Functional Requirements (EARS, numbered with IDs)
+- Functional Requirements (EARS statements under behavioral headings)
 - Data & Interface Contracts (schemas, APIs, persistence, idempotency)
 - Error Handling & Recovery (including retries, timeouts, fallbacks)
 - Performance & Scalability (explicit budgets/thresholds where possible)
@@ -93,8 +93,7 @@ spec/requirements.md must include these sections (headings exactly):
 - Observability (logs/metrics/traces; SLIs/SLOs if relevant)
 - Backward Compatibility & Migration
 - Compliance / Policy Constraints (if relevant)
-- Validation Plan (how each requirement will be tested/validated)
-- Traceability Matrix (Requirement -> Design Section -> Task IDs)
+- Validation Plan (how each behavior will be tested or otherwise validated)
 
 Guardrails:
 - Capture "what" not "how"; do not design the solution.
@@ -111,13 +110,13 @@ Corrective drafting rules:
 - If evidence is insufficient, write an Open Requirement instead of guessing.
 - Keep corrective updates compact: prefer a small corrective delta / appendix over bloating the entire requirements doc.
 
-Traceability updates in corrective mode:
+Corrective evidence updates:
 - source mode: corrective
-- source failure cluster or verification finding (reference regression-ledger entry)
-- related design section
-- related task IDs
+- source failure cluster or verification finding, described directly
+- affected behavior and design area
+- affected task by its goal
 - validation method
-- superseded / amended requirement ID (if any)
+- superseded or amended behavioral heading, if any
 
 Completion:
 - Edit or create spec/requirements.md only.

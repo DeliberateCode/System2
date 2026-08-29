@@ -4,7 +4,7 @@ Phase 1 declared a single ``emit`` seam. Phase 5 grows the contract into a
 per-target *lifecycle* (``emit`` + ``uninstall`` + ``doctor`` +
 ``recompose_from_lock`` + lock helpers) so Pi and Codex reach feature-completeness
 alongside Claude — each backend owns its own artifact lifecycle, exactly the seam
-Phase 1 cut for ``emit`` (REQ-013/015; design "## Phase 5").
+Phase 1 cut for ``emit`` (design "## Phase 5").
 
 A backend receives only the harness-neutral ``System2Graph`` IR plus the target
 project path (and, for the lifecycle verbs, its OWN target lock + artifacts under
@@ -36,7 +36,7 @@ def lock_sources_outside_project(sources: List[str], project_path: str) -> List[
     A lock's overlay ``source_path[]`` that resolves outside the project dir is
     legitimate — it is user-equivalent to having composed with an explicit
     ``--overlays`` path pointing elsewhere — but worth surfacing on a read-only
-    drift check (security F-P5-1): a recompose/uninstall path will re-read those
+    drift check (security ): a recompose/uninstall path will re-read those
     out-of-tree sources. Each returned finding is INFORMATIONAL only; callers must
     NOT let it change ``status`` or the exit code. Symlinks are resolved
     (``realpath``) on both sides so a source that merely points back into the
@@ -93,7 +93,7 @@ class DoctorReport:
     ``system2_version`` the ``{installed, locked}`` pair, ``overlays`` the per-overlay
     match flags, ``composed`` the CLAUDE.md-composed probe, ``exit_code`` the
     oracle's rule (0 when ``status == current``, else 1). An absent validator does
-    NOT force a non-zero exit (OQ-5.2): it is surfaced LOUDLY via
+    NOT force a non-zero exit: it is surfaced LOUDLY via
     ``validator_available = False`` plus a ``validator_unavailable`` finding, but the
     exit code still tracks ``status`` alone. ``validator_available`` is ``True`` for
     claude-code (no external validator); pi/codex set it ``False`` with that LOUD

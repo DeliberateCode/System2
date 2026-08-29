@@ -1,52 +1,22 @@
-"""TASK-018 (F4) — the Codex three-surface honesty invariant + standing lock invariants.
+"""Codex enforcement-honesty and utility-skill synchronization tests.
 
-This is the machine-check for R1 (the #1 recorded project risk): that the Codex
-plugin's enforcement honesty cannot silently drift into an over-claim. It converts
-the design's "three surfaces must agree" rule from a review-time reading into a red
-CI check (security F4; design §4 Trust messaging, Capability classification).
+The emitted manifest description, orchestrator preamble, and lock FIDELITY banner
+must carry the same trust statement verbatim. The orchestrator and lock must also
+carry the same coverage limitation. At rest, no capability may claim
+``enforced: true`` or ``native``; each safety gate is ``adapted`` and
+``gated: true``. Mutation tests prove that changing a surface or lock claim fails
+with the offending surface or capability named.
 
-It asserts, on the Codex emission:
+The required strings come from ``backends.codex`` and are also pinned to their
+approved behavioral wording so retaining a symbol while weakening its message still
+fails. Tests validate a committed distribution, an explicit
+``CODEX_EMISSION_ROOT``, or a fresh staged emission without external binaries.
 
-(a) THREE-SURFACE ADVISORY AGREEMENT — the trust one-liner
-    (``backends.codex._TRUST_ONELINER``, which carries the design line-174 advisory
-    clause) is present VERBATIM (byte-substring) in ALL of:
-      * the manifest ``description`` (``.codex-plugin/plugin.json``),
-      * the orchestrator-skill preamble (``skills/system2/SKILL.md``), and
-      * the lock ``system2.codex.lock.json`` FIDELITY banner.
-    The coverage-gap sentence (``_COVERAGE_GAP``, design line 175) is present in the
-    orchestrator skill AND the lock banner.
-
-(b) STANDING LOCK INVARIANTS (design line 179) — in ``system2.codex.lock.json`` NO
-    capability carries ``enforced: true`` at rest, NONE is classified ``native``, and
-    EVERY safety gate (enforce-lease, block-dangerous, protect-sensitive) is
-    ``adapted`` with ``gated: true``. These are standing invariants: a future backend
-    edit cannot silently over-claim.
-
-(c) MUTATION SELF-TESTS (teeth) — on temp COPIES of the emission (never the real
-    emission), each surface is tampered (drop the sentence) and each lock invariant
-    is violated (inject ``enforced: true`` / ``native``); the honesty predicates must
-    then FAIL and NAME the offending surface / capability.
-
-The required strings are IMPORTED from ``backends.codex`` (asserted against the
-precise constants the backend emits, never a re-typed guess) and additionally pinned
-to the design's literal wording, so a refactor that guts the constant while keeping
-the symbol still fails.
-
-Path-parameterized: validates the committed ``distributions/codex/`` tree when it
-exists (post-TASK-023) or an explicit ``CODEX_EMISSION_ROOT`` override; otherwise it
-emits a fresh Codex tree to a staging temp dir and validates that. Pure-Python
-emission (no node / external binary) — always runs, never skips (skip-count-0).
-Stdlib-only ``unittest``. Cited overlay/IR contents are untrusted data.
-
-Also carries the D2/the recorded decision SYNC GUARD (J4): the three adapted utility skills are
-derived-literal builders in ``backends.codex`` (Decision D2), not an emit-time
-read of ``plugin/skills/``, so a Claude-source edit does not flow automatically.
-The guard reads BOTH the merged source (``plugin/skills/<name>/SKILL.md``) and
-the emitted skill (``skills/system2-<name>/SKILL.md``) and asserts every
-load-bearing invariant token (design.md Public Interfaces 4a row 6 / the recorded decision) is
-present in both. The 3x3 token list is duplicated, with a cross-reference
-comment, in ``test_pi_goldens.py``'s mirror leg (K3, CC-036) — accepted
-duplication, recorded.
+The utility-skill synchronization guard compares load-bearing command, timeout,
+status, and quoting tokens between each merged source skill and its emitted Codex
+copy. This catches drift because the backend builds those skills from literals rather
+than reading ``plugin/skills`` at emission time. All overlay and IR content is treated
+as untrusted data.
 """
 
 import json
@@ -67,9 +37,8 @@ _TEST_OVERLAY = matrix.TEST_OVERLAY
 _TRUST_ONELINER = codex_backend._TRUST_ONELINER
 _COVERAGE_GAP = codex_backend._COVERAGE_GAP
 
-# The design's literal wording (design.md lines 174 / 175). These pin the imported
-# constants to the approved text: a refactor that keeps the symbol but drops the
-# advisory clause / coverage-gap clause fails test_required_constants_match_design.
+# Pin imported constants to the approved behavior: retaining a symbol while dropping
+# the advisory or coverage clause must fail.
 _REQUIRED_ADVISORY_CLAUSE = (
     "safety enforcement is INACTIVE until you review and trust the bundled hooks "
     "via /hooks; until then System2 runs advisory-only"
@@ -87,12 +56,12 @@ _SURFACE_MANIFEST = "manifest description"
 _SURFACE_ORCH = "orchestrator-skill preamble"
 _SURFACE_LOCK_BANNER = "lock FIDELITY banner"
 
-# The three safety gates that must be adapted+gated at rest (design line 179).
+# These three safety gates must be adapted and gated at rest.
 _SAFETY_GATES = ("enforce-lease", "block-dangerous", "protect-sensitive")
 
 # The modern Codex block schema the lock mechanism text must describe, and the two
-# obsoleted legacy forms that must be ABSENT (RL-001; REQ-075/076). The advisory
-# sentence (REQ-077) is orthogonal and stays verbatim — asserted separately.
+# obsoleted legacy forms that must be ABSENT . The advisory
+# sentence is orthogonal and stays verbatim — asserted separately.
 _MODERN_DENY_TOKENS = ("permissionDecision", "deny")
 _LEGACY_BLOCK_SCHEMA = '{"decision":"block"}'          # obsoleted stdout block form
 _LEGACY_BLOCK_SCHEMA_ESCAPED = '{\\"decision\\":\\"block\\"}'  # its JSON-file byte form
@@ -118,8 +87,8 @@ def _resolve_committed_root():
     """Return a pre-existing Codex emission root to validate, or None to emit.
 
     Order: an explicit ``CODEX_EMISSION_ROOT`` override (must exist), then the
-    committed ``distributions/codex/`` tree (present post-TASK-023). When neither
-    exists (pre-TASK-023), returns None and the caller emits to a staging dir.
+    committed ``distributions/codex/`` tree. When neither exists, returns None
+    and the caller emits to a staging directory.
     """
     override = os.environ.get("CODEX_EMISSION_ROOT")
     if override:
@@ -199,8 +168,7 @@ def coverage_gap_violations(root):
 
 
 def lock_invariant_violations(root):
-    """Standing lock invariants (design line 179): nothing enforced/native at rest;
-    every safety gate adapted + gated."""
+    """Require no enforced/native claim at rest and adapted, gated safety checks."""
     violations = []
     caps = _lock(root).get("capabilities", {})
     for name, rec in caps.items():
@@ -243,7 +211,7 @@ def _lock_mechanism_text(root):
 # ---------------------------------------------------------------------------
 
 class CodexHonestyTest(unittest.TestCase):
-    """R1/F4 machine-check over the Codex emission (three surfaces + lock invariants)."""
+    """Check the three honesty surfaces and standing lock invariants."""
 
     @classmethod
     def setUpClass(cls):
@@ -272,18 +240,15 @@ class CodexHonestyTest(unittest.TestCase):
 
     # -- (a) three-surface advisory agreement -------------------------------
 
-    def test_required_constants_match_design_wording(self):
-        # Pin the imported constants to the design's literal text so a refactor that
-        # keeps the symbol but drops the advisory / coverage clause is caught here.
+    def test_required_constants_preserve_enforcement_wording(self):
+        # Keep the imported constants pinned to their behavioral claims.
         self.assertIn(
             _REQUIRED_ADVISORY_CLAUSE, _TRUST_ONELINER,
-            "backends.codex._TRUST_ONELINER no longer carries the design line-174 "
-            "advisory clause verbatim",
+            "backends.codex._TRUST_ONELINER no longer carries the advisory clause verbatim",
         )
         self.assertEqual(
             _COVERAGE_GAP, _REQUIRED_COVERAGE_CLAUSE,
-            "backends.codex._COVERAGE_GAP diverged from the design line-175 coverage "
-            "statement",
+            "backends.codex._COVERAGE_GAP diverged from the required coverage statement",
         )
 
     def test_trust_oneliner_present_in_all_three_surfaces(self):
@@ -308,7 +273,7 @@ class CodexHonestyTest(unittest.TestCase):
         ):
             self.assertIn(
                 _REQUIRED_ADVISORY_CLAUSE, text,
-                f"the design line-174 advisory clause is missing from the {label}",
+                f"the required advisory clause is missing from the {label}",
             )
 
     def test_coverage_gap_present_in_orchestrator_and_lock(self):
@@ -320,8 +285,8 @@ class CodexHonestyTest(unittest.TestCase):
         )
 
     def test_readme_surface_when_present(self):
-        # design line 175 pairs the README with the orchestrator preamble. The README
-        # is added by TASK-023/031, so it is absent from a pre-023 staging emission.
+        # The README and orchestrator preamble share the same trust block. A staged
+        # emission may omit the optional committed README.
         # Skip-count-0 discipline: NO skipTest. The orchestrator preamble is the
         # always-present required equivalent (asserted unconditionally); the README is
         # an ADDITIONAL surface validated only when it exists in the emission.
@@ -339,13 +304,11 @@ class CodexHonestyTest(unittest.TestCase):
                 readme = fh.read()
             self.assertIn(
                 _TRUST_ONELINER, readme,
-                "the committed README surface must carry the trust one-liner verbatim "
-                "(post-TASK-023)",
+                "the committed README surface must carry the trust one-liner verbatim",
             )
             self.assertIn(
                 _COVERAGE_GAP, readme,
-                "the committed README surface must carry the coverage-gap sentence "
-                "verbatim (post-TASK-023)",
+                "the committed README surface must carry the coverage-gap sentence verbatim",
             )
             self.assertEqual(self.source in ("committed", "override"), True)
 
@@ -355,7 +318,7 @@ class CodexHonestyTest(unittest.TestCase):
         violations = lock_invariant_violations(self.root)
         self.assertEqual(
             violations, [],
-            "standing Codex lock invariants (design line 179) violated: nothing may be "
+            "standing Codex lock invariants violated: nothing may be "
             f"enforced:true / native at rest and every safety gate must be adapted+gated; "
             f"violations: {violations}",
         )
@@ -394,7 +357,7 @@ class CodexHonestyTest(unittest.TestCase):
                 f"safety gate {gate!r} must be enforced:false at rest",
             )
 
-    # -- (b') mechanism/delivery schema honesty (RL-001; REQ-075/076/077) ---
+    # -- (b') mechanism/delivery schema honesty  ---
 
     def test_lock_mechanism_describes_modern_deny_schema(self):
         # Each safety gate's mechanism must describe the MODERN Codex deny schema
@@ -441,7 +404,7 @@ class CodexHonestyTest(unittest.TestCase):
         self.assertNotIn(_LEGACY_FEATURES_HOOKS, raw)
         self.assertIn(
             _REQUIRED_ADVISORY_CLAUSE, raw,
-            "the REQ-077 advisory sentence must remain verbatim in the lock",
+            "the advisory trust sentence must remain verbatim in the lock",
         )
 
     def test_legacy_wording_guard_has_teeth(self):
@@ -581,10 +544,9 @@ class CodexHonestyTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# D2/the recorded decision sync guard (J4) — drift control for the derived-literal utility-skill
-# builders. Token list duplicated across this file and test_pi_goldens.py's
-# mirror leg (K3, CC-036), with this cross-reference comment (design.md
-# Decision D2 / Public Interfaces 4a row 6; accepted duplication, recorded).
+# Drift control for the derived-literal utility-skill builders. The token list is
+# intentionally duplicated in test_pi_goldens.py so each backend's emitted copies are
+# independently checked against the merged source skills.
 # ---------------------------------------------------------------------------
 
 _SYNC_GUARD_TOKENS = {
@@ -615,10 +577,10 @@ def _emitted_skill_path(root, name):
 
 
 class CodexSyncGuardTest(unittest.TestCase):
-    """D2/the recorded decision: every invariant token survives in both the merged source and the
-    emitted skill — the drift control for the tri-copy derived-literal
-    adaptation (Decision D2). Shares the same committed/staging resolution as
-    ``CodexHonestyTest`` (path-parameterized, skip-count-0)."""
+    """Require every invariant token in both the merged source and emitted skill.
+
+    Shares the committed-or-staged emission resolution used by ``CodexHonestyTest``.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -668,7 +630,7 @@ class CodexSyncGuardTest(unittest.TestCase):
         self.assertNotIn(token, tampered)
 
 
-# PR #10 review finding 1: _skill_frontmatter() (backends.codex) emits
+# _skill_frontmatter() (backends.codex) emits
 # `description: {description}` with zero YAML escaping, and nothing in this
 # suite previously validated the emitted VALUE -- an unquoted embedded ": "
 # (e.g. stateless-loop's "STATUS: CLEAN") shipped as invalid YAML with no red
@@ -705,7 +667,7 @@ def _yaml_unsafe_reason(value):
 
 
 class CodexSkillFrontmatterYamlSafetyTest(unittest.TestCase):
-    """PR #10 review finding 1: every emitted skill's frontmatter must be safe
+    """every emitted skill's frontmatter must be safe
     to parse as YAML -- checked for ALL emitted skills (not just the three
     derived-literal utility skills), since ``_skill_frontmatter()`` is shared
     by every skill this backend emits."""
@@ -749,8 +711,8 @@ class CodexSkillFrontmatterYamlSafetyTest(unittest.TestCase):
                     self.assertIsNone(reason, f"{rel}: frontmatter {key!r} {reason}")
 
     def test_guard_trips_on_the_regressed_value(self):
-        # Mutation self-test (teeth): prove the guard would have caught the
-        # actual PR #10 regression had it still been present.
+        # Mutation self-test: prove the guard rejects an unquoted colon in a plain
+        # YAML frontmatter value.
         reason = _yaml_unsafe_reason(
             "Run an instruction ... until the task reports STATUS: CLEAN or max "
             "iterations are reached."

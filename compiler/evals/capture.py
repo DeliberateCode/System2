@@ -8,7 +8,7 @@ snapshot the artifact classes it actually writes into ``evals/goldens/<cell>/``:
   and the stderr warning stream (``warnings.txt``).
 - refusal cells (``core+conflict``): ``refusal.txt`` (the error stream) + ``exit_code.txt``
   + ``warnings.txt`` instead of files.
-- the ``core`` cell (static inventory invariant, design T3): NOT a zero-overlay oracle run
+- the ``core`` cell (static inventory invariant, design ): NOT a zero-overlay oracle run
   (the oracle refuses empty overlay sets). Instead snapshot the base CLAUDE.md template the
   composer starts from (``base_template.md``) and a ``structural_goldens.json`` reference
   (relative path + sha256) to the plugin's read-only structural goldens locking the
@@ -132,7 +132,7 @@ def _copy_artifacts(project_dir: str, cell_dir: str) -> None:
 
     # Overlay content copies (.system2/overlays/<name>/...): the anchor-filtered
     # set the oracle actually copies. Snapshotting these pins the content-file
-    # selection (blocker B1): unknown-anchor content files must NOT appear here.
+    # selection (blocker ): unknown-anchor content files must NOT appear here.
     overlays_src = os.path.join(project_dir, ".system2", "overlays")
     if os.path.isdir(overlays_src):
         for root, _, names in os.walk(overlays_src):
@@ -161,7 +161,7 @@ def _materialize_profile_home(cell: "matrix.Cell") -> str:
     """Create a hermetic HOME containing ``.system2/profiles.json`` from the store fixture.
 
     The store's ``overlays[].path`` is rewritten to the resolved absolute ``TEST_OVERLAY``
-    so the baseline is root-correct (TASK-007 portability note).
+    so the baseline is root-correct ( portability note).
     """
     home = tempfile.mkdtemp(prefix="capture-home-")
     os.makedirs(os.path.join(home, ".system2"), exist_ok=True)
@@ -232,7 +232,7 @@ def _capture_refusal(cell: "matrix.Cell", cell_dir: str) -> None:
 
 
 def _capture_core(cell_dir: str) -> None:
-    """Capture the static inventory invariant for the ``core`` cell (design T3).
+    """Capture the static inventory invariant for the ``core`` cell (design ).
 
     Snapshots the base CLAUDE.md template + a reference (relative path + sha256) to the
     plugin's read-only structural goldens. The oracle is NOT invoked (it refuses empty
@@ -254,7 +254,7 @@ def _capture_core(cell_dir: str) -> None:
         "description": (
             "Static inventory invariant (13-agent/6-gate + hook/allowlist bindings). "
             "Captured by reference to the plugin's read-only structural goldens; the oracle "
-            "is not invoked for the core cell because it refuses empty overlay sets (design T3)."
+            "is not invoked for the core cell because it refuses empty overlay sets (design )."
         ),
         "base_template_sha256": _sha256_bytes(base_template.encode("utf-8")),
         "structural_goldens": references,
@@ -282,7 +282,7 @@ def capture_all(
     """Capture declared matrix cells into ``goldens_dir``.
 
     ``rebaseline`` is accepted for symmetry with the runner; capture always (re)writes the
-    snapshot tree from the oracle, which is the baseline-materialization step (TASK-006).
+    snapshot tree from the oracle, which is the baseline-materialization step.
     ``only`` restricts capture to a single named cell (the rest of the frozen baseline is
     left byte-for-byte untouched); ``assert_complete`` is then skipped so a partial capture
     does not fail on the unbuilt cells.

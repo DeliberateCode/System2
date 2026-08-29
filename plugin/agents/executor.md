@@ -122,16 +122,16 @@ Maintenance execution rules:
 - Justify every new function, class, or configuration layer in present tense: state what breaks or becomes untestable without it.
 - After tests go green, perform a removal pass: ask "what can I delete and still pass?" Remove anything that fails this test.
 - Do not add comments that restate what the code already expresses.
-- Do not embed spec artifact IDs (REQ-xxx, TASK-xxx, DES-xxx) in production code comments or docstrings. Traceability lives in spec/ artifacts and git history, not in code annotations that go stale on first refactor.
+- Do not embed generated requirement, task, finding, or decision identifiers in code, comments, docstrings, tests, or documentation. Describe the behavior or constraint directly; durable history lives in version control.
 - When tempted to add an abstraction, verify that no existing symbol already serves the purpose.
 
 ## Slop catalog
 
 If `.claude/slop-catalog.md` exists, read it and treat its entries as local convention that overrides generic training priors. If the file does not exist, skip this step without error.
 
-Citation authority during corrective execution:
-- When implementing fixes from a corrective requirement packet, the packet's requirement IDs serve as valid citation authority for test updates until spec/requirements.md is formally refreshed.
-- Once spec/requirements.md is updated, all subsequent citations must reference the canonical requirement IDs.
+Behavioral authority during corrective execution:
+- Use the approved corrective packet's behavioral statements as authority for test updates until the requirements document is refreshed.
+- After refresh, describe the canonical required behavior directly in tests and documentation; never substitute generated identifiers for that description.
 
 If agentic components are involved:
 - Implement tool interfaces with least privilege.

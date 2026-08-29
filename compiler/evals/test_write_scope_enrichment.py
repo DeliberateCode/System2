@@ -1,4 +1,4 @@
-"""TASK-403 — OQ-P3 IR-enrichment structural drift guard.
+"""Guard the write-scope enrichment behavior against structural drift.
 
 Asserts ``ir.build._derive_roles`` populates each pipeline role's ``write_scope``
 from its mapped read-only Claude ``.regex`` path allowlist, so Pi's
@@ -9,7 +9,7 @@ from its mapped read-only Claude ``.regex`` path allowlist, so Pi's
   blank/``#`` lines dropped, multiple patterns joined as ``(?:p1)|(?:p2)|...``);
 * the OR-joined multi-line scope (``design-architect``) MATCHES the allowlist's own
   example paths and REJECTS an off-scope path — an effect assertion, not a
-  structural one, so the deny-all brick (F-P3) cannot regress silently;
+  structural one, so the deny-all brick cannot regress silently;
 * ``code-reviewer`` (no dedicated allowlist; read-only role) carries an EMPTY
   ``write_scope`` — no broad fallback that would over-permit;
 * the enrichment reads ``System2/`` allowlists READ-ONLY and ``ir.build``
@@ -102,13 +102,13 @@ class WriteScopeEnrichmentTest(unittest.TestCase):
 
     def test_every_scope_compiles_and_is_single_line(self):
         # The OR-joined scope must be one valid regex (no interior newline that
-        # `new RegExp` would brick into a deny-all — the F-P3 root cause).
+        # `new RegExp` would turn the scope into an accidental deny-all.
         for name in _EXPECTED:
             scope = self.roles[name].write_scope
             self.assertNotIn(
                 "\n", scope,
                 f"role {name!r} scope contains a newline — `new RegExp` would brick "
-                "it (the F-P3 deny-all regression)",
+                "it, which would make the generated lease deny every path",
             )
             try:
                 re.compile("^(?:" + scope + ")")
@@ -116,9 +116,9 @@ class WriteScopeEnrichmentTest(unittest.TestCase):
                 self.fail(f"role {name!r} scope does not compile anchored: {exc}")
 
     def test_multiline_scope_matches_its_own_paths_and_rejects_off_scope(self):
-        # F-P3 effect assertion (replaces the old `assertIn("\n", scope)` defect
-        # assertion): design-architect's now-OR-joined 3-line allowlist must MATCH
-        # each of its own example paths and REJECT a clearly off-scope path. This is
+        # The design-architect's OR-joined three-line allowlist must match each of
+        # its own example paths and reject a clearly off-scope path. This replaces
+        # the old structural newline assertion and exercises
         # exactly the deny-all brick the old structural assertion failed to catch.
         scope = self.roles["design-architect"].write_scope
         rx = re.compile("^(?:" + scope + ")")

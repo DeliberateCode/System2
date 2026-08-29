@@ -1,8 +1,7 @@
-"""TASK-407 — Pi artifact goldens + the load-validity leg.
+"""Validate Pi artifacts, determinism, purity, snapshots, and extension loading.
 
 Drives the in-process ``ir.compose -> PiBackend.emit`` path for the Pi matrix cells
-and asserts (design §"Phase 4 — Pi Backend", §"Test/validity strategy" legs 1 + 3;
-AC-P2/AC-P6/AC-P7):
+and asserts:
 
 * **Artifact set** — the full deterministic Pi tree is emitted under ``project_path``
   only: ``.pi/extensions/system2.ts``, ``.pi/SYSTEM.md``, ``AGENTS.md``, the
@@ -11,15 +10,12 @@ AC-P2/AC-P6/AC-P7):
   (exact name-set, not just a count), and ``system2.pi.lock.json``.
 * **Determinism** — emit twice into two temp projects; the trees are byte-identical
   (output is a pure function of the IR + backend constants; no timestamps).
-* **Frontmatter presence (K1a)** — each of the six skills opens with a YAML
-  frontmatter block carrying a non-empty ``name``/``description`` (the RATIFIED
-  base-skill fix; K0 proved this is the Pi discovery-format minimum). Checks
-  presence, not an exact-string match against K1a's pinned text (Decision D5).
-* **Sync guard (D2/the recorded decision)** — the three NEW utility skills' load-bearing invariant
-  tokens (design.md Public Interfaces 4a) appear in both the merged
-  ``plugin/skills/<name>/SKILL.md`` source and the emitted Pi skill — the drift
-  control for the derived-literal adaptation (mirror of
-  ``test_codex_honesty.py``'s ``CodexSyncGuardTest``, K3/CC-036).
+* **Frontmatter presence** — each of the six skills opens with a YAML frontmatter
+  block carrying a non-empty ``name`` and ``description``. This checks the minimum
+  Pi discovery format without pinning an entire frontmatter string.
+* **Sync guard** — each utility skill's load-bearing command, timeout, status, and
+  quoting tokens appear in both the merged ``plugin/skills/<name>/SKILL.md`` source
+  and the emitted Pi skill. This mirrors the Codex synchronization guard.
 * **Comparator self-teeth** — flip a single byte of one snapshot and assert the
   byte-diff comparator surfaces **exactly one** failure (the gap flagged for
   Claude, applied to Pi). Proves the comparator is not a block-everything /
@@ -150,7 +146,7 @@ def committed_pi_dist():
     """Return the committed ``distributions/pi`` package dir (the SHIPPED bytes), or None.
 
     ``SYSTEM2_PI_DIST`` overrides the location. Present iff the package's gate extension
-    exists on disk — i.e. TASK-026 has committed the npm package.
+    exists on disk — i.e.  has committed the npm package.
     """
     cand = os.environ.get("SYSTEM2_PI_DIST") or os.path.join(
         _REPO_ROOT, "distributions", "pi"
@@ -203,9 +199,11 @@ def _read_tree(root):
 
 
 def _parse_leading_frontmatter(text):
-    """Parse a leading ``---\\nkey: value\\n...\\n---\\n\\n`` YAML block (K1a's exact
-    emitted shape — single-line key/value pairs only). Returns ``{key: value}``, or
-    ``None`` if *text* does not open with one."""
+    """Parse the emitted leading YAML frontmatter block.
+
+    The emitted shape uses single-line key/value pairs. Return ``{key: value}``, or
+    ``None`` when the text has no leading block.
+    """
     if not text.startswith("---\n"):
         return None
     close = text.find("\n---\n", 4)
@@ -220,7 +218,7 @@ def _parse_leading_frontmatter(text):
     return fields
 
 
-# PR #10 review finding 1: use Pi's actual YAML parser, not a hand-written
+# use Pi's actual YAML parser, not a hand-written
 # approximation. _PI_PKG_ENTRY resolves the installed, CI-pinned Pi package.
 _FRONTMATTER_PARSE_HARNESS = r'''
 import { readFileSync } from "node:fs";
@@ -253,7 +251,7 @@ def _byte_diff(snapshot, current):
 
 
 class PiEmitArtifactSetTest(unittest.TestCase):
-    """The full Pi artifact set is emitted (AC-P6)."""
+    """The full Pi artifact set is emitted."""
 
     @classmethod
     def setUpClass(cls):
@@ -292,7 +290,7 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         )
 
     def test_six_skill_name_set(self):
-        # Exact name-set (K4/K3, CC-036) — fails on a missing OR an extra skill,
+        # The exact name set fails on either a missing or an extra skill,
         # not just a count.
         skills = {
             r for r in self.tree
@@ -306,10 +304,9 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         )
 
     def test_total_emitted_file_count(self):
-        # Recomputed from actual emission (CC-REQ-087) — never asserted from
-        # arithmetic. The RATIFIED base-skill fix (K1a) changes zero file COUNTS,
-        # only the bytes of the three existing skill files, so the count observed
-        # here still equals the pre-K1 21 + the 3 new skills.
+        # Recompute the total from actual emission. Required frontmatter changes
+        # only existing skill bytes, not file counts; the tree contains the original
+        # files plus the three utility skills.
         self.assertEqual(
             len(self.written), 24,
             f"expected 24 emitted files, got {len(self.written)}",
@@ -515,7 +512,7 @@ process.stdout.write(JSON.stringify(out));
 
 
 class PiLoadValidityTest(unittest.TestCase):
-    """Load leg — the SHIPPED extension loads under Pi with errors:[] (AC-P2).
+    """Load leg — the SHIPPED extension loads under Pi with errors:[].
 
     Path-parameterized: loads the committed ``distributions/pi/extensions/system2.ts``
     (the published bytes) when present, else the in-process emission. PASS-required when
@@ -591,11 +588,10 @@ class PiLoadValidityTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# D2/the recorded decision sync guard (K3, CC-036) — drift control for the derived-literal
-# utility-skill builders (mirror of test_codex_honesty.py's CodexSyncGuardTest,
-# J4). The 3x3 token list is duplicated across that file and this one, with this
-# cross-reference comment (design.md Decision D2 / Public Interfaces 4a row 6;
-# accepted duplication, recorded). Three NEW skills only — init/compose/doctor
+# Drift control for derived-literal utility-skill builders, mirroring the Codex
+# synchronization guard. The token list is intentionally duplicated so both target
+# emissions are checked independently. Only the three utility skills participate;
+# init, compose, and doctor
 # are not derived-literal adaptations of a Claude source and carry no
 # sync-guard invariant tokens.
 # ---------------------------------------------------------------------------
@@ -628,9 +624,7 @@ def _emitted_skill_path(root, name):
 
 
 class PiSyncGuardTest(unittest.TestCase):
-    """D2/the recorded decision: every invariant token survives in both the merged source and the
-    emitted Pi skill, for the three NEW utility skills — the drift control for
-    the tri-copy derived-literal adaptation (Decision D2)."""
+    """Every invariant token survives in merged source and emitted Pi skills."""
 
     @classmethod
     def setUpClass(cls):

@@ -1,4 +1,4 @@
-"""TASK-517 — Phase-5 DoD sign-off (DoD-5): no-regression + drift-guard teeth.
+"""Phase-5 DoD sign-off: no-regression + drift-guard teeth.
 
 The integrity gate proving Phase 5 (Convergence & Lifecycle Parity) landed without
 regression and that the drift guard has teeth on BOTH halves (CI staleness +
@@ -8,29 +8,29 @@ ship with the vendored bundle.
 
 Assertions:
 
-1. **Grown contract / backend lifecycle (AC-5.1).** Every backend
+1. **Grown contract / backend lifecycle.** Every backend
    (claude-code / pi) satisfies the ``runtime_checkable`` ``Backend``
    protocol with REAL ``emit`` + ``uninstall`` + ``doctor`` + ``recompose_from_lock``
    + lock helpers (no ``NotImplementedError`` stubs).
 
-2. **Claude keystone byte-identical (AC-5.2/REQ-014).** The compose->emit goldens
+2. **Claude keystone remains byte-identical.** The compose->emit goldens
    are empty-diff under BOTH the in-process compiler driver and the frozen-oracle
    subprocess driver.
 
-3. **CLI-contract goldens green (AC-5.2).** The full verb surface
+3. **CLI-contract goldens green.** The full verb surface
    (compile/doctor/uninstall/from-lock/profile) matches the frozen oracle
    byte-for-byte, and the comparator has teeth (a mutated golden byte fails).
 
-4. **Plugin runs on the bundle == preflip across verbs (AC-5.6).** The bundle
+4. **Plugin runs on the bundle == preflip across verbs.** The bundle
    ships and the shim/bundle reproduces the frozen ``composer.py.preflip`` output
    across the full verb matrix (the bundle-equivalence gate); the plugin's own
    ``System2/evals/`` suite is green on the bundle (the flip leg).
 
-5. **CI staleness guard has teeth (AC-5.7).** ``tools/check_bundle_fresh.py``
+5. **CI staleness guard has teeth.** ``tools/check_bundle_fresh.py``
    PASSES on a freshly-built-from-source bundle and FAILS on a one-byte mutation of
    a vendored module (on a temp copy).
 
-6. **Plugin-side TAMPER check has teeth (AC-5.7).** The vendored
+6. **Plugin-side TAMPER check has teeth.** The vendored
    ``_system2_compiler/_freshness.py`` (which ships WITH the plugin and needs no
    compiler source) PASSES on the real fresh vendored bundle and FAILS — with a
    LOUD ``bundle_tampered`` finding — on a one-byte mutation of a TEMP COPY (the
@@ -110,7 +110,7 @@ def _is_real_impl(fn):
 
 
 class GrownContractTest(unittest.TestCase):
-    """AC-5.1 — every backend satisfies the grown Backend protocol (no stubs)."""
+    """every backend satisfies the grown Backend protocol (no stubs)."""
 
     def _backends(self):
         from system2_compiler.backends.base import Backend
@@ -157,7 +157,7 @@ class GrownContractTest(unittest.TestCase):
 
 
 class ClaudeKeystoneGoldenGate(unittest.TestCase):
-    """AC-5.2 / REQ-014 — compose->emit goldens empty-diff, both drivers."""
+    """Compose-to-emit goldens remain empty-diff for both drivers."""
 
     def test_compiler_driver_empty_diff(self):
         failures = run_goldens.run_goldens(driver="compiler")
@@ -176,7 +176,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
 
 
 class CliContractGate(unittest.TestCase):
-    """AC-5.2 — the full verb surface matches the frozen oracle, with teeth."""
+    """the full verb surface matches the frozen oracle, with teeth."""
 
     def test_compiler_matches_frozen_oracle_all_verbs(self):
         failures = []
@@ -198,7 +198,7 @@ class CliContractGate(unittest.TestCase):
 
 
 class BundleRunsAsPreflipGate(unittest.TestCase):
-    """AC-5.6 — the plugin on the bundle reproduces preflip across every verb."""
+    """the plugin on the bundle reproduces preflip across every verb."""
 
     @classmethod
     def setUpClass(cls):
@@ -227,7 +227,7 @@ class BundleRunsAsPreflipGate(unittest.TestCase):
 
 
 class CiStalenessGuardTeethTest(unittest.TestCase):
-    """AC-5.7 — the CI staleness guard passes fresh, fails on a mutated byte."""
+    """the CI staleness guard passes fresh, fails on a mutated byte."""
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp(prefix="dod5-ci-guard-")
@@ -260,7 +260,7 @@ class CiStalenessGuardTeethTest(unittest.TestCase):
 
 
 class PluginTamperCheckTeethTest(unittest.TestCase):
-    """AC-5.7 — the plugin-shipped tamper check passes fresh, fails mutated (teeth).
+    """the plugin-shipped tamper check passes fresh, fails mutated (teeth).
 
     Runs the vendored ``_freshness.py`` exactly as the plugin would, with NO
     compiler source. The real plugin bundle is asserted untampered (read-only); the

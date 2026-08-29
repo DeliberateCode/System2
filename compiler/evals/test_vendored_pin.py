@@ -1,7 +1,7 @@
-"""TASK-319 — F-03: pin the vendored copies to their plugin originals.
+"""pin the vendored copies to their plugin originals.
 
-Security follow-up **F-03** (``spec/security.md``): the standalone compiler vendors
-``profiles.py`` and ``hook_security.py`` into ``ir/profiles.py`` /
+The standalone compiler vendors ``profiles.py`` and ``hook_security.py`` into
+``ir/profiles.py`` and
 ``ir/_hook_security.py``. The Phase-0 oracle hash-pin (``evals/oracle.py``) pins the
 *originals* under ``System2/plugin/scripts/``; nothing pinned the *vendored copies*
 against them. If the plugin tightens a hook-security ban (or changes profile
@@ -11,8 +11,8 @@ validation while the goldens (which exercise the oracle's own copy) still pass.
 This drift guard reads both plugin originals and both vendored copies (all
 **read-only**; no ``System2/`` write lease) and asserts byte-equivalence modulo a
 small, explicitly-enumerated set of sanctioned import-path adjustments — the only
-permitted diff per TASK-101's lift map. The earlier lift reported the copies
-byte-identical, so this test asserts strict byte-identity by default and fails
+permitted difference. The copies were initially byte-identical, so this test
+asserts strict byte identity by default and fails
 loudly (``vendored copy drifted / re-vendor required``) on any non-sanctioned diff.
 
 A negative control simulates a logic-line drift (and an unsanctioned import-line
@@ -46,7 +46,7 @@ _PINS = (
     ),
 )
 
-# The ONLY sanctioned diffs are intra-package import-path relocations (TASK-101
+# The ONLY sanctioned diffs are intra-package import-path relocations (
 # adjusted only import paths, no logic). Each entry maps an original import line to
 # the relocated vendored line; both sides are normalized away before byte-compare so
 # a sanctioned relocation is allowed while ANY other byte difference fails loudly.
@@ -84,7 +84,7 @@ def _normalize(lines):
 
 
 class VendoredPinTest(unittest.TestCase):
-    """F-03 — the vendored copies must not drift from the plugin originals."""
+    """the vendored copies must not drift from the plugin originals."""
 
     def test_pinned_files_exist(self):
         for vendored, original in _PINS:

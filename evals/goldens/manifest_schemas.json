@@ -6,7 +6,7 @@
     "required_fields": {
       "name": "system2",
       "version": "1.2.0",
-      "author.name": "James Nordlund"
+      "author.name": "DeliberateCode"
     },
     "required_field_names": [
       "name",
@@ -19,7 +19,7 @@
     "path": ".claude-plugin/marketplace.json",
     "required_fields": {
       "owner": {
-        "name": "James Nordlund",
+        "name": "DeliberateCode",
         "url": "https://github.com/DeliberateCode"
       }
     },

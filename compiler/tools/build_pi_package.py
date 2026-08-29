@@ -1,5 +1,5 @@
-"""``build_pi_package.py`` — transform the Pi backend's canonical emission into the
-``@deliberatecode/pi-system2`` npm package layout (design §"Pi npm package"; TASK-024).
+"""Transform the Pi backend's canonical emission into the
+``@deliberatecode/pi-system2`` npm package layout.
 
     build(staging_emission: str, dest: str, package_version: str = PACKAGE_VERSION) -> None
 
@@ -19,7 +19,7 @@ npm package rooted at *dest*:
 The gate ``extensions/system2.ts`` is copied BYTE-FOR-BYTE from the backend's canonical
 ``.pi/extensions/system2.ts`` (no re-derivation — the package and the backend cannot
 drift). ``package.json`` is stamped from ``templates/pi_package.json`` (name/keywords/pi
-manifest/files whitelist/MIT; NO scripts, NO dependencies, NO postinstall — REQ-055/F12)
+manifest/files whitelist/MIT; no scripts, dependencies, or postinstall hook)
 with the version substituted. ``extensions/system2-init.ts`` is generated from
 ``templates/system2_init_ts.template`` with the managed-file list (exactly the files
 placed under ``payload/project/``) embedded. ``README.md`` is generated from
@@ -29,7 +29,7 @@ cannot drift from the repo's). Both are entries in the ``package.json`` ``files`
 whitelist, so they are generated here and kept under the regen freshness guard rather
 than hand-committed.
 
-The Pi BACKEND is UNTOUCHED (REQ-054): this is pure tooling downstream of its emission.
+The Pi BACKEND is UNTOUCHED: this is pure tooling downstream of its emission.
 Stdlib-only; deterministic (identical emission -> byte-identical package).
 """
 
@@ -44,7 +44,7 @@ _TEMPLATES_DIR = os.path.join(_TOOLS_DIR, "templates")
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 
 PACKAGE_NAME = "@deliberatecode/pi-system2"
-# PR #10 review finding 11: hand-pinned, with no automated guard forcing a bump when
+# hand-pinned, with no automated guard forcing a bump when
 # emitted content changes -- nothing today would stop a real behavior change from
 # shipping under an unchanged version number. Bump policy (manual, until guarded):
 # bump the PATCH digit for a bug fix that changes emitted bytes with no new
@@ -52,7 +52,7 @@ PACKAGE_NAME = "@deliberatecode/pi-system2"
 # capability; bump MAJOR for a breaking change to the emitted surface (e.g. a
 # skill/capability removal). Mirrors _CODEX_PLUGIN_VERSION's policy in
 # compiler/system2_compiler/backends/codex.py.
-PACKAGE_VERSION = "0.2.1"
+PACKAGE_VERSION = "0.2.2"
 
 # The ``.pi/<X>/`` subtrees that ARE pi package component types: hoisted to ``<X>/``.
 _COMPONENT_PREFIXES = ("extensions", "skills", "prompts")
@@ -112,13 +112,13 @@ def _classify(rel):
 def _write_package_json(dest, version):
     content = _read_template("pi_package.json").replace(_VERSION_PLACEHOLDER, version)
     # Fail closed: the shipped manifest must never carry an install script or a
-    # dependency (REQ-055/F12). A template edit that reintroduced one would otherwise
-    # publish silently to npm; assert it here at build time.
+    # dependency. A template edit that reintroduced one would otherwise publish
+    # silently to npm, so assert the policy here at build time.
     obj = json.loads(content)
     for key in _FORBIDDEN_PACKAGE_KEYS:
         if key in obj:
             raise ValueError(
-                f"pi_package.json must not declare {key!r} (REQ-055/F12: the package "
+                f"pi_package.json must not declare {key!r} (the package "
                 f"carries no scripts and no dependencies)"
             )
     with open(os.path.join(dest, "package.json"), "w", encoding="utf-8") as fh:

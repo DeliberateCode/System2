@@ -1,7 +1,7 @@
 """Public front-end entry point for the System2 compiler.
 
 Re-exports ``compose()`` and the ``System2Graph`` schema. Harness-neutral: this
-package imports no backend (REQ-010/013/040). ``compose`` orchestrates
+package imports no backend. ``compose`` orchestrates
 load -> validate -> conflict -> index -> sort -> assemble and returns a
 ``CompileResult``; on any refusal (validation error, known conflict, ordering
 cycle, ``project_path`` inside/equal to base) ``graph`` is ``None``, ``errors`` is
@@ -296,7 +296,7 @@ def _compute_files_to_write(
 
     Always includes CLAUDE.md and the lock; one ``.claude/agents/<name>.md`` per
     auxiliary agent; one overlay-content marker per overlay. The actual writing
-    is the backend's job (TASK-108); this is the dry-run-safe intent list."""
+    is the backend's job; this is the dry-run-safe intent list."""
     files_to_write = [
         os.path.join(project_path, "CLAUDE.md"),
         os.path.join(project_path, "spec", "overlay-manifest.lock"),
