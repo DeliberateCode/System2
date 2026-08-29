@@ -1,6 +1,6 @@
-"""TASK-511 — drift-guard self-test: the bundle freshness check has TEETH.
+"""the implementation work — drift-guard self-test: the bundle freshness check has TEETH.
 
-Phase 5 (AC-5.7, G8/NFR-006). ``tools/check_bundle_fresh.py`` is the
+convergence implementation (AC-5.7, G8/NFR-006). ``tools/check_bundle_fresh.py`` is the
 machine-enforced freshness gate: a stale or hand-edited vendored bundle CANNOT
 merge. A guard that never fails is worthless, so this self-test proves both
 directions:
@@ -17,7 +17,7 @@ the minimal layout (``ir/`` + ``backends/`` + ``plugin_adapter.py`` present; the
 multi-target ``evals/`` test tree absent), and exercises the
 ``compute_source_hash`` drift anchor directly.
 
-The doctor ``bundle_tampered`` leg of the self-test is owned by TASK-517 (the
+The doctor ``bundle_tampered`` leg of the self-test is owned by the implementation work (the
 plugin doctor surface); this module covers the guard-fail teeth, which is the half
 that lands with the guard.
 
@@ -128,7 +128,15 @@ class BundleDriftTest(unittest.TestCase):
         pkg_entries.discard("__pycache__")
         self.assertEqual(
             pkg_entries,
-            {"__init__.py", "ir", "backends", "plugin_adapter.py", "cli.py"},
+            {
+                "__init__.py", "ir", "backends", "plugin_adapter.py", "cli.py",
+                # PR #10 review finding 6 (Codex second-opinion review, round 2):
+                # the Codex user-hooks reference is now real package-data
+                # (pyproject.toml), so it's vendored along with the rest of the
+                # package -- intentional, not drift. The Claude channel never
+                # reads it; the cost is a few KB of unused data in the bundle.
+                "_packaged_data",
+            },
             "unexpected product-package file set inside the bundle",
         )
 

@@ -1,7 +1,7 @@
 """Locate, hash-pin, and invoke the frozen System2 oracle (``composer.py.preflip``).
 
 The pre-flip ``composer.py.preflip`` is the IMMUTABLE read-only oracle the golden
-suite freezes against (Phase 5): it is the byte-for-byte snapshot of the plugin's
+suite freezes against (convergence implementation): it is the byte-for-byte snapshot of the plugin's
 pre-flip ``composer.py`` engine, retained as the post-flip equivalence target and
 the one-commit backout source. After the flip the live ``composer.py`` is a thin
 shim delegating to the vendored bundle; the oracle deliberately resolves the frozen
@@ -26,7 +26,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 
-# evals/ -> System2-Compiler (compiler repo root)
+# evals/ -> compiler package root
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _COMPILER_ROOT = os.path.dirname(_THIS_DIR)
 
@@ -34,14 +34,14 @@ _COMPILER_ROOT = os.path.dirname(_THIS_DIR)
 def _resolve_plugin_root() -> str:
     """Resolve the System2 plugin root portably (CI-/machine-independent).
 
-    Honors ``SYSTEM2_PLUGIN_ROOT`` when set; otherwise defaults to the sibling
-    layout ``<compiler repo>/../System2/plugin``, so the suite runs anywhere the
-    two repos are checked out as siblings. Always normalized to an absolute path.
+    Honors ``SYSTEM2_PLUGIN_ROOT`` when set; otherwise defaults to the in-repo
+    layout ``<compiler>/../plugin`` (the compiler and the plugin are siblings
+    inside the consolidated System2 repo). Always normalized to an absolute path.
     """
     override = os.environ.get("SYSTEM2_PLUGIN_ROOT")
     if override:
         return os.path.abspath(override)
-    return os.path.abspath(os.path.join(_COMPILER_ROOT, "..", "System2", "plugin"))
+    return os.path.abspath(os.path.join(_COMPILER_ROOT, "..", "plugin"))
 
 
 PLUGIN_ROOT = _resolve_plugin_root()
@@ -115,7 +115,7 @@ def verify_pin(lock_path: str = LOCK_PATH) -> dict:
     """Recompute hashes and compare to the pinned lock.
 
     Raises ``RuntimeError(DRIFT_MESSAGE)`` on any mismatch. Never regenerates the
-    lock automatically (REQ-007).
+    lock automatically (the requirement).
     """
     pinned = load_lock(lock_path)
     current = compute_lock()

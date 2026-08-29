@@ -2,7 +2,7 @@ Composition Report
 ========================================
   Overlay: test-overlay@1.0.0
 
-Composed CLAUDE.md: 257 lines
+Composed CLAUDE.md: 258 lines
 
 Contributions applied:
   orchestrator.principles: ['test-principle-1']

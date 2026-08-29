@@ -12,7 +12,7 @@ compiler CLI against them.
 Both engines are deterministic given the pinned oracle; the comparison normalizes
 only the volatile temp-project / temp-HOME path prefixes (a structural-equivalence
 allowance over otherwise byte-identical contracts). A self-teeth test mutates one
-golden byte and asserts the diff fails (REQ-007 no-auto-rebaseline discipline).
+golden byte and asserts the diff fails (the requirement no-auto-rebaseline discipline).
 
 Everything runs under a hermetic temp HOME so the real ``~/.system2`` is untouched.
 The oracle is invoked ONLY as a subprocess (this module never imports
@@ -37,9 +37,10 @@ _COMPOSED_AT_RE = re.compile(r"<!-- Composed at: [0-9TZ:-]+ -->")
 
 # The reused ``test-overlay`` source path is an absolute fixture path that varies by
 # checkout location (the frozen golden baked the original author's path). Normalize
-# any ``…/System2/evals/fixtures/test-overlay`` occurrence to a stable token on BOTH
-# the produced output and the frozen golden, so the contract is checkout-independent.
-_OVERLAY_PATH_RE = re.compile(r"[^\s\"]*/System2/evals/fixtures/test-overlay")
+# any ``…/evals/fixtures/test-overlay`` occurrence to a stable token on BOTH the
+# produced output and the frozen golden, so the contract is checkout-independent
+# regardless of the repository directory name (author path, CI runner, or clone).
+_OVERLAY_PATH_RE = re.compile(r"[^\s\"]*/evals/fixtures/test-overlay")
 _OVERLAY_TOKEN = "<OVERLAY>"
 
 from evals import oracle

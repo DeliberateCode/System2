@@ -1,4 +1,4 @@
-"""TASK-207 — Unknown intent-capability warning test (REQ-039).
+"""the implementation work — Unknown intent-capability warning test (the requirement).
 
 If an overlay declares an unknown/unsupported intent capability, the system must
 surface a **validation warning** rather than silently ignoring it, must NOT crash
@@ -12,7 +12,7 @@ This exercises two surfaces:
 * The full **compose** path with a runtime overlay fixture declaring an unknown
   capability: the warning surfaces into ``graph.warnings.validation``, ``graph`` is
   non-None (no crash), and two independent runs produce byte-identical warning
-  lists (determinism, REQ-039). A second overlay declaring only a KNOWN capability
+  lists (determinism, the requirement). A second overlay declaring only a KNOWN capability
   produces no unknown-capability warning.
 
 The overlay fixtures are materialized into a throwaway temp dir at runtime (not
@@ -75,7 +75,7 @@ def _make_overlay(tmp_root: str, name: str, capabilities) -> str:
 
 
 class ValidateDeclaredCapabilitiesUnitTest(unittest.TestCase):
-    """REQ-039 at the validator seam: unknown -> warning, known -> none."""
+    """the requirement at the validator seam: unknown -> warning, known -> none."""
 
     def test_unknown_capability_yields_a_warning(self):
         warnings = validate_declared_capabilities([_UNKNOWN_CAP])
@@ -103,7 +103,7 @@ class ValidateDeclaredCapabilitiesUnitTest(unittest.TestCase):
 
 
 class UnknownCapabilityComposePathTest(unittest.TestCase):
-    """REQ-039 end-to-end: an overlay's unknown capability surfaces via compose."""
+    """the requirement end-to-end: an overlay's unknown capability surfaces via compose."""
 
     def setUp(self):
         self.tmp_root = tempfile.mkdtemp(prefix="unknown-cap-")
@@ -127,7 +127,7 @@ class UnknownCapabilityComposePathTest(unittest.TestCase):
             result.graph, "an unknown capability must not crash or refuse compose"
         )
         self.assertEqual([], result.errors)
-        # The warning is on graph.warnings.validation (REQ-039).
+        # The warning is on graph.warnings.validation (the requirement).
         matching = [
             w for w in result.graph.warnings.validation if _UNKNOWN_CAP in w
         ]
@@ -144,7 +144,7 @@ class UnknownCapabilityComposePathTest(unittest.TestCase):
             first.graph.warnings.validation,
             second.graph.warnings.validation,
             "the validation warning stream must be byte-identical across runs "
-            "(REQ-039 determinism)",
+            "(the requirement determinism)",
         )
 
     def test_known_capability_produces_no_unknown_warning(self):

@@ -12,7 +12,7 @@ Scope → Context → Requirements → Design → Tasks → Implementation → V
 
 The name comes from Daniel Kahneman's dual-process theory: **System 1** is fast and intuitive; **System 2** is slow and deliberate. This framework embodies System 2 thinking—analytical, verification-focused, and risk-aware.
 
-Claude Code uses **subagents** defined as Markdown files with YAML frontmatter. The main conversation acts as the **orchestrator**, delegating specialist work to purpose-built subagents.
+A single **orchestrator** context drives this pipeline and delegates specialist work to purpose-built agents. On Claude Code—the reference harness—those agents are native **subagents** defined as Markdown files with YAML frontmatter; the other supported harnesses (Codex, Pi) host the same agents in their own native form. See [Usage](#usage) for how this maps to each harness.
 
 ## Core Concepts
 
@@ -62,176 +62,46 @@ These artifacts serve as the contract between planning and execution.
 
 ## Installation
 
-### Step 1: Add the System2 Marketplace
+System2 ships to three agent harnesses from one repository—**Claude Code** (the reference channel), **Codex**, and **Pi**. Full per-channel install commands, fidelity notes, updating, and rollback live in **[Installation and Updating](docs/installation.md)**.
+
+Quick start (Claude Code):
 
 ```
 /plugin marketplace add DeliberateCode/System2
-```
-
-This only **registers** the System2 catalog — you'll see a confirmation that the
-marketplace was added. It does **not** install the plugin yet; that's Step 2.
-
-### Step 2: Install the Plugin
-
-Now install the `system2` plugin from the catalog you just added:
-
-```
 /plugin install system2@system2-marketplace
-```
-
-This installs all 13 agents, hooks, allowlists, and the `/system2:init`, `/system2:compose`, and `/system2:doctor` commands.
-
-```
-System2 Plugin
-├── agents/              # 13 subagent definitions
-├── skills/              # Skills (/system2:init, /system2:compose, /system2:doctor)
-├── hooks/               # Validation and quality hook scripts
-├── allowlists/          # Per-agent file restriction patterns
-├── schemas/             # Overlay manifest schema and anchor map
-├── scripts/             # Overlay composer and shared validation helpers
-└── .claude-plugin/      # Plugin identity and marketplace metadata
-```
-
-### Step 3: Restart Claude Code
-
-After installing, restart Claude Code so the new agents, hooks, and skills are loaded.
-
-### Step 4: Initialize CLAUDE.md
-
-In your project directory, run:
-
-```
 /system2:init
 ```
 
-This writes the System2 orchestrator instructions to `CLAUDE.md` in your project root.
+Previously used the `sys2` utility skills (from the old standalone utility-skills
+marketplace)? They're now part of the `system2` plugin — see the [migration
+note](docs/installation/claude-code.md#migrating-from-the-sys2-utility-skills).
 
-To overwrite an existing CLAUDE.md:
+## Overlays (optional extensions)
 
-```
-/system2:init --force
-```
-
-### Step 5: Restart Claude Code
-
-Restart Claude Code again so the new `CLAUDE.md` orchestrator instructions take effect.
-
-### Optional: Compose Overlays
-
-System2 includes an opt-in overlay mechanism for extending the base workflow without forking the plugin. Overlays are local directories with a `system2.overlay.json` manifest and referenced content files.
-
-Preview an overlay composition without writing files:
-
-```
-/system2:compose --dry-run /path/to/my-overlay
-```
-
-Apply an overlay after preview and approval:
-
-```
-/system2:compose /path/to/my-overlay
-```
-
-`/system2:compose` validates manifests, detects structural conflicts, reports warnings, then writes project-local composed artifacts:
-
-- `CLAUDE.md` with base System2 instructions plus overlay-contributed sections
-- `.system2/overlays/<overlay-name>/` with local copies of overlay content
-- `.claude/agents/<auxiliary-agent>.md` for overlay-contributed auxiliary agents
-- `spec/overlay-manifest.lock` with versions, hashes, and applied contributions
-
-The lock file records the overlay source paths used during composition. On subsequent updates, `--from-lock` reads those paths so you don't need to retype them:
-
-```
-/system2:compose --from-lock
-```
-
-To remove an overlay without affecting others, use `--uninstall` with the overlay's name (not its path):
-
-```
-/system2:compose --uninstall my-overlay
-```
-
-This recomposes the project with the remaining overlays and cleans up the removed overlay's cached content, auxiliary agents, and lock file entries. If the removed overlay was the last one, the project reverts to base System2. A dry-run preview is always shown before any files are modified.
-
-Overlay composition is explicit. `/system2:init` remains base-only and produces the same orchestrator instructions regardless of installed or available overlays.
-
-### Optional: Overlay Profiles
-
-A profile is a named, reusable set of overlays. Once you have settled on a useful combination of overlays, you can save it as a profile and activate it by name in any project instead of retyping overlay paths. Profiles are stored at `~/.system2/profiles.json` (user-level, shared across every project on your machine) and are independent of the per-project `.system2/overlays.json`.
-
-The `/system2:compose` namespace creates, activates, and changes profiles. Activate a profile to compose its overlay set in the current project (a dry-run preview is shown before any files are written):
-
-```
-/system2:compose --profile backend-stack
-```
-
-Capture the project's current composed overlay set as a profile, with no paths typed:
-
-```
-/system2:compose --save-profile backend-stack
-```
-
-Define a profile explicitly from overlay paths:
-
-```
-/system2:compose create backend-stack /path/to/overlay-a /path/to/overlay-b
-```
-
-Adjust a profile by adding paths or removing overlays by name (flags are repeatable):
-
-```
-/system2:compose edit backend-stack --add /path/to/overlay-c --remove OverlayA
-```
-
-Remove a profile:
-
-```
-/system2:compose delete backend-stack
-```
-
-The `/system2:profile` namespace is strictly read-only. List every saved profile, or inspect one to see its ordered overlay set with resolved names and stale annotations:
-
-```
-/system2:profile list
-/system2:profile list --profile backend-stack
-```
-
-Activation never composes a partial set. If a profile references an overlay path that is missing or no longer valid, activation fails cleanly, names the offending path, and writes nothing.
-
-## Updating
-
-System2 updates are handled by the Claude Code plugin system. No manual update commands are needed.
-
-To check plugin status:
-
-```
-/plugin list
-```
-
-Plugin updates do not automatically rewrite composed overlay artifacts in your project. After a plugin update, check whether your composed overlays need refreshing:
-
-```
-/system2:doctor
-```
-
-If the doctor reports drift (stale base or stale overlay), recompose using the locked overlay paths:
-
-```
-/system2:compose --from-lock
-```
-
-This reads the overlay source paths recorded in `spec/overlay-manifest.lock` and runs the normal compose flow (dry-run preview, approval, write).
+Overlays extend the base workflow without forking the plugin, and reusable **profiles** let you activate a named overlay set in any project. Overlays are entirely opt-in—`/system2:init` remains base-only. See **[Overlays (optional extensions)](docs/overlays.md)** for composing overlays, managing profiles, and using overlays on non-Claude harnesses.
 
 ## Usage
 
+System2's workflow is identical across every supported harness: a single **orchestrator** context drives the spec pipeline, pauses at quality gates, and delegates specialist work to the pipeline agents. What differs between harnesses is *how* that orchestration is hosted—not what it does.
+
+| Harness | How the orchestrator and agents are hosted |
+|---------|--------------------------------------------|
+| **Claude Code** | Orchestrator persona in `CLAUDE.md`; the 13 pipeline agents run as native, isolated subagents. Reference channel. |
+| **Codex** | An orchestrator skill with in-session role switching; pipeline agents are lowered to role skills (no native subagent isolation). |
+| **Pi** | The base workflow compiled for Pi, with native enforcement of the safety gates. |
+
+Safety-gate fidelity varies by harness (native, adapted, or advisory). See the per-channel fidelity notes in [Installation and Updating](docs/installation.md). Overlays and profiles are a Claude-native / compiler-path feature—see [Overlays (optional extensions)](docs/overlays.md).
+
+Whatever the host, you interact with the orchestrator the same way.
+
 ### Basic Workflow
 
-With `CLAUDE.md` in place, Claude Code acts as the orchestrator. At session start, it assesses the spec artifact state:
+The orchestrator assesses spec artifact state at session start and drives from there. On Claude Code this bootstrap runs automatically from `CLAUDE.md`; on the compiled harnesses the equivalent orchestrator instructions ship inside the distribution.
 
 ```
 You: Build a user authentication system
 
-Claude: ## Spec State Assessment
+Orchestrator: ## Spec State Assessment
 
 - [ ] spec/context.md - missing (Gate 1: pending)
 - [ ] spec/requirements.md - missing (Gate 2: blocked)
@@ -252,7 +122,7 @@ I'll delegate to the spec-coordinator to draft spec/context.md...
 
 ### Explicit Delegation
 
-You can invoke subagents directly:
+You can target a specific pipeline agent directly. The exact invocation depends on the harness—a native subagent call on Claude Code, an in-session role switch on Codex—but the intent is identical:
 
 ```
 You: Use the spec-coordinator to draft the context for a new caching feature
@@ -453,6 +323,19 @@ For simple tasks, bypass the orchestrator:
 You: (without CLAUDE.md or with explicit instruction)
 Just add a helper function to utils.py that formats dates.
 ```
+
+## Development
+
+Run the repository suite from the root:
+
+```sh
+pytest -q
+```
+
+The test suite is intended to run as a non-root user: permission-based rollback
+coverage is skipped under root because root bypasses the permission denial being
+tested. Editable compiler installs are supported (`pip install -e compiler/`); their
+local package metadata is ignored by the repository-reference guard.
 
 ## Troubleshooting
 

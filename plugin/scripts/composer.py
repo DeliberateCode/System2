@@ -1,6 +1,6 @@
 """Thin shim over the pre-flip engine OR the vendored compiler bundle.
 
-Phase 5 convergence flip. This file replaces the original ``composer.py`` engine
+convergence implementation convergence flip. This file replaces the original ``composer.py`` engine
 with a thin shim. The original engine is preserved VERBATIM as
 ``composer.py.preflip`` (the immutable equivalence oracle + one-commit backout).
 
@@ -29,13 +29,21 @@ SWITCH (this revision): DEFAULT ON — the bundle is the default engine.
     SYSTEM2_USE_BUNDLE=0  -> ESCAPE HATCH: CLI runs the frozen composer.py.preflip
                             engine (the pre-flip behavior), for in-place A/B checks.
 The flip is proven byte-identical: the bundle-equivalence gate
-(``System2-Compiler/evals/test_bundle_equivalence.py``) and the plugin's own
+(``compiler/evals/test_bundle_equivalence.py``) and the plugin's own
 ``System2/evals/`` suite (``test_plugin_evals_on_bundle.py``) both pass with the
 bundle as the default — so the default engine reproduces preflip byte-for-byte.
 --------------------------------------------------------------------------------
 
 ONE-COMMIT BACKOUT (returns the plugin to its frozen engine, zero residue):
     cp composer.py.preflip composer.py && rm -rf _system2_compiler/
+
+--------------------------------------------------------------------------------
+TRACKED DEBT: #11 retires this dual-engine shim before the first change to
+compose, drift-check, or profile behavior. Until then, the module-facet
+re-export deliberately resolves in-process imports to composer.py.preflip; only
+the CLI-subprocess path flips to the vendored bundle. The frozen preflip oracle
+remains load-bearing until that tracked retirement work lands.
+--------------------------------------------------------------------------------
 """
 
 import importlib.machinery

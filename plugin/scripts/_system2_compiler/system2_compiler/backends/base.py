@@ -1,10 +1,10 @@
 """The lowering + lifecycle contract.
 
-Phase 1 declared a single ``emit`` seam. Phase 5 grows the contract into a
+original implementation declared a single ``emit`` seam. convergence implementation grows the contract into a
 per-target *lifecycle* (``emit`` + ``uninstall`` + ``doctor`` +
-``recompose_from_lock`` + lock helpers) so Goose and Pi reach feature-completeness
+``recompose_from_lock`` + lock helpers) so Pi and Codex reach feature-completeness
 alongside Claude — each backend owns its own artifact lifecycle, exactly the seam
-Phase 1 cut for ``emit`` (REQ-013/015; design "## Phase 5").
+original implementation cut for ``emit`` (the requirement/015; design "## convergence implementation").
 
 A backend receives only the harness-neutral ``System2Graph`` IR plus the target
 project path (and, for the lifecycle verbs, its OWN target lock + artifacts under
@@ -65,7 +65,7 @@ class UninstallResult:
     """Neutral, target-agnostic outcome of removing one overlay.
 
     Ported byte-faithfully from ``composer._uninstall`` for the claude-code
-    backend; Goose/Pi populate the same shape for their own trees. ``removed`` is
+    backend; Pi/Codex populate the same shape for their own trees. ``removed`` is
     the ``{name, version}`` of the removed overlay; ``remaining`` is the post-removal
     overlay set (``{name, version}`` dicts); ``artifacts_removed`` and
     ``files_written`` are absolute paths; ``is_last_overlay`` flags the revert-to-base
@@ -96,9 +96,9 @@ class DoctorReport:
     NOT force a non-zero exit (OQ-5.2): it is surfaced LOUDLY via
     ``validator_available = False`` plus a ``validator_unavailable`` finding, but the
     exit code still tracks ``status`` alone. ``validator_available`` is ``True`` for
-    claude-code (no external validator); goose/pi set it ``False`` with that LOUD
-    ``validator_unavailable`` finding when their real validator (``goose recipe
-    validate`` / ``pi`` load) is absent — never a silent ``current``.
+    claude-code (no external validator); pi/codex set it ``False`` with that LOUD
+    ``validator_unavailable`` finding when their real validator (``pi`` load /
+    Codex shell-hook liveness) is absent — never a silent ``current``.
     """
 
     status: str
@@ -115,7 +115,7 @@ class Backend(Protocol):
     """Lower a ``System2Graph`` onto a concrete target and own its lifecycle.
 
     ``name`` identifies the backend in the CLI registry. ``emit`` performs the
-    projection (Phase 1, unchanged). The Phase 5 lifecycle methods read the target's
+    projection (original implementation, unchanged). The convergence implementation lifecycle methods read the target's
     OWN lock + artifacts under ``project_path`` (never manifests/anchor-map/profiles/
     schema directly): ``uninstall`` removes one overlay (recompose-remaining or
     revert-to-base on the last, atomic restore); ``doctor`` reports drift/status;

@@ -1,7 +1,7 @@
 {
-  "composed_at": "2026-06-27T00:22:47Z",
-  "content_fingerprint": "sha256:3d0e301e4218568fe68b1077fb46e6f21616148adf3326b748dd7b1a941ced2d",
-  "system2_version": "1.1.1",
+  "composed_at": "2026-08-05T05:17:33Z",
+  "content_fingerprint": "sha256:ce91771f32eb462ddc4283ba734700f958653c77f2e55f803ca151b156386b95",
+  "system2_version": "1.2.0",
   "schema_version": "1.0.0",
   "overlays": [
     {

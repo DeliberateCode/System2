@@ -1,6 +1,6 @@
 """Deterministic, stdlib-only block-YAML serializer (emit-only; no parser).
 
-Supports the closed Goose-recipe subset: mappings, sequences, scalars
+Supports a closed subset of block YAML: mappings, sequences, scalars
 (str / int / bool / None) and literal block scalars for multi-line strings.
 Fixed 2-space indent, insertion-ordered keys (the caller controls order for
 determinism), conservative double-quote predicate, LF endings, and exactly one
@@ -14,8 +14,8 @@ in ``\\n``, ``|2-`` (strip — no trailing newline) otherwise. The explicit ``|2
 stops YAML from auto-detecting the block indent from the first content line, so a
 block whose first line is blank or itself indented still parses faithfully.
 
-Correctness is gated empirically by ``goose recipe validate`` in the test
-suite, not by a hand-written full YAML grammar.
+Correctness is gated empirically by ``test_yaml_serializer.py``'s direct unit
+tests, not by a hand-written full YAML grammar.
 """
 
 import json

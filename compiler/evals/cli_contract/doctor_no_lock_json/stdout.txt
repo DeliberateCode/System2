@@ -8,7 +8,7 @@
   ],
   "system2_version": {
     "locked": null,
-    "installed": "1.1.1"
+    "installed": "1.2.0"
   },
   "overlays": [],
   "claude_md_composed": false

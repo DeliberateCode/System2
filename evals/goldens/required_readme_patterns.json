@@ -1,38 +1,48 @@
 {
-  "description": "Patterns that must appear in README.md and patterns that must NOT appear",
-  "version": "0.3.0",
+  "description": "Patterns that must appear in the user-facing documentation set, and patterns that must NOT appear anywhere in it. The set is README.md plus every page under docs/. must_contain rules are scoped: 'readme' pins a pattern to README.md itself (the quick-start surface a user lands on first); 'doc_set' only requires it to be reachable somewhere in the set, so per-harness detail can live in docs/ without the assertion rotting. must_not_contain is enforced per-file across the WHOLE set — a prohibited pattern must not be reintroducible by moving prose out of README.",
+  "version": "0.4.0",
+  "doc_set": {
+    "always": ["README.md"],
+    "globs": ["docs/**/*.md"]
+  },
   "must_contain": [
     {
       "id": "readme-marketplace-add",
       "pattern": "plugin marketplace add DeliberateCode/System2",
-      "description": "Plugin marketplace add command"
+      "scope": "readme",
+      "description": "Plugin marketplace add command (README quick start)"
     },
     {
       "id": "readme-plugin-install",
       "pattern": "plugin install system2@system2-marketplace",
-      "description": "Plugin install command"
+      "scope": "readme",
+      "description": "Plugin install command (README quick start)"
     },
     {
       "id": "readme-init-command",
       "pattern": "system2:init",
-      "description": "Init slash command reference"
+      "scope": "readme",
+      "description": "Init slash command reference (README quick start)"
     },
     {
       "id": "readme-force-flag",
       "pattern": "--force",
-      "description": "Force flag documentation"
+      "scope": "doc_set",
+      "description": "Force flag documentation (lives in docs/installation/claude-code.md since the per-harness docs split)"
     },
     {
       "id": "readme-doctor",
       "pattern": "system2:doctor",
-      "description": "Doctor command reference"
+      "scope": "doc_set",
+      "description": "Doctor command reference (lives in docs/installation/claude-code.md since the per-harness docs split)"
     }
   ],
   "must_not_contain": [
     {
-      "id": "readme-no-curl",
-      "pattern": "curl ",
-      "description": "No curl commands in README"
+      "id": "readme-no-curl-pipe-shell",
+      "pattern": "curl[^\\n]*\\|\\s*(sh|bash|zsh)\\b",
+      "is_regex": true,
+      "description": "No curl piped directly into a shell (curl ... | sh)."
     },
     {
       "id": "readme-no-update-system2",
@@ -44,6 +54,21 @@
       "pattern": "CLAUDE_PROJECT_DIR.*\\.claude/hooks",
       "is_regex": true,
       "description": "No old-style hook path references"
+    },
+    {
+      "id": "no-sys2-namespace",
+      "pattern": "/sys2:",
+      "description": "The retired sys2 invocation namespace must not reappear in user docs. The migration note spells old invocations slash-free (sys2:codex); the verbatim slash-form mapping lives in CHANGELOG.md [Unreleased], outside this oracle's doc set."
+    },
+    {
+      "id": "no-sys2-install",
+      "pattern": "sys2@system2-marketplace",
+      "description": "No install/uninstall command for the retired second plugin. Does not match system2@system2-marketplace (no sys2@ substring) nor the old standalone sys2@system2-utility-skills-marketplace."
+    },
+    {
+      "id": "no-namespace-unchanged-promise",
+      "pattern": "namespace is unchanged",
+      "description": "The exact promise the merge breaks must not resurface. (OD-3 include, ratified 2026-08-01.)"
     }
   ]
 }

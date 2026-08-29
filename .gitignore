@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Testing
 .pytest_cache/

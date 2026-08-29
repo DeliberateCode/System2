@@ -1,5 +1,5 @@
 Status: Current
-System2 version: installed=1.1.1, locked=1.1.1
+System2 version: installed=1.2.0, locked=1.2.0
 CLAUDE.md composed: yes
 
 Overlays (1):

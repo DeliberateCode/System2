@@ -1,13 +1,13 @@
-"""Golden runner + byte-diff comparator (Phase 0 oracle driver + Phase 1 compiler driver).
+"""Golden runner + byte-diff comparator (initial implementation oracle driver + original implementation compiler driver).
 
 For each matrix cell, re-run the chosen driver into a throwaway project and byte-diff
 every produced artifact against its captured snapshot under ``evals/goldens/<cell>/``.
 
 - ``--driver oracle`` (default): re-runs the frozen ``composer.py`` as a subprocess
-  (the Phase 0 cross-check / rollout-backout path).
+  (the initial implementation cross-check / rollout-backout path).
 - ``--driver compiler``: runs the in-process compiler (``ir.compose`` then
   ``ClaudeCodeBackend().emit``) per cell. This is the DoD-1 keystone: the seam-cut
-  compose→emit path must be byte-identical to the frozen TASK-006 baseline (REQ-014).
+  compose→emit path must be byte-identical to the frozen the implementation work baseline (the requirement).
 
 Both drivers seed the prior golden lock first so ``composed_at`` is reused
 (idempotency), and both compare under the same per-artifact-class comparison policy
@@ -18,10 +18,10 @@ A clean run vs the unmodified oracle yields an empty diff.
 The per-artifact-class comparison policy is loaded from ``comparison_policy.json``
 (``CLAUDE.md``, ``agents``, ``lock``, ``warnings``). The default mode is
 ``byte-identical``; selecting ``semantic-equivalent`` for a class WITHOUT a non-empty
-``justification`` is rejected at load (REQ-005). This cycle ships every class
+``justification`` is rejected at load (the requirement). This cycle ships every class
 ``byte-identical``.
 
-A normal run NEVER rewrites snapshots (REQ-007). Only an explicit ``--rebaseline`` flag
+A normal run NEVER rewrites snapshots (the requirement). Only an explicit ``--rebaseline`` flag
 re-materializes the baseline (delegating to ``capture.capture_all``).
 
 The oracle is invoked ONLY as a subprocess via ``oracle.invoke_oracle``; this module never
@@ -46,7 +46,7 @@ POLICY_PATH = os.path.join(_THIS_DIR, "comparison_policy.json")
 # by checkout location (the frozen baseline baked the original author's path). Normalize
 # any ``…/evals/fixtures/<name>`` source path to a stable token on BOTH the produced lock
 # and the frozen baseline so the byte-comparison is checkout-independent. The content
-# hashes that actually pin overlay bytes are unaffected (REQ-035 byte fidelity intact).
+# hashes that actually pin overlay bytes are unaffected (the requirement byte fidelity intact).
 _FIXTURE_PATH_RE = re.compile(rb'("source_path":\s*")[^"]*/evals/fixtures/')
 _FIXTURE_TOKEN = rb"\1<FIXTURES>/"
 
@@ -75,7 +75,7 @@ def _validate_entry(label: str, entry: dict) -> dict:
         if not isinstance(justification, str) or not justification.strip():
             raise PolicyError(
                 f"comparison policy {label!r} selects 'semantic-equivalent' without a non-empty "
-                "justification; rejected (REQ-005)"
+                "justification; rejected (the requirement)"
             )
     return {"mode": mode, "justification": justification}
 
@@ -130,7 +130,7 @@ _DEGRADATION_STATUS_ENUM = ("native", "adapted", "advisory", "unsupported")
 def _compare_lock(
     label: str, expected: bytes, actual: bytes, *, require_report: bool
 ) -> list:
-    """Structural-additive lock comparison applied UNIFORMLY to both drivers (REQ-035).
+    """Structural-additive lock comparison applied UNIFORMLY to both drivers (the requirement).
 
     Parse the produced lock, remove the additive ``degradation_report`` key if
     present, re-serialize with the canonical ``json.dumps(stripped, indent=2) + "\\n"``
@@ -142,7 +142,7 @@ def _compare_lock(
       path).
     - compiler driver: the report is removed, and the remaining keys/values must be
       byte-identical to the baseline -> the ONLY lock delta is the additive report
-      (REQ-035 additive-only).
+      (the requirement additive-only).
 
     When *require_report* is True (compiler driver), additionally assert the
     ``degradation_report`` IS present and complete (non-empty, every entry carries a
@@ -165,12 +165,12 @@ def _compare_lock(
 
     if require_report:
         if not isinstance(report, dict):
-            failures.append(f"{label}: missing additive degradation_report (REQ-032)")
+            failures.append(f"{label}: missing additive degradation_report (the requirement)")
             return failures
         caps = report.get("capabilities")
         if not isinstance(caps, dict) or not caps:
             failures.append(
-                f"{label}: degradation_report.capabilities is empty (REQ-033)"
+                f"{label}: degradation_report.capabilities is empty (the requirement)"
             )
             return failures
         for cap, entry in caps.items():
@@ -178,16 +178,16 @@ def _compare_lock(
             if status not in _DEGRADATION_STATUS_ENUM:
                 failures.append(
                     f"{label}: degradation_report[{cap!r}].status {status!r} not in "
-                    f"{_DEGRADATION_STATUS_ENUM} (REQ-036)"
+                    f"{_DEGRADATION_STATUS_ENUM} (the requirement)"
                 )
             if not (entry or {}).get("mechanism"):
                 failures.append(
-                    f"{label}: degradation_report[{cap!r}] has no mechanism (REQ-037)"
+                    f"{label}: degradation_report[{cap!r}] has no mechanism (the requirement)"
                 )
             if status != "native":
                 failures.append(
                     f"{label}: claude-code degradation_report[{cap!r}].status is "
-                    f"{status!r}, expected 'native' (REQ-034)"
+                    f"{status!r}, expected 'native' (the requirement)"
                 )
     return failures
 
@@ -236,7 +236,7 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
             expected = _read_bytes(snap_path)
             if mode == "byte-identical":
                 if cls == "lock":
-                    # Structural-additive lock comparison (REQ-035). The oracle lock
+                    # Structural-additive lock comparison (the requirement). The oracle lock
                     # has no degradation_report, so the strip is a no-op and this is
                     # an exact match against the immutable baseline.
                     failures.extend(
@@ -336,7 +336,7 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
             expected = _read_bytes(snap_path)
             if mode == "byte-identical":
                 if cls == "lock":
-                    # Structural-additive lock comparison (REQ-035): strip the
+                    # Structural-additive lock comparison (the requirement): strip the
                     # additive degradation_report, byte-match the remainder to the
                     # immutable baseline, and assert the report is present+complete.
                     failures.extend(
@@ -391,7 +391,7 @@ def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str) -> str:
 
     Re-composes in-process (no emit) and feeds the report through the relocated
     ``cli._emit_stderr_warnings`` via an in-memory stderr, producing the exact
-    bytes the CLI writes — the parity surface vs the oracle baseline (REQ-046).
+    bytes the CLI writes — the parity surface vs the oracle baseline (the requirement).
     """
     import importlib
     import io
@@ -435,7 +435,7 @@ def _diff_refusal_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) -> 
     """Compiler-driver refusal check: compose returns graph=None + errors.
 
     Compares the compiler's refusal exit-code classification and refusal text to the
-    frozen oracle baseline (REQ-021). The oracle emits its refusal as a JSON report on
+    frozen oracle baseline (the requirement). The oracle emits its refusal as a JSON report on
     stdout; the CLI mirrors that JSON shape, so refusal.txt is compared against the
     CLI's stdout JSON.
     """
@@ -579,7 +579,7 @@ def run_goldens(
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Run the Phase 0 golden byte-diff comparator.")
+    parser = argparse.ArgumentParser(description="Run the initial implementation golden byte-diff comparator.")
     parser.add_argument(
         "--rebaseline",
         action="store_true",

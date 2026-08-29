@@ -1,0 +1,10 @@
+{
+  "name": "system2",
+  "plugins": [
+    {
+      "name": "system2",
+      "source": "./distributions/codex",
+      "description": "System2 workflows for Codex (advisory until hooks are trusted via /hooks)."
+    }
+  ]
+}

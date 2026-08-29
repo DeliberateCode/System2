@@ -1,7 +1,9 @@
-"""TASK-408 — PROVEN-BLOCKING node harness (synthetic ``tool_call``; no LLM).
+"""the implementation work — PROVEN-BLOCKING node harness (synthetic ``tool_call``; no LLM).
 
 The strongest native-fidelity evidence for Pi. A node harness (generated into a
-tempdir, not a committed ``.ts``) loads the EMITTED ``.pi/extensions/system2.ts``
+tempdir) loads the SHIPPED ``system2.ts`` gate — path-parameterized like the codex
+proven-blocking test: the committed ``distributions/pi/extensions/system2.ts`` when
+present (the published bytes), else the in-process emission (pre-commit fallback) —
 through Pi's own ``discoverAndLoadExtensions``, captures the registered
 ``on("tool_call")`` handler and the ``/delegate`` command, and fires SYNTHETIC
 events at them directly (no LLM in the loop). It asserts (design §"Test/validity
@@ -37,12 +39,7 @@ import subprocess
 import tempfile
 import unittest
 
-from system2_compiler import ir
-from system2_compiler.backends.pi import PiBackend
-from evals import matrix, oracle
-
-_BASE = oracle.PLUGIN_ROOT
-_TEST_OVERLAY = matrix.TEST_OVERLAY
+from evals.test_pi_goldens import materialize_pi_project
 
 _NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
 _PI_BIN = os.environ.get("PI_BIN") or shutil.which("pi")
@@ -163,16 +160,6 @@ def _dir_fingerprint(path):
     return tuple(entries)
 
 
-def _emit_core_overlay(project_dir):
-    result = ir.compose(_BASE, [_TEST_OVERLAY], project_dir)
-    if result.graph is None:
-        raise AssertionError(
-            f"compose refused the core+overlay cell: {result.errors!r}"
-        )
-    PiBackend().emit(result.graph, project_dir)
-    return result.graph
-
-
 # The synthetic-event harness. It loads the emitted extension through Pi's own
 # loader, captures the tool_call handler + /delegate command, and fires the cases.
 # Output is a single JSON object on stdout. No LLM anywhere.
@@ -283,7 +270,11 @@ class PiProvenBlockingTest(unittest.TestCase):
         cls._had_pi = os.path.isdir(_REAL_PI)
         cls.project = tempfile.mkdtemp(prefix="pi-block-")
         cls.home = tempfile.mkdtemp(prefix="pi-block-home-")
-        cls.graph = _emit_core_overlay(cls.project)
+        # Drive the corpus through the SHIPPED gate: reconstruct the project from the
+        # committed distributions/pi package (extension + payload) when present, else the
+        # in-process emission (pre-commit fallback). Path-parameterized like the codex
+        # proven-blocking test so the published bytes are what block.
+        cls.project_source = materialize_pi_project(cls.project)
 
         block_arg = json.dumps([
             {"name": n, "toolName": t, "input": i} for (n, t, i, _r) in _BLOCK_CASES

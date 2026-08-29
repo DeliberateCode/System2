@@ -1,20 +1,20 @@
-"""TASK-208 — Degradation report + capability descriptor completeness tests.
+"""the implementation work — Degradation report + capability descriptor completeness tests.
 
 Drives the in-process ``ir.compose -> ClaudeCodeBackend().emit`` path on a
 capability-bearing cell (``core+overlay``) into a throwaway project and reads the
 produced ``spec/overlay-manifest.lock``'s ``degradation_report``:
 
-* REQ-032/036 — the report enumerates EVERY intent capability present in the IR,
+* the requirement/036 — the report enumerates EVERY intent capability present in the IR,
   each with a status drawn from the four-value enum
   ``{native, adapted, advisory, unsupported}``.
-* REQ-033 — no silent drop: removing a capability's report entry fails a
+* the requirement — no silent drop: removing a capability's report entry fails a
   completeness assertion (negative control with teeth), and the report covers the
   full IR capability union.
-* REQ-034 — for ``claude-code`` every enforced safety capability is ``native``.
-* REQ-037 — the report is parseable JSON within the lock and is self-sufficient:
+* the requirement — for ``claude-code`` every enforced safety capability is ``native``.
+* the requirement — the report is parseable JSON within the lock and is self-sufficient:
   a reader determines enforced-vs-advisory per capability from the lock alone,
   without consulting any other artifact.
-* REQ-031/036 — ``backends/capabilities/claude_code.json`` is enum-valid and
+* the requirement/036 — ``backends/capabilities/claude_code.json`` is enum-valid and
   complete vs the IR capability vocabulary (every capability present, every status
   in the enum).
 
@@ -56,7 +56,7 @@ def _load_descriptor() -> dict:
 
 
 class DegradationReportTest(unittest.TestCase):
-    """REQ-032/033/034/036/037: the lock's degradation_report, end-to-end."""
+    """the requirement/033/034/036/037: the lock's degradation_report, end-to-end."""
 
     @classmethod
     def setUpClass(cls):
@@ -73,7 +73,7 @@ class DegradationReportTest(unittest.TestCase):
         with open(lock_path, "rb") as fh:
             cls.lock_bytes = fh.read()
         # The IR capability vocabulary actually present in the graph (union across
-        # agents) — the completeness target for the report (REQ-032).
+        # agents) — the completeness target for the report (the requirement).
         cls.ir_capabilities = set()
         for caps in cls.graph.capabilities.by_agent.values():
             cls.ir_capabilities.update(caps)
@@ -83,24 +83,24 @@ class DegradationReportTest(unittest.TestCase):
         shutil.rmtree(cls.project, ignore_errors=True)
 
     def _report(self) -> dict:
-        # REQ-037: the report is parseable JSON inside the lock; reading it requires
+        # the requirement: the report is parseable JSON inside the lock; reading it requires
         # no other artifact.
         lock = json.loads(self.lock_bytes.decode("utf-8"))
         self.assertIn(
             "degradation_report", lock,
-            "the lock must carry a degradation_report (REQ-032)",
+            "the lock must carry a degradation_report (the requirement)",
         )
         return lock["degradation_report"]
 
     def test_report_is_parseable_json_within_the_lock(self):
-        # REQ-037: round-trips as JSON; the report block parses on its own.
+        # the requirement: round-trips as JSON; the report block parses on its own.
         report = self._report()
         self.assertIsInstance(report, dict)
         self.assertIn("capabilities", report)
         self.assertIsInstance(report["capabilities"], dict)
 
     def test_report_enumerates_every_ir_capability(self):
-        # REQ-032/036 completeness: every IR capability appears in the report.
+        # the requirement/036 completeness: every IR capability appears in the report.
         report_caps = self._report()["capabilities"]
         self.assertTrue(
             self.ir_capabilities,
@@ -114,7 +114,7 @@ class DegradationReportTest(unittest.TestCase):
         )
 
     def test_every_status_is_in_the_four_value_enum(self):
-        # REQ-036: status vocabulary is exactly {native, adapted, advisory, unsupported}.
+        # the requirement: status vocabulary is exactly {native, adapted, advisory, unsupported}.
         report_caps = self._report()["capabilities"]
         for cap, entry in report_caps.items():
             self.assertIn(
@@ -124,7 +124,7 @@ class DegradationReportTest(unittest.TestCase):
             )
 
     def test_all_enforced_capabilities_are_native_for_claude(self):
-        # REQ-034: claude-code is the full-fidelity reference -> every capability native.
+        # the requirement: claude-code is the full-fidelity reference -> every capability native.
         report_caps = self._report()["capabilities"]
         non_native = {
             cap: entry.get("status")
@@ -138,7 +138,7 @@ class DegradationReportTest(unittest.TestCase):
         )
 
     def test_report_is_self_sufficient_for_enforced_vs_advisory(self):
-        # REQ-037: a reader determines enforced-vs-advisory per capability from the
+        # the requirement: a reader determines enforced-vs-advisory per capability from the
         # lock alone. 'native'/'adapted' => enforced; 'advisory'/'unsupported' =>
         # not enforced. The classification is computable from the report entries only.
         report_caps = self._report()["capabilities"]
@@ -149,7 +149,7 @@ class DegradationReportTest(unittest.TestCase):
             self.assertTrue(
                 enforced or advisory,
                 f"capability {cap!r} status {status!r} is not classifiable as "
-                "enforced-vs-advisory from the report alone (REQ-037)",
+                "enforced-vs-advisory from the report alone (the requirement)",
             )
             # For claude-code all are native, hence all enforced.
             self.assertTrue(
@@ -158,7 +158,7 @@ class DegradationReportTest(unittest.TestCase):
             )
 
     def test_no_silent_drop_negative_control(self):
-        # REQ-033 with teeth: removing a capability's entry must fail the
+        # the requirement with teeth: removing a capability's entry must fail the
         # completeness assertion (set equality), proving no silent drop slips by.
         report_caps = dict(self._report()["capabilities"])
         self.assertTrue(report_caps, "report must be non-empty to drop from")
@@ -168,12 +168,12 @@ class DegradationReportTest(unittest.TestCase):
             set(report_caps.keys()),
             self.ir_capabilities,
             "negative control: dropping a capability entry must break completeness "
-            "(a silently dropped capability must be detectable, REQ-033)",
+            "(a silently dropped capability must be detectable, the requirement)",
         )
 
 
 class CapabilityDescriptorTest(unittest.TestCase):
-    """REQ-031/036: the claude_code.json descriptor is enum-valid + complete."""
+    """the requirement/036: the claude_code.json descriptor is enum-valid + complete."""
 
     def setUp(self):
         self.descriptor = _load_descriptor()
@@ -183,7 +183,7 @@ class CapabilityDescriptorTest(unittest.TestCase):
         self.assertEqual(self.descriptor.get("backend"), "claude-code")
 
     def test_descriptor_covers_full_ir_vocabulary(self):
-        # REQ-031: every capability in the IR vocabulary is present in the descriptor.
+        # the requirement: every capability in the IR vocabulary is present in the descriptor.
         missing = set(INTENT_CAPABILITIES) - set(self.caps)
         self.assertEqual(
             set(), missing,
@@ -198,7 +198,7 @@ class CapabilityDescriptorTest(unittest.TestCase):
         )
 
     def test_every_descriptor_status_is_enum_valid(self):
-        # REQ-036: enum-exact, no synonyms.
+        # the requirement: enum-exact, no synonyms.
         for cap, entry in self.caps.items():
             self.assertIn(
                 entry.get("status"), _STATUS_ENUM,
@@ -206,7 +206,7 @@ class CapabilityDescriptorTest(unittest.TestCase):
             )
 
     def test_every_descriptor_entry_carries_a_mechanism(self):
-        # REQ-037 substrate: the descriptor entry names a mechanism so the report is
+        # the requirement substrate: the descriptor entry names a mechanism so the report is
         # self-describing.
         for cap, entry in self.caps.items():
             self.assertTrue(

@@ -1,6 +1,6 @@
 """Plugin-side bundle TAMPER check (ships WITH the vendored bundle).
 
-Phase 5 drift guard, the plugin half (AC-5.7, G8/NFR-006). The plugin runs the
+convergence implementation drift guard, the plugin half (AC-5.7, G8/NFR-006). The plugin runs the
 vendored ``_system2_compiler/`` bundle and CANNOT see the compiler source, so it
 can only perform the INTERNAL-INTEGRITY (tamper) check:
 
@@ -12,7 +12,7 @@ A mismatch means a vendored file was hand-edited without re-running the bundler
 (``bundle_tampered`` -> regenerate via the compiler's ``tools/build_bundle.py``).
 
 This is DISTINCT from the cross-repo STALENESS check
-(``System2-Compiler/tools/check_bundle_fresh.py``): staleness asks "does the
+(``compiler/tools/check_bundle_fresh.py``): staleness asks "does the
 vendored bundle still match the *current compiler source*?", which requires the
 compiler source and is therefore the CI guard. The plugin ships only the bundle,
 so it surfaces the *recorded provenance* + the *internal-integrity* (tamper)

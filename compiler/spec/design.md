@@ -778,6 +778,13 @@ the goldens remain empty-diff (REQ-026/REQ-030/REQ-035).
 
 ## Phase 3 — Goose Backend
 
+> **[PR #10 review finding 8, added post-hoc]** This section is a frozen historical record — see
+> the `_frozen_historical_record` note in `compiler/spec/interfaces.json` for the full freeze
+> rationale. The Goose backend it describes was later removed from the repo in full by the
+> `spec-goose-removal` cycle; nothing below describes current behavior. Preserved as-is (not
+> rewritten or pruned) per this project's established convention of never editing frozen spec
+> content, only annotating it.
+>
 > Status: design (appended to the Phases 0–2 design; nothing above is rewritten). Authored from the
 > approved Phase 0–2 design, `spec/context.md`, `spec/requirements.md` (NFR-001/002/003/004), the
 > implemented IR (`ir/graph.py`, `ir/capabilities.py`), the reference backend (`backends/claude_code.py`),

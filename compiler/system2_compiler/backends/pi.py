@@ -2,7 +2,7 @@
 
 Lowers the same harness-neutral ``System2Graph`` onto a Pi **extension**
 (generated TypeScript text) plus Pi context / skill / prompt markdown and a
-standalone degradation report. Same boundary as ``claude_code`` / ``goose``:
+standalone degradation report. Same boundary as ``claude_code``:
 imports only ``ir.graph`` + ``backends._degradation`` + stdlib (it structurally
 satisfies the backend Protocol without importing ``backends.base``), and reads its
 own ``backends/capabilities/pi.json`` data file (a JSON read, not an ``ir/*``
@@ -11,8 +11,8 @@ schema, and it MUST NOT consume ``ir.base_template`` / ``ir.overlay_inputs`` (th
 Claude-targeted byte-fidelity carriers) — Pi renders from the *structured* IR
 fields only.
 
-The honesty job is the inverse of Goose's: Pi has a real native enforcement seam.
-Pi has NO built-in permission system — the generated extension's ``on("tool_call")``
+The honesty job here is proving native enforcement is real: Pi has a real native
+enforcement seam. Pi has NO built-in permission system — the generated extension's ``on("tool_call")``
 handler fires BEFORE a tool and can ``return { block: true, reason }``, so the
 handler IS the gate. ``enforce-lease`` / ``block-dangerous`` / ``protect-sensitive``
 are therefore genuinely **native** (a deterministic pre-execution block); ``budget``
@@ -38,7 +38,11 @@ from typing import Callable, List, Optional, Tuple
 
 from system2_compiler.ir.graph import System2Graph
 
-from . import _degradation
+from . import _degradation, _yaml
+from ._enforcement import (
+    build_dangerous_command_patterns,
+    build_sensitive_path_patterns,
+)
 from .base import DoctorReport, UninstallResult, lock_sources_outside_project
 
 __all__ = ["PiBackend"]
@@ -50,147 +54,15 @@ _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "pi.json"
 )
 
-_PI_VERSION_ASSUMED = "0.79.9"
+_PI_VERSION_ASSUMED = "0.80.2"
 
-# Backend-owned default pattern sets. Fixed System2 policy, NOT overlay-sourced and
-# NOT in the neutral IR — so the boundary stays clean. These are the *exact* ported
-# semantics of the Claude reference hooks (NOT substring matches), so the Pi gate and
-# the Claude hook cannot drift:
-#
-#   * _DANGEROUS_REGEXES mirrors dangerous-command-blocker.py: the flag-permutation
-#     `_RM_RF_FLAGS` helper + DANGER_PATTERNS (rm -rf at /,.,..; sudo rm -rf; chmod
-#     777; git reset --hard; git push --force/-f to main/master; DROP TABLE; DELETE
-#     FROM without WHERE), plus word-boundaried mkfs/dd-of=/shutdown/curl|sh and
-#     rm -rf ~ from the prior policy set (anchored, FP-resistant — no bare "dd").
-#   * _SENSITIVE_REGEXES mirrors sensitive-file-protector.py: segment/basename-anchored
-#     (.env, .env.*, .ssh/, .git/, .aws/, .gnupg/, id_rsa/ed25519/ecdsa, *.pem, *.key,
-#     .netrc/.npmrc/.pypirc) plus the reference's case-insensitive credentials/secrets
-#     markers. .git/.ssh are segment-anchored so src/credentials_manager.py is the only
-#     reference-faithful FP (kept — fail-safe-toward-block, matching the reference).
-#
-# Each entry is (js_regex_source, js_flags, reason). Order is FIXED (deterministic,
-# NOT sorted — regex evaluation order is semantic). Emitted into the generated TS as
-# `new RegExp(source, flags)`; the sources are backend constants, escaped via
-# _ts_escape like every other literal.
-_RM_RF_FLAGS = (
-    r"(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*"
-    r"|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*"
-    r"|-r\s+-f|-f\s+-r"
-    r"|-[a-zA-Z]*r[a-zA-Z]*\s+-[a-zA-Z]*f[a-zA-Z]*"
-    r"|-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r[a-zA-Z]*"
-    r"|--recursive\s+--force|--force\s+--recursive"
-    r"|--recursive\s+-f|-f\s+--recursive"
-    r"|-r\s+--force|--force\s+-r"
-    r"|--recursive[^|;&]*-f|-f[^|;&]*--recursive"
-    r"|-r[^|;&]*--force|--force[^|;&]*-r)"
-)
-
-_DANGEROUS_REGEXES = (
-    (
-        r"\brm\s+" + _RM_RF_FLAGS + r"\s*(/|/\*)\s*($|;|\||&)",
-        "m",
-        "rm -rf targeting root filesystem (/) is extremely dangerous",
-    ),
-    (
-        r"\brm\s+" + _RM_RF_FLAGS + r"\s*\./?(?:\s|$|;|\||&)",
-        "m",
-        "rm -rf targeting current directory (.) could delete critical files",
-    ),
-    (
-        r"\brm\s+" + _RM_RF_FLAGS + r"\s*\.\./?(?:\s|$|;|\||&)",
-        "m",
-        "rm -rf targeting parent directory (..) could delete critical files",
-    ),
-    (
-        r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\s*~",
-        "m",
-        "rm -rf targeting the home directory (~) could delete user data",
-    ),
-    (
-        r"\bsudo\s+rm\s+" + _RM_RF_FLAGS + r"\s+",
-        "m",
-        "sudo rm -rf with elevated privileges is extremely dangerous",
-    ),
-    (
-        r"\bchmod\s+(.*\s+)?777\s+",
-        "m",
-        "chmod 777 makes files world-writable and executable, a security risk",
-    ),
-    (
-        r"\bgit\s+reset\s+--hard\b",
-        "m",
-        "git reset --hard discards uncommitted changes permanently",
-    ),
-    (
-        r"\bgit\s+push\s+[^;|&]*--force(-with-lease)?[^;|&]*\b(main|master)\b",
-        "m",
-        "git push --force to main/master can destroy shared commit history",
-    ),
-    (
-        r"\bgit\s+push\s+[^;|&]*\b(main|master)\b[^;|&]*--force(-with-lease)?",
-        "m",
-        "git push --force to main/master can destroy shared commit history",
-    ),
-    (
-        r"\bgit\s+push\s+[^;|&]*-f\s+[^;|&]*\b(main|master)\b",
-        "m",
-        "git push -f to main/master can destroy shared commit history",
-    ),
-    (
-        r"\bgit\s+push\s+[^;|&]*\b(main|master)\b[^;|&]*\s+-f\b",
-        "m",
-        "git push -f to main/master can destroy shared commit history",
-    ),
-    (
-        r"\bmkfs\b",
-        "m",
-        "mkfs reformats a filesystem and destroys all data on the device",
-    ),
-    (
-        r"\bdd\s+[^|;&]*\bof=",
-        "m",
-        "dd writing to a device/file (of=) can irreversibly overwrite data",
-    ),
-    (
-        r"\bshutdown\b",
-        "m",
-        "shutdown halts the machine",
-    ),
-    (
-        r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(sh|bash|zsh)\b",
-        "m",
-        "piping a downloaded script straight into a shell executes untrusted code",
-    ),
-    (
-        r"\bDROP\s+TABLE\b",
-        "i",
-        "DROP TABLE would permanently delete a database table and its data",
-    ),
-    (
-        r"\bDELETE\s+FROM\s+\w+\s*($|;|\|)",
-        "im",
-        "DELETE FROM without a WHERE clause would delete all rows in the table",
-    ),
-)
-
-_SENSITIVE_REGEXES = (
-    (r"(^|/)\.env$", "", "Environment file (.env)"),
-    (r"(^|/)\.env\.[A-Za-z0-9_-]+$", "", "Environment file (.env.*)"),
-    (r"(^|/)\.ssh(/|$)", "", "SSH directory (.ssh/)"),
-    (r"(^|/)\.git(/|$)", "", "Git directory (.git/)"),
-    (r"(^|/)\.aws(/|$)", "", "AWS credentials directory (.aws/)"),
-    (r"(^|/)\.gnupg(/|$)", "", "GPG directory (.gnupg/)"),
-    (r"credentials", "i", "File containing 'credentials'"),
-    (r"secrets", "i", "File containing 'secrets'"),
-    (r"\.pem$", "i", "PEM certificate/key file (*.pem)"),
-    (r"\.key$", "i", "Key file (*.key)"),
-    (r"(^|/)id_rsa$", "", "RSA private key (id_rsa)"),
-    (r"(^|/)id_ed25519$", "", "Ed25519 private key (id_ed25519)"),
-    (r"(^|/)id_ecdsa$", "", "ECDSA private key (id_ecdsa)"),
-    (r"(^|/)\.netrc$", "", "Netrc credentials file (.netrc)"),
-    (r"(^|/)\.npmrc$", "", "NPM config file (.npmrc) - may contain tokens"),
-    (r"(^|/)\.pypirc$", "", "PyPI config file (.pypirc) - may contain tokens"),
-)
+# The dangerous-command and sensitive-path matcher sets moved to backends/_enforcement.py
+# (shared with the codex backend) and are consumed here VERBATIM via
+# build_dangerous_command_patterns() / build_sensitive_path_patterns() — pi calls the
+# default (no canary) so its emitted TS bytes are unchanged. Each returned entry is
+# (js_regex_source, js_flags, reason), fixed order (deterministic, NOT sorted — regex
+# evaluation order is semantic); emitted into the generated TS as `new RegExp(source,
+# flags)`, escaped via _ts_escape like every other literal.
 
 # The role whose write_scope governs an un-delegated turn. The /delegate dispatcher
 # switches the active role; until then the executor scope is the default (it is the
@@ -265,7 +137,7 @@ def _ts_escape(value: str) -> str:
 
     Every IR-derived string interpolated into the generated ``.ts`` (role names,
     write-scope regexes, reasons, the SYSTEM prompt) passes through here so no raw
-    overlay/IR text is spliced into executable TS (REQ-042 injection posture).
+    overlay/IR text is spliced into executable TS (the requirement injection posture).
     Uses ``json.dumps`` (a superset-safe JS string literal) so quotes, backslashes,
     newlines, and control characters are all escaped canonically.
     """
@@ -522,6 +394,10 @@ def _build_agents_md(ir: System2Graph) -> str:
     lines.append("- `.pi/SYSTEM.md` — full orchestrator context + enforcement honesty.")
     lines.append("- `.pi/skills/system2-{init,compose,doctor}/SKILL.md` — the skills.")
     lines.append(
+        "- `.pi/skills/system2-{codex,gemini,stateless-loop}/SKILL.md` — utility "
+        "skills (each requires its external CLI; see the skill body)."
+    )
+    lines.append(
         "- `/delegate <role>` — dispatch a sub-task to one of the 13 roles."
     )
     lines.append("- `system2.pi.lock.json` — the per-capability degradation report.")
@@ -601,7 +477,80 @@ def _build_orchestrator_prompt(ir: System2Graph) -> str:
     return "\n".join(lines) + "\n"
 
 
+# Per-skill frontmatter (K1a; Decision D5,
+# decisions/pi-base-skill-frontmatter-description-source.md). All six Pi skills carry a YAML
+# frontmatter block ahead of the body: the K0 format oracle (pi-skill-format-oracle.md,
+# branch (b)) found a non-empty `description` field is the minimum Pi needs to discover and
+# invoke a skill at all — the prior frontmatter-less form for init/compose/doctor was latently
+# undiscoverable.
+def _skill_frontmatter(name: str, description: str) -> str:
+    """Emit frontmatter through the canonical YAML serializer.
+
+    Skill descriptions are backend-owned today, but treating them as data rather
+    than interpolating plain scalars keeps every future description valid YAML
+    (notably values containing ``: ``).
+    """
+    return "---\n" + _yaml.dump({"name": name, "description": description}) + "---\n\n"
+
+
+# K1a-pinned frontmatter descriptions for all six Pi skills. The three base skills' descriptions
+# are sourced from Pi's OWN already-emitted purpose line (Decision D5 option (b)) rather than
+# the Claude counterpart's frontmatter description, which names Claude-specific mechanics that
+# would be factually wrong here (e.g. init's Claude description cites writing CLAUDE.md, which
+# the Pi body never does). The three new skills' descriptions are adapted from each merged
+# source SKILL.md's own frontmatter description — verbatim match to codex.py's identical
+# constant, since the description names only the external-CLI prerequisite, not any
+# channel-specific mechanic.
+_SKILL_DESCRIPTIONS = {
+    "init": "Set up the System2 workflow on Pi.",
+    "compose": "Run the System2 gate pipeline and delegation.",
+    "doctor": "Verify the System2 extension loads and the gates are live.",
+    "codex": (
+        "Run a prompt through OpenAI's Codex CLI (`codex exec`) non-interactively for "
+        "a second opinion or code review from a fresh Codex instance."
+    ),
+    "gemini": (
+        "Run a prompt through Google's Antigravity CLI (`agy`) non-interactively for "
+        "a second opinion or code review from a fresh instance."
+    ),
+    "stateless-loop": (
+        "Run an instruction in a stateless subprocess loop using `claude -p` until "
+        "the task reports a CLEAN status or max iterations are reached."
+    ),
+}
+
+# K2 rule 4 (the consolidation requirement): each new utility skill's external-CLI prerequisite.
+_UTILITY_SKILL_PREREQUISITES = {
+    "codex": "the OpenAI Codex CLI (`codex`) on PATH",
+    "gemini": "Google's Antigravity CLI (`agy`) on PATH",
+    "stateless-loop": (
+        "the Claude Code CLI (`claude`) on PATH — required even though this host is "
+        "not Claude Code"
+    ),
+}
+
+# K2 rule 5: the fresh-non-interactive-codex honesty sentence, system2-codex ONLY. Verbatim
+# match to codex.py's identical constant.
+_FRESH_CODEX_HONESTY = (
+    "This spawns a NEW non-interactive `codex exec` subprocess — a fresh Codex "
+    "instance with none of this session's context. It is a second opinion from a "
+    "clean slate, not a fork of the current session."
+)
+
+# K2 rule 7 (Decision D3): the OA-14 honest note, mandatory in each of the three NEW
+# utility-skill bodies only. The base init/compose/doctor skills invoke no external CLI and
+# sit outside the OA-14 gate's utility-skill framing, so they carry no such note.
+_KNOWN_PI_LIMITATION = (
+    "The System2 Pi extension's protect-sensitive gate scans the ENTIRE bash command, "
+    "with no override, and Pi has no permission prompt to bypass it — so a prompt "
+    "containing a token like `credentials` or `secrets` is hard-blocked before the CLI "
+    "runs. Workaround: reword the prompt to avoid those tokens. This is the gate doing "
+    "its declared job, not a bug — stated here so a block is never a surprise."
+)
+
+
 def _build_skill(name: str, ir: System2Graph) -> str:
+    skill_name = f"system2-{name}"
     if name == "init":
         body = (
             "# system2-init\n"
@@ -630,7 +579,7 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "- `/delegate <role>` switches the active role; the lease gate then "
             "enforces that role's write scope.\n"
         )
-    else:  # doctor
+    elif name == "doctor":
         body = (
             "# system2-doctor\n"
             "\n"
@@ -644,7 +593,339 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "4. Read `system2.pi.lock.json` for the per-capability degradation "
             "report and the FIDELITY banner.\n"
         )
-    return body
+    elif name == "codex":
+        # Adapted from plugin/skills/codex/SKILL.md — keep the sync-guard invariants
+        # (--ephemeral, history.persistence=none, "Never pass the prompt unquoted") intact
+        # on any future edit.
+        lines: List[str] = []
+        lines.append(f"# {skill_name} -- Codex CLI Runner")
+        lines.append("")
+        lines.append(f"You are executing the {skill_name} skill. Follow these steps exactly.")
+        lines.append("")
+        lines.append(_FRESH_CODEX_HONESTY)
+        lines.append("")
+        lines.append("## Prerequisite")
+        lines.append("")
+        lines.append(
+            f"Requires {_UTILITY_SKILL_PREREQUISITES[name]}. If the CLI is missing, "
+            "stop and report the missing prerequisite verbatim; do not improvise a "
+            "substitute."
+        )
+        lines.append("")
+        lines.append("## Known Pi limitation")
+        lines.append("")
+        lines.append(_KNOWN_PI_LIMITATION)
+        lines.append("")
+        lines.append("## Arguments")
+        lines.append("")
+        lines.append("The user provides:")
+        lines.append(
+            "- **prompt** (required): the instruction to send to Codex. May be bare "
+            "text or quoted."
+        )
+        lines.append(
+            "- **additional flags** (optional): any flags supported by `codex exec` "
+            "(e.g. `--model <model>`, `--sandbox <mode>`, `--config <key=value>`). "
+            "These are passed through verbatim."
+        )
+        lines.append("")
+        lines.append("## Execution")
+        lines.append("")
+        lines.append("### Argument parsing")
+        lines.append("")
+        lines.append(
+            "1. Split the user's input into the **prompt** portion and any **flags** "
+            "(tokens starting with `-` or `--`, plus their values)."
+        )
+        lines.append(
+            "2. Known Codex exec flags that take a value: `--model`/`-m`, "
+            "`--config`/`-c`, `--image`/`-i`, `--sandbox`/`-s`, `--profile`/`-p`, "
+            "`--local-provider`, `--remote-auth-token-env`. When encountered, consume "
+            "the next token as the flag's value."
+        )
+        lines.append(
+            "3. Known Codex exec boolean flags: `--oss`, `--strict-config`, "
+            "`--dangerously-bypass-approvals-and-sandbox`. Also `--enable` and "
+            "`--disable` take a value each."
+        )
+        lines.append(
+            "4. Everything that is not a recognized flag or a flag's value is the "
+            "**prompt**."
+        )
+        lines.append("")
+        lines.append("### Running Codex")
+        lines.append("")
+        lines.append(
+            "Run a **single shell command**; allow up to 10 minutes before assuming a "
+            "hang:"
+        )
+        lines.append("")
+        lines.append("```")
+        lines.append("codex exec --ephemeral -c history.persistence=none '<prompt>' [flags...]")
+        lines.append("```")
+        lines.append("")
+        lines.append(
+            "**Statelessness (required).** This skill is a one-shot second opinion; "
+            "each call must be hermetic and must not see or leave behind any record of "
+            "other invocations. Codex otherwise persists state to two on-disk stores "
+            "under `$CODEX_HOME` (default `~/.codex`): session rollout transcripts in "
+            "`sessions/`, and a running prompt log in `history.jsonl` (default "
+            "persistence `save-all`). Plain `codex exec` does not auto-resume those, "
+            "but the running agent can read them mid-task, and every run appends to "
+            "them. To prevent both:"
+        )
+        lines.append("")
+        lines.append(
+            "- Always pass `--ephemeral` (do not write session rollout files), unless "
+            "the user explicitly passed it."
+        )
+        lines.append(
+            "- Always pass `-c history.persistence=none` (do not append to "
+            "`history.jsonl`), unless the user already supplied a "
+            "`history.persistence` override via their own `-c`/`--config`."
+        )
+        lines.append(
+            "- Never add `resume` / `--last`, and never set `experimental_resume` — "
+            "those deliberately reload prior context."
+        )
+        lines.append("")
+        lines.append("Shell-quoting rules for the prompt:")
+        lines.append("- If the prompt contains no single quotes, wrap it in single quotes.")
+        lines.append(
+            "- If it contains single quotes, wrap it in `$'...'` syntax with internal "
+            "single quotes escaped as `\\'`."
+        )
+        lines.append("- Never pass the prompt unquoted.")
+        lines.append("")
+        lines.append("### Error handling")
+        lines.append("")
+        lines.append(
+            "If `codex exec` exits non-zero, report the exit code and any stderr "
+            "output to the user."
+        )
+        lines.append("")
+        lines.append("## Output")
+        lines.append("")
+        lines.append(
+            "Present Codex's output directly to the user. After completion, report "
+            "success or failure status."
+        )
+        body = "\n".join(lines).rstrip("\n") + "\n"
+    elif name == "gemini":
+        # Adapted from plugin/skills/gemini/SKILL.md — keep the sync-guard invariants
+        # (agy -p, --print-timeout, "Never pass the prompt unquoted") intact on any future
+        # edit.
+        lines = []
+        lines.append(f"# {skill_name} -- Antigravity (agy) CLI Runner")
+        lines.append("")
+        lines.append(
+            f"You are executing the {skill_name} skill. It drives Google's "
+            "Antigravity CLI, whose binary is `agy` (this replaced the older "
+            "standalone `gemini` CLI). Follow these steps exactly."
+        )
+        lines.append("")
+        lines.append("## Prerequisite")
+        lines.append("")
+        lines.append(
+            f"Requires {_UTILITY_SKILL_PREREQUISITES[name]}. If the CLI is missing, "
+            "stop and report the missing prerequisite verbatim; do not improvise a "
+            "substitute."
+        )
+        lines.append("")
+        lines.append("## Known Pi limitation")
+        lines.append("")
+        lines.append(_KNOWN_PI_LIMITATION)
+        lines.append("")
+        lines.append("## Arguments")
+        lines.append("")
+        lines.append("The user provides:")
+        lines.append(
+            "- **prompt** (required): the instruction to send to the model. May be "
+            "bare text or quoted."
+        )
+        lines.append(
+            "- **additional flags** (optional): any flags supported by `agy` (e.g. "
+            "`--model <model>`, `--sandbox`, `--dangerously-skip-permissions`). These "
+            "are passed through verbatim."
+        )
+        lines.append("")
+        lines.append("## Execution")
+        lines.append("")
+        lines.append("### Argument parsing")
+        lines.append("")
+        lines.append(
+            "1. Split the user's input into the **prompt** portion and any **flags** "
+            "(tokens starting with `-` or `--`, plus their values)."
+        )
+        lines.append(
+            "2. Known `agy` flags that take a value: `--model`, `--add-dir` "
+            "(repeatable), `--conversation`, `--log-file`, `--print-timeout`. When "
+            "encountered, consume the next token as the flag's value."
+        )
+        lines.append(
+            "3. Known `agy` boolean flags: `--continue`/`-c`, `--sandbox`, "
+            "`--dangerously-skip-permissions`. These stand alone."
+        )
+        lines.append(
+            "4. Everything that is not a recognized flag or a flag's value is the "
+            "**prompt**."
+        )
+        lines.append("")
+        lines.append(
+            "Note on migration: the old `gemini` flags map as follows — "
+            "`--yolo`/`-y` -> `--dangerously-skip-permissions`; "
+            "`--include-directories` -> `--add-dir`; `--resume`/`-r` -> "
+            "`--continue`/`-c` (most recent) or `--conversation <id>` (specific "
+            "session); `-m` short alias is gone (use `--model`). Flags like "
+            "`--debug`/`-d`, `--output-format`, `--extensions`, `--yolo` have no "
+            "`agy` equivalent — drop them if a user passes them, and tell the user "
+            "you did."
+        )
+        lines.append("")
+        lines.append("### Running agy")
+        lines.append("")
+        lines.append(
+            "Run a **single shell command**; allow up to 10 minutes before assuming a "
+            "hang:"
+        )
+        lines.append("")
+        lines.append("```")
+        lines.append("agy -p '<prompt>' [flags...]")
+        lines.append("```")
+        lines.append("")
+        lines.append(
+            "`agy`'s print mode has its own `--print-timeout` (default 5m), which is "
+            "shorter than the 10-minute window above. To avoid `agy` cutting off a "
+            "long run early, append `--print-timeout 9m` unless the user already "
+            "supplied a `--print-timeout` flag."
+        )
+        lines.append("")
+        lines.append("Shell-quoting rules for the prompt:")
+        lines.append("- If the prompt contains no single quotes, wrap it in single quotes.")
+        lines.append(
+            "- If it contains single quotes, wrap it in `$'...'` syntax with internal "
+            "single quotes escaped as `\\'`."
+        )
+        lines.append("- Never pass the prompt unquoted.")
+        lines.append("")
+        lines.append("### Error handling")
+        lines.append("")
+        lines.append(
+            "If `agy` exits non-zero, report the exit code and any stderr output to "
+            "the user. If the failure is `command not found: agy`, tell the user the "
+            "Antigravity CLI is not installed or not on PATH (it is typically "
+            "installed at `/opt/homebrew/bin/agy`)."
+        )
+        lines.append("")
+        lines.append("## Output")
+        lines.append("")
+        lines.append(
+            "Present agy's output directly to the user. After completion, report "
+            "success or failure status."
+        )
+        body = "\n".join(lines).rstrip("\n") + "\n"
+    elif name == "stateless-loop":
+        # Adapted from plugin/skills/stateless-loop/SKILL.md — keep the sync-guard
+        # invariants (STATUS: CLEAN, claude -p, max_iterations) intact on any future edit.
+        lines = []
+        lines.append(f"# {skill_name} -- Stateless Subprocess Loop")
+        lines.append("")
+        lines.append(f"You are executing the {skill_name} skill. Follow these steps exactly.")
+        lines.append("")
+        lines.append("## Prerequisite")
+        lines.append("")
+        lines.append(
+            f"Requires {_UTILITY_SKILL_PREREQUISITES[name]}. If the CLI is missing, "
+            "stop and report the missing prerequisite verbatim; do not improvise a "
+            "substitute."
+        )
+        lines.append("")
+        lines.append("## Known Pi limitation")
+        lines.append("")
+        lines.append(_KNOWN_PI_LIMITATION)
+        lines.append("")
+        lines.append("## Arguments")
+        lines.append("")
+        lines.append("The user provides:")
+        lines.append(
+            "- **instruction** (required): the task to run each iteration. May be "
+            "bare text or quoted."
+        )
+        lines.append("- **--max_iterations N** (optional): iteration cap, default 10.")
+        lines.append("")
+        lines.append("## Execution")
+        lines.append("")
+        lines.append(
+            "Do NOT run the Python script. Orchestrate the loop yourself so each "
+            "iteration is a separate shell command, each allowed up to 10 minutes "
+            "before assuming a hang."
+        )
+        lines.append("")
+        lines.append("### Prompt construction")
+        lines.append("")
+        lines.append(
+            "Build the full prompt by appending this stop directive to the user's "
+            "instruction:"
+        )
+        lines.append("")
+        lines.append("```")
+        lines.append("<instruction>")
+        lines.append("")
+        lines.append("---")
+        lines.append(
+            "STOP CONDITION: When the task above is fully resolved and no further "
+            "action is needed, output exactly this line on its own:"
+        )
+        lines.append("STATUS: CLEAN")
+        lines.append(
+            "If the task is NOT fully resolved, do NOT output STATUS: CLEAN. "
+            "Describe what remains."
+        )
+        lines.append("---")
+        lines.append("```")
+        lines.append("")
+        lines.append("### Loop")
+        lines.append("")
+        lines.append("For each iteration from 1 to max_iterations:")
+        lines.append("")
+        lines.append("1. Print a header: `Iteration {i}/{max_iterations}`")
+        lines.append(
+            "2. Run a **single shell command**; allow up to 10 minutes before "
+            "assuming a hang:"
+        )
+        lines.append("   ```")
+        lines.append("   claude -p '<full_prompt>'")
+        lines.append("   ```")
+        lines.append("   Shell-quoting rules:")
+        lines.append(
+            "   - If the prompt contains no single quotes, wrap it in single quotes."
+        )
+        lines.append(
+            '   - If it contains single quotes, wrap it in double quotes and escape '
+            'any `"`, `$`, or `` ` `` inside.'
+        )
+        lines.append("   - Never pass the prompt unquoted.")
+        lines.append("3. Check the output for `STATUS: CLEAN`.")
+        lines.append("   - If found: report `Resolved after {i} iteration(s).` and stop.")
+        lines.append("   - If not found: proceed to the next iteration.")
+        lines.append(
+            "4. If `claude -p` exits non-zero, log the exit code but continue to the "
+            "next iteration."
+        )
+        lines.append("")
+        lines.append("If all iterations complete without `STATUS: CLEAN`, report:")
+        lines.append("`Max iterations ({max_iterations}) reached without STATUS: CLEAN.`")
+        lines.append("")
+        lines.append("## Output")
+        lines.append("")
+        lines.append(
+            "Present subprocess output directly to the user. After completion, "
+            "report the iteration count and final status."
+        )
+        body = "\n".join(lines).rstrip("\n") + "\n"
+    else:
+        raise ValueError(f"unknown Pi skill name: {name!r}")
+    return _skill_frontmatter(skill_name, _SKILL_DESCRIPTIONS[name]) + body
 
 
 # ---------------------------------------------------------------------------
@@ -719,11 +1000,11 @@ def _build_extension_ts(ir: System2Graph) -> str:
 
     dangerous_lits = ",\n  ".join(
         f"[new RegExp({_ts_escape(src)}, {_ts_escape(flags)}), {_ts_escape(reason)}]"
-        for src, flags, reason in _DANGEROUS_REGEXES
+        for src, flags, reason in build_dangerous_command_patterns()
     )
     sensitive_lits = ",\n  ".join(
         f"[new RegExp({_ts_escape(src)}, {_ts_escape(flags)}), {_ts_escape(reason)}]"
-        for src, flags, reason in _SENSITIVE_REGEXES
+        for src, flags, reason in build_sensitive_path_patterns()
     )
     scope_lits = ",\n  ".join(
         f"[{_ts_escape(name)}, {_ts_escape(scope)}]" for name, scope in scope_entries
@@ -924,7 +1205,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Write posture (atomic write + backup/restore; mirrors goose/claude)
+# Write posture (atomic write + backup/restore; mirrors claude-code)
 # ---------------------------------------------------------------------------
 
 def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
@@ -975,7 +1256,7 @@ def _planned_files(
             )
         )
 
-    for skill in ("init", "compose", "doctor"):
+    for skill in ("init", "compose", "doctor", "codex", "gemini", "stateless-loop"):
         planned.append(
             (
                 os.path.join(".pi", "skills", f"system2-{skill}", "SKILL.md"),
@@ -990,6 +1271,21 @@ def _planned_files(
         )
     )
     return planned
+
+
+def _default_file_mode(existing_path: Optional[str] = None) -> int:
+    """The mode a regenerated file should end up at: PRESERVE an existing
+    destination's current mode if one is being overwritten (Codex second-opinion
+    review, round 2: an earlier version unconditionally applied the umask-derived
+    default even over an existing, more restrictive file), else 0o666 masked by the
+    process umask for a genuinely new file (what ``open()``/``touch`` would
+    produce, unlike ``mkstemp``'s fixed 0o600). Duplicated in backends/codex.py and
+    backends/claude_code.py."""
+    if existing_path is not None and os.path.exists(existing_path):
+        return os.stat(existing_path).st_mode & 0o777
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
 
 
 def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[str]:
@@ -1019,6 +1315,12 @@ def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[st
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
+                # PR #10 review finding 3: mkstemp() defaults to mode 0600; os.replace()
+                # does not change it. Codex's identical write path shipped 25/26 files at
+                # 0600 in the committed distribution -- this backend has avoided the same
+                # symptom only because build_pi_package.build() repackages the staged
+                # tree afterward, not because this write path is itself safe.
+                os.chmod(tmp, _default_file_mode(dst))
                 os.replace(tmp, dst)
             except Exception:
                 if os.path.exists(tmp):
@@ -1208,7 +1510,7 @@ class PiBackend:
         return _write_outputs(project_path, planned)
 
     # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: lock helpers
+    # convergence implementation lifecycle: lock helpers
     # -----------------------------------------------------------------------
 
     def lock_path(self, project_path: str) -> str:
@@ -1229,7 +1531,7 @@ class PiBackend:
         return [s for s in lock_data.get("overlay_sources", []) if s]
 
     # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: recompose from lock
+    # convergence implementation lifecycle: recompose from lock
     # -----------------------------------------------------------------------
 
     def recompose_from_lock(
@@ -1247,7 +1549,7 @@ class PiBackend:
         )
 
     # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: uninstall
+    # convergence implementation lifecycle: uninstall
     # -----------------------------------------------------------------------
 
     def uninstall(
@@ -1265,7 +1567,7 @@ class PiBackend:
         ``emit`` (re-recording the trimmed set); on 0 remaining -> remove the
         generated Pi tree (the extension, ``SYSTEM.md``, ``AGENTS.md``, the
         orchestrator + 13 role prompts, the three skills, the lock) and clean empty
-        ``.pi/`` dirs, all under the atomic backup/restore (REQ-044). Writes only
+        ``.pi/`` dirs, all under the atomic backup/restore (the requirement). Writes only
         under ``project_path`` — never the operator's real ``~/.pi``.
         ``allow_newer_schema`` is threaded into the remaining-set recompose (matching
         the oracle's uninstall -> compose forwarding), so a remaining overlay
@@ -1366,7 +1668,7 @@ class PiBackend:
 
         Removes the extension, context, prompts, skills, and lock; cleans the
         now-empty ``.pi/`` subdirectories. Backs up every removed file and restores
-        on any failure (REQ-044). Writes/removes only under ``project_path``.
+        on any failure (the requirement). Writes/removes only under ``project_path``.
         """
         artifacts = self._existing_artifacts(project_path)
 
@@ -1458,7 +1760,7 @@ class PiBackend:
             pass
 
     # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: doctor
+    # convergence implementation lifecycle: doctor
     # -----------------------------------------------------------------------
 
     def doctor(self, project_path: str) -> DoctorReport:
@@ -1541,7 +1843,7 @@ class PiBackend:
                 "kind": "validator_unavailable",
                 "message": (
                     "node/pi not available — extension load validation SKIPPED "
-                    "(not a silent pass). Install node v22 + pi v0.79.9 (or set "
+                    "(not a silent pass). Install node v22 + pi v0.80.2 (or set "
                     "NODE_BIN/PI_BIN/PI_PKG_ENTRY) to validate; structural checks ran."
                 ),
             })

@@ -1,10 +1,10 @@
 """The ``system2`` CLI — full lifecycle parity with the frozen ``composer.py``.
 
-Phase 1 shipped a single implicit ``compile`` verb. Phase 5 grows this into a
+original implementation shipped a single implicit ``compile`` verb. convergence implementation grows this into a
 subcommand dispatcher reaching FULL parity with the plugin's ``composer.py``
 ``main()`` contract:
 
-    system2 compile   --target {claude-code|goose|pi} [--profile N | --overlays P
+    system2 compile   --target {claude-code|pi|codex} [--profile N | --overlays P
                       | --from-lock] --base B --project P [--dry-run]
                       [--allow-newer-schema] [--allow-injection] [--format text|json]
     system2 uninstall --target {…} --base B --project P --name OVERLAY
@@ -17,11 +17,11 @@ subcommand dispatcher reaching FULL parity with the plugin's ``composer.py``
                       [--project P] [--force] [--format …]   # harness-neutral; no --target
 
 For back-compat, a leading ``--target`` (or no subcommand) dispatches to
-``compile`` so the Phase-0..4 ``main(["--target", …])`` invocation is unchanged.
+``compile`` so the legacy ``main(["--target", …])`` invocation is unchanged.
 
 The ``claude-code`` path of every verb reproduces the frozen oracle's EXACT arg
 names, exit codes, stdout/stderr report bodies, and JSON envelopes (the contract
-the plugin skills parse, and the post-flip shim later mirrors). Goose/Pi get the
+the plugin skills parse, and the post-flip shim later mirrors). Pi/Codex get the
 same verbs, target-aware. Profiles are harness-NEUTRAL (an activated profile
 feeds compose for ANY ``--target``) and write only ``~/.system2/profiles.json``.
 
@@ -42,28 +42,29 @@ from system2_compiler.ir import profiles as ir_profiles
 from system2_compiler.ir.graph import System2Graph
 from system2_compiler.backends.base import Backend, DoctorReport, UninstallResult
 from system2_compiler.backends.claude_code import ClaudeCodeBackend
-from system2_compiler.backends.goose import GooseBackend
 from system2_compiler.backends.pi import PiBackend
+from system2_compiler.backends import codex as codex_ops
+from system2_compiler.backends.codex import CodexBackend
 
 __all__ = ["main"]
 
-_TARGETS = ("claude-code", "goose", "pi")
+_TARGETS = ("claude-code", "pi", "codex")
 _VERBS = ("compile", "uninstall", "doctor", "from-lock", "profile")
 
-# Static backend registry (the Phase-3/4 CLI surface): target -> a default-
+# Static backend registry (the first backend implementation/4 CLI surface): target -> a default-
 # constructed backend instance. ``emit`` is fully IR-driven and needs no
 # constructor injection, so these defaults serve ``compile`` and the registry
 # tests. The lifecycle verbs build base_path/compose_fn-injected instances via
 # ``_backend_for`` (the lifecycle methods require those).
 _BACKENDS = {
     "claude-code": ClaudeCodeBackend(),
-    "goose": GooseBackend(),
     "pi": PiBackend(),
+    "codex": CodexBackend(),
 }
 
 
 def _select_backend(target: str) -> Backend:
-    """Return the registered default backend for *target* (Phase-3/4 surface)."""
+    """Return the registered default backend for *target* (first backend implementation/4 surface)."""
     return _BACKENDS[target]
 
 # Contribution-type suffixes deferred (declared but not applied this phase). The
@@ -81,18 +82,18 @@ def _backend_for(
     The lifecycle verbs (uninstall/doctor/from-lock) need the System2 plugin root
     (base template + version + anchor map) and ``ir.compose`` to recompose the
     remaining/lock overlay set; ``emit`` itself is fully IR-driven and needs
-    neither. Goose/Pi additionally accept the neutral ``overlay_sources`` list so
+    neither. Pi/Codex additionally accept the neutral ``overlay_sources`` list so
     their from-lock/uninstall recompose targets the right overlay set.
     """
     if target == "claude-code":
         return ClaudeCodeBackend(base_path=base_path, compose_fn=ir.compose)
-    if target == "goose":
-        return GooseBackend(
+    if target == "pi":
+        return PiBackend(
             base_path=base_path, compose_fn=ir.compose,
             overlay_sources=overlay_sources,
         )
-    if target == "pi":
-        return PiBackend(
+    if target == "codex":
+        return CodexBackend(
             base_path=base_path, compose_fn=ir.compose,
             overlay_sources=overlay_sources,
         )
@@ -206,13 +207,13 @@ def _render_composed_text(graph: System2Graph, backend: Backend) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Shared stderr warning emission (relocated verbatim from the oracle, REQ-046)
+# Shared stderr warning emission (relocated verbatim from the oracle, the requirement)
 # ---------------------------------------------------------------------------
 
 def _emit_stderr_warnings(report: dict) -> None:
     """Emit all warning categories to stderr (verbatim from ``composer._emit_stderr_warnings``).
 
-    Order is load-bearing for byte-identity with the oracle (REQ-046):
+    Order is load-bearing for byte-identity with the oracle (the requirement):
     size_warning, validation_warnings, injection_warnings, then semantic tensions.
     """
     if "size_warning" in report:
@@ -318,7 +319,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
     Reproduces ``composer.main()``'s compose/profile-activation/from-lock branch:
     overlay resolution, refusal classification, stderr warnings, the dry-run
     preview, the injection-block (exit 4), the write, and the success report — all
-    byte-identical for the claude-code target (REQ-049/046).
+    byte-identical for the claude-code target (the requirement/046).
     """
     base_path = os.path.abspath(args.base)
     project_path = os.path.abspath(args.project)
@@ -745,7 +746,7 @@ def _do_doctor(args, target: str) -> int:
     """Run the read-only drift check (ports ``composer.main()``'s ``--doctor`` block).
 
     For claude-code the JSON / text output and the exit-code rule (0 iff
-    ``current``) match the oracle byte-for-byte. Goose/Pi additionally surface the
+    ``current``) match the oracle byte-for-byte. Pi/Codex additionally surface the
     LOUD ``validator_unavailable`` finding (exit 0 with the loud finding, never a
     silent "current"); their exit code comes from the backend's ``DoctorReport``.
     """
@@ -764,7 +765,7 @@ def _do_doctor(args, target: str) -> int:
             _print_doctor_report(result)
         return rpt.exit_code
 
-    # Goose/Pi: surface the neutral report shape (incl. validator availability).
+    # Pi/Codex: surface the neutral report shape (incl. validator availability).
     if fmt == "json":
         sys.stdout.write(json.dumps({
             "status": rpt.status,
@@ -1051,13 +1052,89 @@ def _do_profile(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# codex (user-scope enforcement install; harness-specific, no --target/--base)
+# ---------------------------------------------------------------------------
+
+def _do_codex(argv: List[str]) -> int:
+    """Dispatch ``system2 codex {init|uninstall}`` (single global user-scope install).
+
+    ``init`` materializes ``~/.codex/hooks.json`` + ``~/.codex/system2/hooks/*.js``
+    from the committed ``distributions/codex/user-hooks/`` reference, resolving the
+    hook ``command`` to an ABSOLUTE path (A2). ``--codex-home``/``$CODEX_HOME`` is the
+    test seam (production default = real ``~/.codex``). ROQ-1: a pre-existing
+    non-System2 ``hooks.json`` is never silently clobbered — ``init`` refuses without
+    ``--force`` and, with it, writes a timestamped ``.bak`` first. ``uninstall``
+    removes exactly the System2 artifacts and restores that backup.
+    """
+    parser = argparse.ArgumentParser(
+        prog="system2 codex",
+        description="Install/uninstall the user-scope Codex enforcement hooks.",
+    )
+    parser.add_argument("op", choices=["init", "uninstall"], help="Codex operation.")
+    parser.add_argument(
+        "--codex-home", dest="codex_home", default="",
+        help="Target Codex home (default: $CODEX_HOME or ~/.codex).",
+    )
+    parser.add_argument(
+        "--reference", default="",
+        help="Committed user-hooks reference (default: repo distributions/codex/user-hooks).",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Back up + overwrite a pre-existing non-System2 ~/.codex/hooks.json.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Show would-write set; write nothing.")
+    parser.add_argument("--format", choices=["text", "json"], default="text")
+    args = parser.parse_args(argv)
+    fmt = args.format
+
+    if args.op == "init":
+        try:
+            result = codex_ops.codex_init(
+                codex_home=args.codex_home or None,
+                reference_dir=args.reference or None,
+                force=args.force,
+                dry_run=args.dry_run,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            # N3: a missing/invalid --reference is a clean CLI error, not a traceback.
+            sys.stderr.write(f"error: {exc}\n")
+            return 2
+    else:
+        result = codex_ops.codex_uninstall(
+            codex_home=args.codex_home or None, dry_run=args.dry_run,
+        )
+
+    for w in result.get("warnings", []):
+        sys.stderr.write(f"  WARNING: {w}\n")
+
+    if fmt == "json":
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+    elif args.op == "init" and result["status"] != "refused":
+        sys.stdout.write(f"{result['message']}\n")
+        for fp in result.get("hook_files", []):
+            sys.stdout.write(f"  hook: {fp}\n")
+        sys.stdout.write(f"  config: {result['hooks_json']}\n")
+    elif args.op == "uninstall":
+        sys.stdout.write(f"Codex uninstall: {result['status']}.\n")
+        for fp in result.get("removed", []):
+            sys.stdout.write(f"  removed: {fp}\n")
+        if result.get("restored_backup"):
+            sys.stdout.write(f"  restored backup: {result['restored_backup']}\n")
+
+    if result.get("status") == "refused":
+        return 3
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Argument parsing for the write/lifecycle verbs
 # ---------------------------------------------------------------------------
 
 def _add_common(parser: argparse.ArgumentParser, *, require_base: bool = True) -> None:
     parser.add_argument(
         "--target", required=True, choices=sorted(_TARGETS),
-        help="Backend to lower onto (claude-code, goose, or pi).",
+        help="Backend to lower onto (claude-code, pi, or codex).",
     )
     parser.add_argument(
         "--base", required=require_base, help="Path to the System2 plugin root.",
@@ -1091,10 +1168,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Dispatch a ``system2`` subcommand.
 
     A leading ``--target`` (or no args) routes to ``compile`` for back-compat with
-    the Phase-0..4 ``main(["--target", …])`` invocation.
+    the legacy ``main(["--target", …])`` invocation.
     """
     if argv is None:
         argv = sys.argv[1:]
+
+    # Harness-specific user-scope install (no --target/--base). Additive; the
+    # existing verb/target surface is untouched.
+    if argv and argv[0] == "codex":
+        return _do_codex(argv[1:])
 
     # Back-compat: a leading flag (or empty argv) means the implicit `compile`.
     if not argv or argv[0].startswith("-"):

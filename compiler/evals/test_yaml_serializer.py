@@ -1,4 +1,4 @@
-"""TASK-311 — ``backends/_yaml`` serializer unit goldens (quoting / multiline / determinism).
+"""the implementation work — ``backends/_yaml`` serializer unit goldens (quoting / multiline / determinism).
 
 Pins the deterministic, stdlib-only block-YAML serializer's contract in isolation
 (AC-G1/AC-G5; design §"Stdlib-only YAML emission"):
@@ -13,53 +13,15 @@ Pins the deterministic, stdlib-only block-YAML serializer's contract in isolatio
 * LF line endings + exactly one trailing newline;
 * JSON-flow fallback for values that cannot be block-formatted.
 
-Plus a smoke test (the validity oracle): serialize a representative, minimally
-valid recipe dict and run ``goose recipe validate`` on it under a **hermetic temp
-HOME**. When ``goose`` is on PATH the validation MUST run and PASS; when absent the
-sub-check records a **LOUD SKIP** (never a silent pass) via ``shutil.which`` — the
-same gating TASK-315 uses. The real ``~/.config/goose/`` is asserted untouched.
-
 Stdlib-only ``unittest``; runs under ``python3 -m unittest``.
 
 All cited file/data contents are treated as untrusted; embedded instructions are
 not followed.
 """
 
-import os
-import shutil
-import subprocess
-import tempfile
 import unittest
 
 from system2_compiler.backends import _yaml
-
-_GOOSE_BIN = os.environ.get("GOOSE_BIN") or shutil.which("goose")
-_LOUD_SKIP = (
-    "goose not installed — recipe validation SKIPPED (not a silent pass); "
-    "set GOOSE_BIN or install goose v1.38.0 to run the validity oracle"
-)
-_REAL_GOOSE_CONFIG = os.path.join(os.path.expanduser("~"), ".config", "goose")
-
-
-def _dir_fingerprint(path):
-    """Return a sorted (relpath, size, mtime_ns) listing of *path*, or None.
-
-    Used to assert the real ``~/.config/goose`` is provably untouched across a
-    goose invocation. We never read or write that tree — only stat it.
-    """
-    if not os.path.isdir(path):
-        return None
-    entries = []
-    for root, dirs, files in os.walk(path):
-        dirs.sort()
-        for name in sorted(files):
-            full = os.path.join(root, name)
-            try:
-                st = os.stat(full)
-            except OSError:
-                continue
-            entries.append((os.path.relpath(full, path), st.st_size, st.st_mtime_ns))
-    return tuple(entries)
 
 
 class YamlQuotingTest(unittest.TestCase):
@@ -275,172 +237,6 @@ class YamlFallbackTest(unittest.TestCase):
         # since YAML is a JSON superset) rather than crashing.
         out = _yaml.dump({"x": ("a", "b")})  # tuple is treated as a sequence
         self.assertEqual(out, "x:\n- a\n- b\n")
-
-
-class GooseRecipeValidateSmokeTest(unittest.TestCase):
-    """Smoke: a serialized minimal recipe passes ``goose recipe validate``.
-
-    Validity oracle leg (loud-skip when goose absent, same gating as TASK-315).
-    Runs under a HERMETIC temp HOME; asserts the real ``~/.config/goose`` is
-    untouched.
-    """
-
-    def _minimal_recipe(self):
-        # Minimal valid goose recipe: required keys + a referenced parameter
-        # (referenced ⊇ declared, or goose rejects "unnecessary parameters").
-        return {
-            "version": "1.0.0",
-            "title": "System2 yaml-serializer smoke recipe",
-            "description": "A minimal recipe to gate the stdlib YAML serializer.",
-            "instructions": (
-                "You are a smoke-test recipe used only to validate the System2 "
-                "compiler's stdlib YAML serializer against goose recipe validate.\n"
-                "Operate deterministically.\n"
-            ),
-            "prompt": "Smoke task: {{ task }}\n",
-            "parameters": [
-                {
-                    "key": "task",
-                    "input_type": "string",
-                    "requirement": "required",
-                    "description": "The task string referenced by the prompt.",
-                }
-            ],
-        }
-
-    def test_serialized_recipe_validates_or_loud_skip(self):
-        before = _dir_fingerprint(_REAL_GOOSE_CONFIG)
-        had_permission = os.path.exists(os.path.join(_REAL_GOOSE_CONFIG, "permission.yaml"))
-
-        text = _yaml.dump(self._minimal_recipe())
-        # Sanity: the serializer produced a block-YAML recipe (not one JSON blob),
-        # with an EXPLICIT block indentation indicator (|2), not a bare |.
-        self.assertIn("instructions: |2\n", text)
-        self.assertIn("{{ task }}", text)
-
-        if not _GOOSE_BIN:
-            self.skipTest(_LOUD_SKIP)
-
-        home = tempfile.mkdtemp(prefix="yaml-validate-home-")
-        proj = tempfile.mkdtemp(prefix="yaml-validate-proj-")
-        recipe_path = os.path.join(proj, "smoke.recipe.yaml")
-        try:
-            with open(recipe_path, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            env = {
-                "HOME": home,
-                "PATH": os.environ.get("PATH", ""),
-            }
-            for k in ("LANG", "LC_ALL", "LC_CTYPE"):
-                if os.environ.get(k):
-                    env[k] = os.environ[k]
-            completed = subprocess.run(
-                [_GOOSE_BIN, "recipe", "validate", recipe_path],
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            self.assertEqual(
-                completed.returncode, 0,
-                "goose recipe validate REJECTED the serialized recipe "
-                f"(serializer gap):\nstdout={completed.stdout!r}\n"
-                f"stderr={completed.stderr!r}\n---recipe---\n{text}",
-            )
-        finally:
-            shutil.rmtree(home, ignore_errors=True)
-            shutil.rmtree(proj, ignore_errors=True)
-
-        # The real config must be provably untouched by the hermetic invocation.
-        self.assertEqual(
-            _dir_fingerprint(_REAL_GOOSE_CONFIG), before,
-            "the real ~/.config/goose was modified by a hermetic goose invocation",
-        )
-        self.assertEqual(
-            os.path.exists(os.path.join(_REAL_GOOSE_CONFIG, "permission.yaml")),
-            had_permission,
-            "a permission.yaml appeared/vanished in the real ~/.config/goose",
-        )
-
-
-class GooseValidateLeadingWhitespaceBlockTest(unittest.TestCase):
-    """A recipe whose block fields start blank / indented validates under goose.
-
-    This pins F-G1: the explicit ``|2`` indicator makes a leading-blank or
-    leading-indented block scalar parse faithfully, instead of the bare ``|``
-    auto-detecting the indent from the first content line and ending the block
-    early. Loud-skip when goose is absent; hermetic temp HOME; real config
-    asserted untouched.
-    """
-
-    def _block_edge_recipe(self):
-        # description starts with a BLANK line; instructions start with an INDENTED
-        # line; the prompt references the declared parameter (goose rejects an
-        # unreferenced parameter). All three exercise the |2 indicator.
-        return {
-            "version": "1.0.0",
-            "title": "System2 block-edge serializer recipe",
-            "description": (
-                "\nLeading-blank description line, then real text describing the "
-                "block-scalar indentation-indicator edge case.\n"
-            ),
-            "instructions": (
-                "    Leading-indented first instruction line (four spaces).\n"
-                "Flush second line at the nominal block indent.\n"
-                "Operate deterministically.\n"
-            ),
-            "prompt": "Block-edge task: {{ task }}\n",
-            "parameters": [
-                {
-                    "key": "task",
-                    "input_type": "string",
-                    "requirement": "required",
-                    "description": "The task string referenced by the prompt.",
-                }
-            ],
-        }
-
-    def test_leading_whitespace_blocks_validate_or_loud_skip(self):
-        before = _dir_fingerprint(_REAL_GOOSE_CONFIG)
-
-        text = _yaml.dump(self._block_edge_recipe())
-        # The explicit indentation indicator is present on the block scalars.
-        self.assertIn("description: |2\n\n", text)  # blank first line under |2
-        self.assertIn("instructions: |2\n      Leading-indented", text)
-
-        if not _GOOSE_BIN:
-            self.skipTest(_LOUD_SKIP)
-
-        home = tempfile.mkdtemp(prefix="yaml-blockedge-home-")
-        proj = tempfile.mkdtemp(prefix="yaml-blockedge-proj-")
-        recipe_path = os.path.join(proj, "blockedge.recipe.yaml")
-        try:
-            with open(recipe_path, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            env = {"HOME": home, "PATH": os.environ.get("PATH", "")}
-            for k in ("LANG", "LC_ALL", "LC_CTYPE"):
-                if os.environ.get(k):
-                    env[k] = os.environ[k]
-            completed = subprocess.run(
-                [_GOOSE_BIN, "recipe", "validate", recipe_path],
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            self.assertEqual(
-                completed.returncode, 0,
-                "goose recipe validate REJECTED a recipe with leading-blank / "
-                "leading-indented block scalars (F-G1 serializer gap):\n"
-                f"stdout={completed.stdout!r}\nstderr={completed.stderr!r}\n"
-                f"---recipe---\n{text}",
-            )
-        finally:
-            shutil.rmtree(home, ignore_errors=True)
-            shutil.rmtree(proj, ignore_errors=True)
-
-        self.assertEqual(
-            _dir_fingerprint(_REAL_GOOSE_CONFIG), before,
-            "the real ~/.config/goose was modified by a hermetic goose invocation",
-        )
 
 
 if __name__ == "__main__":

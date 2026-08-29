@@ -1,46 +1,50 @@
 {
   "description": "Static inventory invariant (13-agent/6-gate + hook/allowlist bindings). Captured by reference to the plugin's read-only structural goldens; the oracle is not invoked for the core cell because it refuses empty overlay sets (design T3).",
-  "base_template_sha256": "bbf92beacc749f37c6f0e3515332d7e000e25832264be0abaa94ba9643ae90f5",
+  "base_template_sha256": "127c9affb2331e58e37c5b518fab00ba7cad72803bc77371bc349bdc28ed013c",
   "structural_goldens": [
     {
-      "path": "System2/evals/goldens/agent_inventory.json",
+      "path": "evals/goldens/agent_inventory.json",
       "sha256": "4ccbd7ea307caebcfa84a51b0abf937d74c415a41468698f9d6a3d52c5e8aef9"
     },
     {
-      "path": "System2/evals/goldens/delegation_map.json",
+      "path": "evals/goldens/delegation_map.json",
       "sha256": "8f3d941de218c70db5761e034d0f0a58d94bf7ad0cd18089114fe27446b59863"
     },
     {
-      "path": "System2/evals/goldens/hook_inventory.json",
+      "path": "evals/goldens/hook_inventory.json",
       "sha256": "d7740314f732458a53d9a3a389cb0dc9842e9690cccd4e13e2ff0b44fb45b885"
     },
     {
-      "path": "System2/evals/goldens/allowlist_inventory.json",
+      "path": "evals/goldens/allowlist_inventory.json",
       "sha256": "57e5336fefb7538e57de4522fcc92df7df3694ae47d229c4392e9c520dbb2a33"
     },
     {
-      "path": "System2/evals/goldens/agent_allowlist_bindings.json",
+      "path": "evals/goldens/agent_allowlist_bindings.json",
       "sha256": "74737c90468c7056f3f20ff5fc78e8b67e642f0e491478dc620d7573cb3f72ce"
     },
     {
-      "path": "System2/evals/goldens/template_sections.json",
+      "path": "evals/goldens/template_sections.json",
       "sha256": "658067dcc5fde119c8e74402ceaae442953e3d08407c9fd83c6e2737422da62d"
     },
     {
-      "path": "System2/evals/goldens/maintenance_thresholds.json",
+      "path": "evals/goldens/maintenance_thresholds.json",
       "sha256": "f061574b688abb6701f37493cec35686f002c182284cc1186d1f3f0dfe1b8feb"
     },
     {
-      "path": "System2/evals/goldens/manifest_schemas.json",
-      "sha256": "2a282ad23d7a6d73259ef69309e1b228e0d50f035824d751ec9e619b587c15e0"
+      "path": "evals/goldens/manifest_schemas.json",
+      "sha256": "a7e3ef925faa1c7cfc3d4419f2b12f495d223a1a66b2734989dc32a5ef07a218"
     },
     {
-      "path": "System2/evals/goldens/prohibited_patterns.json",
+      "path": "evals/goldens/prohibited_patterns.json",
       "sha256": "1e10275a28237a85a98182dafbc7d06996af8a6920720d314da7d89e659acf1b"
     },
     {
-      "path": "System2/evals/goldens/required_readme_patterns.json",
-      "sha256": "e34118a1abd70b5563d219847bbeb185772e8abea53b0ee698912b0f3e2f9dba"
+      "path": "evals/goldens/required_readme_patterns.json",
+      "sha256": "d0ad09125e430e8949b686d0ad2225b74ad460280ca0ab501b8bebd837045f77"
+    },
+    {
+      "path": "evals/goldens/skill_inventory.json",
+      "sha256": "a6b1d08fdbdac6d9e35eb1e019cf2975247cf9d9c4cfc2a469f559737aa1a376"
     }
   ]
 }

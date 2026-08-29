@@ -1,0 +1,107 @@
+name: Publish Pi package
+
+# the implementation work — publish @deliberatecode/pi-system2 via npm TRUSTED PUBLISHING (OIDC).
+#
+# Reconciles the two security findings the plan put in tension:
+#   * F3 (provenance): `npm publish --provenance` attests build origin via the
+#     GitHub OIDC id-token — only possible in CI, never from a laptop.
+#   * F9 (no stored publish credential): trusted publishing uses OIDC, so no
+#     long-lived registry credential is stored or referenced anywhere. The
+#     `id-token: write` scope is an ephemeral OIDC exchange, not a stored
+#     credential, and it grants nothing on merge/PR.
+#
+# Manual dispatch only — publishing is a deliberate, human-triggered act, never a
+# push/PR side effect. Prereq (one-time, on npmjs.com): configure the package's
+# "Trusted Publisher" to this repo + this workflow filename (see
+# docs/runbooks — the implementation work). First publish also requires the org to allow it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every check and `npm publish --dry-run` (no upload)."
+        type: boolean
+        default: true
+
+# Least privilege. id-token:write is the OIDC exchange trusted publishing needs;
+# contents:read for the checkout. No other scope, no stored credentials.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-pi:
+    # GitHub Environment protection is the enforcement boundary: its deployment
+    # branch policy permits only main, before this job receives an OIDC token.
+    # Configured in repository settings as environment `npm-publish`.
+    environment: npm-publish
+    runs-on: ubuntu-latest
+    steps:
+      # PR #10 review finding 2: workflow_dispatch has no branch restriction of its
+      # own -- any branch carrying this file can be dispatched against by a
+      # write-access user. The plan's "dispatch on main only" rule (the consolidation requirement) was
+      # previously enforced by human discipline alone; fail loudly here instead.
+      - name: Refuse dispatch off the main branch
+        if: github.ref != 'refs/heads/main'
+        # Codex second-opinion review, round 2: interpolating ${{ github.ref }}
+        # DIRECTLY into the script text is a script-injection hole -- GitHub
+        # substitutes ${{ }} expressions into the shell source BEFORE the shell
+        # ever runs, and a git ref CAN contain shell metacharacters including
+        # `$(...)` command substitution (confirmed: `git check-ref-format` accepts
+        # e.g. `review$(id)`, it only rejects refs containing literal whitespace,
+        # trivially avoided with `${IFS}` or a single-word payload). In a job that
+        # holds `id-token: write`, a maliciously-named branch dispatched against
+        # this workflow would execute before this step's own `exit 1` ever runs.
+        # Pass the untrusted value through env: instead -- GitHub Actions sets a
+        # real environment variable at process-spawn time, never substituted into
+        # the script source.
+        env:
+          DISPATCHED_REF: ${{ github.ref }}
+        run: |
+          echo "::error::publish-pi.yml must be dispatched on refs/heads/main, not $DISPATCHED_REF. This is the one irreversible step in the release process; dispatching on a feature branch to bypass the merge gate is a plan violation, not a shortcut." >&2
+          exit 1
+
+      # PR #10 review, Codex second-opinion pass: `ref: main` is a MOVING branch name --
+      # actions/checkout resolves it at job-run time, not at dispatch time, so a push
+      # to main between dispatch and this step running would silently publish a
+      # different commit than the one the ref guard above actually verified. Pin to
+      # the exact dispatched commit (actions/checkout's own default for a
+      # workflow_dispatch event is already this SHA; setting it explicitly makes the
+      # pin self-documenting rather than relying on an unstated default).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python 3.11 (freshness guard)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # A stale committed package must never be published. The three-artifact
+      # (bundle/codex/pi) freshness gate proves distributions/pi/ matches the
+      # compiler source.
+      - name: Freshness gate — committed distributions are in sync with source
+        run: python compiler/tools/regen_all.py --check
+
+      # Publish the committed, guard-verified package verbatim. Provenance is
+      # attested via OIDC; --access public makes the scoped package public.
+      - name: Publish (or dry-run) @deliberatecode/pi-system2
+        working-directory: distributions/pi
+        run: |
+          set -euxo pipefail
+          # Pinned, not @latest: this job holds id-token: write, and an unpinned
+          # "latest" would silently pull in whatever npm ships on the day this
+          # dispatches (PR #10 review finding 2). Bump deliberately when needed.
+          npm install -g npm@12.0.2
+          npm --version
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            npm publish --provenance --access public --dry-run
+          else
+            npm publish --provenance --access public
+          fi

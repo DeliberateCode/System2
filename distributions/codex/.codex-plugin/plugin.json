@@ -1,0 +1,13 @@
+{
+  "name": "system2",
+  "version": "0.2.1",
+  "description": "System2 workflows for Codex. NOTE: safety enforcement is INACTIVE until you review and trust the bundled hooks via /hooks; until then System2 runs advisory-only.",
+  "publisher": {
+    "name": "DeliberateCode",
+    "url": "https://github.com/DeliberateCode/System2"
+  },
+  "interface": {
+    "displayName": "System2"
+  },
+  "skills": "./skills"
+}

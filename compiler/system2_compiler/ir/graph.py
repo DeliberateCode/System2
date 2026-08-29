@@ -1,13 +1,13 @@
 """The System2Graph IR schema: frozen, JSON-serializable dataclasses.
 
 Harness-neutral. Contains no Claude mechanism fields (``tools`` / ``hooks`` /
-``permissionMode``) on roles or contributions (REQ-028/040).
+``permissionMode``) on roles or contributions (the requirement/040).
 
-The Phase 2 types this schema references — ``AnchorTable`` / ``AnchorDef`` /
+The IR/capability implementation types this schema references — ``AnchorTable`` / ``AnchorDef`` /
 ``AnchorRef`` and ``CapabilitySet`` / ``BlockingSemantic`` — are defined in their
 owning sibling modules ``ir/anchors.py`` and ``ir/capabilities.py`` and imported
 here (per ``module-boundaries.json``: ``ir/graph.py`` may import those two siblings
-plus stdlib). They superseded the Phase-1 placeholders that briefly lived in this
+plus stdlib). They superseded the original implementation placeholders that briefly lived in this
 module.
 """
 

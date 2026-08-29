@@ -1,13 +1,13 @@
 {
-  "composed_at": "2026-06-27T00:22:48Z",
-  "content_fingerprint": "sha256:af19f9b8a895f56ae7fef54df9ecfadea4c6fe93200a99479e32ff45f20fd84c",
-  "system2_version": "1.1.1",
+  "composed_at": "2026-08-05T05:17:33Z",
+  "content_fingerprint": "sha256:f51f7e5f30cb0b853bc6b5e299654fae251461225c5d15c7de2ded8fea3b6b55",
+  "system2_version": "1.2.0",
   "schema_version": "1.0.0",
   "overlays": [
     {
       "name": "tension-a",
       "version": "1.0.0",
-      "source_path": "/Users/james/DeliberateCode/System2-Compiler/evals/fixtures/tension-a",
+      "source_path": "/Users/james/DeliberateCode/System2/compiler/evals/fixtures/tension-a",
       "local_path": ".system2/overlays/tension-a/",
       "manifest_hash": "sha256:2da36e6c5dd4e2d3ea0f6a3d7017b18b0a11e9c23ef8a9f6b82f85e7dde2e642",
       "content_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -15,7 +15,7 @@
     {
       "name": "tension-b",
       "version": "1.0.0",
-      "source_path": "/Users/james/DeliberateCode/System2-Compiler/evals/fixtures/tension-b",
+      "source_path": "/Users/james/DeliberateCode/System2/compiler/evals/fixtures/tension-b",
       "local_path": ".system2/overlays/tension-b/",
       "manifest_hash": "sha256:5bfc5e8b90abb5cc9cd8bed51ebbf9e3c4c92e6d303fa059f7d1c9a4d70a3f42",
       "content_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

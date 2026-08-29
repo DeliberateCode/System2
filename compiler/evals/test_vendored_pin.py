@@ -1,8 +1,8 @@
-"""TASK-319 — F-03: pin the vendored copies to their plugin originals.
+"""the implementation work — F-03: pin the vendored copies to their plugin originals.
 
 Security follow-up **F-03** (``spec/security.md``): the standalone compiler vendors
 ``profiles.py`` and ``hook_security.py`` into ``ir/profiles.py`` /
-``ir/_hook_security.py``. The Phase-0 oracle hash-pin (``evals/oracle.py``) pins the
+``ir/_hook_security.py``. The initial implementation oracle hash-pin (``evals/oracle.py``) pins the
 *originals* under ``System2/plugin/scripts/``; nothing pinned the *vendored copies*
 against them. If the plugin tightens a hook-security ban (or changes profile
 resolution) the vendored validator could silently lag, weakening overlay-hook
@@ -11,7 +11,7 @@ validation while the goldens (which exercise the oracle's own copy) still pass.
 This drift guard reads both plugin originals and both vendored copies (all
 **read-only**; no ``System2/`` write lease) and asserts byte-equivalence modulo a
 small, explicitly-enumerated set of sanctioned import-path adjustments — the only
-permitted diff per TASK-101's lift map. The earlier lift reported the copies
+permitted diff per the implementation work's lift map. The earlier lift reported the copies
 byte-identical, so this test asserts strict byte-identity by default and fails
 loudly (``vendored copy drifted / re-vendor required``) on any non-sanctioned diff.
 
@@ -25,12 +25,12 @@ treated as untrusted data.
 import os
 import unittest
 
-# evals/ -> System2-Compiler -> DeliberateCode (workspace root)
+# evals/ -> compiler package root
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PKG_ROOT = os.path.dirname(_THIS_DIR)
-_WORKSPACE_ROOT = os.path.dirname(_PKG_ROOT)
 
-_PLUGIN_SCRIPTS = os.path.join(_WORKSPACE_ROOT, "System2", "plugin", "scripts")
+# The plugin ships as a sibling of the compiler inside the consolidated repo.
+_PLUGIN_SCRIPTS = os.path.abspath(os.path.join(_PKG_ROOT, "..", "plugin", "scripts"))
 
 DRIFT_MESSAGE = "vendored copy drifted / re-vendor required"
 
@@ -46,7 +46,7 @@ _PINS = (
     ),
 )
 
-# The ONLY sanctioned diffs are intra-package import-path relocations (TASK-101
+# The ONLY sanctioned diffs are intra-package import-path relocations (the implementation work
 # adjusted only import paths, no logic). Each entry maps an original import line to
 # the relocated vendored line; both sides are normalized away before byte-compare so
 # a sanctioned relocation is allowed while ANY other byte difference fails loudly.

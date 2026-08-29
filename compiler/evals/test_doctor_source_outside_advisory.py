@@ -8,7 +8,7 @@ out-of-tree sources. The advisory is INFORMATIONAL only — it never changes
 resolves inside the project.
 
 Covered here:
-* goose + pi ``doctor`` surface a ``source_outside_project`` finding on a crafted
+* pi ``doctor`` surfaces a ``source_outside_project`` finding on a crafted
   out-of-tree lock, and NONE on an in-tree lock; status/exit unchanged either way.
 * the shared helper resolves symlinks and ignores empty entries.
 * the claude-code ``_drift_check`` advisory is OFF by default (CLI contract stays
@@ -25,7 +25,6 @@ import unittest
 from system2_compiler import ir
 from system2_compiler.backends.base import lock_sources_outside_project
 from system2_compiler.backends.claude_code import _drift_check
-from system2_compiler.backends.goose import GooseBackend
 from system2_compiler.backends.pi import PiBackend
 from evals import matrix, oracle
 
@@ -78,29 +77,12 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(lock_sources_outside_project([link], proj), [])
 
 
-class GoosePiDoctorAdvisoryTest(unittest.TestCase):
+class PiDoctorAdvisoryTest(unittest.TestCase):
     def _run(self, backend_cls, sources):
         proj = tempfile.mkdtemp(prefix="c1-doctor-")
         self.addCleanup(shutil.rmtree, proj, True)
         backend = _emit(backend_cls, proj, sources)
         return backend.doctor(proj)
-
-    def test_goose_outside_source_advisory(self):
-        # _TEST_OVERLAY lives under the plugin repo, outside the temp project.
-        rpt = self._run(GooseBackend, [_TEST_OVERLAY])
-        self.assertIn("source_outside_project", _kinds(rpt))
-        self.assertNotEqual(rpt.status, "no_lock")
-        # The advisory's exit code tracks status alone (informational only).
-        self.assertEqual(rpt.exit_code, 0 if rpt.status == "current" else 1)
-
-    def test_goose_inside_source_no_advisory(self):
-        proj = tempfile.mkdtemp(prefix="c1-doctor-in-")
-        self.addCleanup(shutil.rmtree, proj, True)
-        local = os.path.join(proj, "local-overlay")
-        shutil.copytree(_TEST_OVERLAY, local)
-        backend = _emit(GooseBackend, proj, [local])
-        rpt = backend.doctor(proj)
-        self.assertNotIn("source_outside_project", _kinds(rpt))
 
     def test_pi_outside_source_advisory(self):
         rpt = self._run(PiBackend, [_TEST_OVERLAY])

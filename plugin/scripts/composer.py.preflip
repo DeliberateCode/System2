@@ -1547,7 +1547,7 @@ _SECTION_RE = re.compile(r"^## (.+)$")
 _GATE_LINE_RE = re.compile(r"^- Gate (\d+) ")
 
 # Contribution type suffixes that are deferred (declared but not applied
-# in Phase 1).
+# in original implementation).
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
 
@@ -2777,7 +2777,7 @@ def _write_outputs(
         dst_file = os.path.join(agents_dir, f"{agent_name}.md")
         binary_copies.append((src_file, dst_file))
 
-    # Phase 0: Identify stale artifacts from previous composition.
+    # initial implementation: Identify stale artifacts from previous composition.
     stale_agents: List[str] = []
     stale_overlay_dirs: List[str] = []
     prev_lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
@@ -2813,7 +2813,7 @@ def _write_outputs(
             if os.path.isfile(prev_agent):
                 stale_agents.append(prev_agent)
 
-    # Phase 1: Back up existing files and overlay directories.
+    # original implementation: Back up existing files and overlay directories.
     backups: List[Tuple[str, str]] = []  # (original_path, backup_path)
     dir_backups: List[Tuple[str, str]] = []  # (original_dir, backup_dir)
     newly_created: List[str] = []
@@ -2845,7 +2845,7 @@ def _write_outputs(
             shutil.copytree(overlay_dir, backup_dir)
             dir_backups.append((overlay_dir, backup_dir))
 
-    # Phase 2: All writes inside a single try block for rollback.
+    # IR/capability implementation: All writes inside a single try block for rollback.
     written: List[str] = []
     dirs_created: List[str] = []
     stale_backups: List[Tuple[str, str]] = []
@@ -2959,7 +2959,7 @@ def _write_outputs(
             written.append(dst_file)
 
     except Exception:
-        # Phase 3: Restore backups and remove newly created files/dirs.
+        # first backend implementation: Restore backups and remove newly created files/dirs.
         for original_path, backup_path in backups:
             if os.path.exists(backup_path):
                 shutil.copy2(backup_path, original_path)
@@ -2990,7 +2990,7 @@ def _write_outputs(
                 shutil.move(bak, orig)
         raise
 
-    # Phase 4: Success — clean up backups.
+    # Pi implementation: Success — clean up backups.
     # must not fail composition since new artifacts are already written.
     for _, backup_path in backups:
         try:

@@ -1,6 +1,6 @@
 """The vendored plugin entry: the ``composer.py`` flag-CLI contract, encoded once.
 
-Phase 5 flips the plugin's ``scripts/composer.py`` to a thin shim that delegates
+convergence implementation flips the plugin's ``scripts/composer.py`` to a thin shim that delegates
 to the vendored bundle's :func:`main_composer_contract`. This module is that
 delegate — the ONE place the ``composer.py`` flag surface (``--doctor`` /
 ``--uninstall`` / ``--from-lock`` / ``--profile`` / ``--save-profile`` /
@@ -15,7 +15,7 @@ is Claude-only — OQ-5.4).
 **Anti-drift.** The contract-faithful dispatch already lives in :mod:`cli` (its
 ``_do_compose`` / ``_do_uninstall`` / ``_do_doctor`` / ``_do_profile`` are pinned
 byte-for-byte against the frozen ``composer.py`` oracle by the CLI-contract
-goldens, TASK-507). This adapter does NOT re-implement any of it: it parses the
+goldens, the implementation work). This adapter does NOT re-implement any of it: it parses the
 flat composer flag surface, applies composer's exact mutual-exclusion /
 sub-flag-rejection refusals, then translates the request into the ``system2``
 verb argv (``compile`` / ``uninstall`` / ``doctor`` / ``from-lock`` / ``profile``,
@@ -29,7 +29,7 @@ entry (the adapter is, with ``--target`` pinned); it ships purely so the one
 dispatch body is shared, not copied. It is stdlib-only, so the bundle stays
 zero-dependency.
 
-Stdlib-only (REQ-016/043): this module imports only stdlib + the vendored
+Stdlib-only (the requirement/043): this module imports only stdlib + the vendored
 compiler product modules (``cli`` → ``ir`` + ``backends``).
 """
 

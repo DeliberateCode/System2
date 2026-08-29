@@ -1,4 +1,4 @@
-"""Plugin-evals-on-bundle gate (Phase 5, HARD).
+"""Plugin-evals-on-bundle gate (convergence implementation, HARD).
 
 Run the plugin's OWN structural + behavioral suite (``System2/evals/test_*.py``)
 against the FLIPPED plugin — the shim delegating to the vendored bundle

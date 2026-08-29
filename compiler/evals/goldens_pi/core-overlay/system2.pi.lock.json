@@ -1,6 +1,6 @@
 {
   "backend": "pi",
-  "pi_version_assumed": "0.79.9",
+  "pi_version_assumed": "0.80.2",
   "enforcement": "extension-native-gates",
   "subagent_isolation": "adapted",
   "FIDELITY": "On Pi, the safety gates (enforce-lease, block-dangerous, protect-sensitive) are NATIVE: the generated extension's on(\"tool_call\") handler hard-blocks before the tool runs. budget is ADAPTED (reported at agent_end, not blocked). format/typecheck are ADVISORY (SYSTEM.md instruction only, not enforced). EMPTY-SCOPE (UNSCOPED) ROLES FAIL CLOSED: one or more roles carry an empty write_scope (read-only roles, e.g. code-reviewer); having no per-path scope, they are UNSCOPED, so the lease gate BLOCKS every write/edit before it runs (an unscoped role cannot write). This is enforcement (fail-closed), NOT an unenforced gap and NOT a silent allow.",

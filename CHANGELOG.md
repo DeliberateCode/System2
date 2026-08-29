@@ -5,6 +5,44 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.2.0] - 2026-08-04
+
+### Added
+
+- **Monorepo consolidation.** The `System2-Compiler` and `System2-UtilitySkills` repositories are being consolidated into this repo (compiler at `compiler/`, the utility skills merged into `plugin/skills/`), preserving full git history via subtree merges. The Claude Code install experience is unchanged (byte-identical composed output; the vendored bundle and `composer.py` shim are untouched).
+- **Breaking (for standalone-marketplace `sys2` users): utility skills merged into `system2`.** The `sys2` plugin's three skills are now part of the `system2` plugin: `/sys2:codex` → `/system2:codex`, `/sys2:gemini` → `/system2:gemini`, `/sys2:stateless-loop` → `/system2:stateless-loop`. The planned two-plugin marketplace hosting and its version-ripple note are superseded and never shipped. Migration: uninstall the old `sys2` plugin, install `system2` from this marketplace. sys2 0.1.x history: versions 0.1.0–0.1.4 shipped from the standalone System2-UtilitySkills repository; that history is preserved in this repo's imported subtree commits (`git log --follow plugin/skills/codex/SKILL.md`) and in the old repository until its archival.
+- **Codex install channel.** A generated Codex plugin at `distributions/codex/` (installable via `codex plugin marketplace add DeliberateCode/System2`, resolved through the root `.agents/plugins/marketplace.json`). Agents are lowered to role skills plus an orchestrator skill (adapted; no native subagent isolation). Safety gates (`block-dangerous`, `protect-sensitive`, `enforce-lease`) are Node command hooks ported from the same proven matcher constants as the Pi backend; they are **advisory until the user reviews and trusts the hooks via `/hooks`**, then adapted (`enforced: false`, `gated: true` at rest, never `native`) with partial tool coverage (shell + apply_patch/Edit/Write only, not WebSearch/other). A three-surface honesty invariant (manifest `description`, README preamble, lock FIDELITY banner) is machine-checked on every change.
+- **Pi install channel (pending publish).** A generated npm package at `distributions/pi/` (`@deliberatecode/pi-system2`) carrying a native safety gate, the 13-role `/delegate` orchestrator, and the System2 skills and prompts; no install scripts and no dependencies. **Not yet published:** the install command is deliberately withheld from user docs until the package is published (the scope was claimed and secured 2026-07-04; publish is Phase 3, user-gated), so the docs cannot direct users at an unservable name.
+- **Repo docs for the three channels.** `README.md` now documents all three install channels with per-channel one-line commands (the Pi command withheld with justification), the utility-skills migration note, the OPEN-G clone-and-run posture for overlays on non-Claude harnesses, and per-channel backout notes. A new local runbook `docs/runbooks/codex-smoke.md` covers the one path CI does not exercise (Codex marketplace resolution + hook-trust canary).
+
+### Changed
+
+- **Version bump: 1.1.1 → 1.2.0.** Absorbing the three utility skills into the `system2` plugin is a minor version bump per semver (new user-facing functionality, backward compatible for existing `system2` installs).
+
+### Fixed
+
+Everything below predates this release (present on the prior 1.1.1 `system2` plugin
+and its test suite) and is fixed by this version. Bugs found and fixed *within* the
+development of this release itself (in code that has never shipped — the new Codex
+and Pi channels, the namespace merge) are not listed separately here; they simply
+don't exist in what ships as 1.2.0.
+
+- The `profile` skill's description contained invalid YAML (an unquoted `: ` inside
+  the frontmatter value), which a strict YAML parser rejects outright — silently
+  breaking that skill on any harness that parses frontmatter strictly.
+- `evals/test_composer_core.py`'s `test_backup_and_restore_on_failure` gave a
+  false pass/fail signal when the test suite is run as root, since root bypasses the
+  POSIX permission check the test relies on to force a write failure; it now skips
+  under root instead of asserting a premise that doesn't hold there.
+- Bare `pytest` at the repo root failed to collect at all (`import file mismatch`)
+  because the `anti-slop-sequence` MAINT-eval fixtures deliberately reuse the
+  filename `test_calculator.py` across four snapshot directories (by design, so the
+  eval can diff the same logical file's evolution) — a pattern pytest's default
+  collection can't disambiguate. Added `pytest.ini` scoping collection away from
+  fixture directories.
+
 ## [1.1.1] - 2026-06-26
 
 ### Changed
@@ -44,7 +82,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `executor`: added explicit prohibition against embedding spec artifact IDs (REQ-xxx, TASK-xxx, DES-xxx) in production code comments or docstrings. Traceability belongs in spec/ artifacts and git history, not in code annotations that go stale on first refactor.
+- `executor`: added an explicit prohibition against embedding planning-artifact identifiers in production code comments or docstrings. Traceability belongs in specifications and git history, not in code annotations that go stale on first refactor.
 - `code-reviewer`: minimality checklist now flags spec artifact IDs leaking into code comments. Simplification mode's "removable comments" category expanded to include spec ID annotations.
 
 ## [1.0.0] - 2026-06-05
@@ -85,7 +123,7 @@ Anti-additive bias and simplification pass across agents, hooks, and evals to re
 - Module boundary enforcement: `boundary-check.py` PreToolUse hook validates imports against `spec/module-boundaries.json`.
 - Boundary artifact outputs for `design-architect`: emits `spec/interfaces.json` (public exports per module) and `spec/module-boundaries.json` (allowed/forbidden import paths) alongside `spec/design.md`.
 - Anti-slop sequence eval suite (`evals/fixtures/anti-slop-sequence/`): 4-task progressive coding sequence with golden files testing whether the executor avoids unnecessary abstractions across sequential changes.
-- `EVAL-SEC-004` eval validating all allowlist `.regex` files contain compilable patterns.
+- `evaluation` eval validating all allowlist `.regex` files contain compilable patterns.
 - Stale task-lease/budget file cleanup during session bootstrap.
 
 ### Changed
@@ -119,7 +157,7 @@ Add a bounded corrective path for non-local regressions while preserving the exi
 - Maintenance evals for `eval-engineer` — sequential change-sequence authoring with metrics for regression-free completion, diff size growth, interface churn, and corrective cycle count.
 - `spec/regression-ledger.md` as a formal artifact with `allowlists/regression-ledger.regex` and tracked in `agent_allowlist_bindings.json` as an unbound allowlist.
 - `spec/regression-ledger.md` listed in `design-architect` inputs for context when refreshing design after corrective requirements.
-- `EVAL-SEC-004` — validates all allowlist `.regex` files contain compilable regex patterns.
+- `evaluation` — validates all allowlist `.regex` files contain compilable regex patterns.
 - `Maintenance / Regression Loop` added to `template_sections.json` required headings.
 
 ### Changed

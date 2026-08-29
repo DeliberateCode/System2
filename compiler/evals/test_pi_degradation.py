@@ -1,9 +1,9 @@
-"""TASK-409 — Mixed-status Pi degradation tests (the PG6 win, applied to Pi).
+"""the implementation work — Mixed-status Pi degradation tests (the PG6 win, applied to Pi).
 
 Pure artifact inspection (no node/pi needed). Emits a ``core+overlay`` IR (a
 multi-capability pipeline) into a temp ``project_path`` and asserts the Pi
 degradation report (``system2.pi.lock.json``) is real, honest, and **MIXED** — the
-inverse of Goose's nothing-native invariant (design §"Degradation report", §"Test/
+inverse of a nothing-native invariant (design §"Degradation report", §"Test/
 validity strategy" leg 4; AC-P4/AC-P5):
 
 * (a) per-capability ``status`` **equals** the ``pi.json`` descriptor status;
@@ -116,7 +116,7 @@ class PiDegradationReportTest(unittest.TestCase):
             )
 
     def test_report_is_mixed_native_adapted_advisory(self):
-        # (b) the inverse of Goose: native AND adapted AND advisory all present.
+        # (b) native AND adapted AND advisory all present (a MIXED report).
         statuses = {entry["status"] for entry in self.caps.values()}
         self.assertIn("native", statuses, "Pi report must contain native capabilities")
         self.assertIn("adapted", statuses, "Pi report must contain an adapted capability")
@@ -179,7 +179,7 @@ class PiDegradationReportTest(unittest.TestCase):
         )
 
     def test_overlay_sources_is_last_additive_key(self):
-        # Phase 5: emit appends overlay_sources[] as the LAST lock key, recording
+        # convergence implementation: emit appends overlay_sources[] as the LAST lock key, recording
         # the producing overlay source set. Stripping it (the only new key) must
         # reproduce the prior degradation-report-only lock bytes byte-for-byte.
         project = tempfile.mkdtemp(prefix="pi-srcs-")

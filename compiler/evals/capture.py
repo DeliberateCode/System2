@@ -36,11 +36,11 @@ from evals import matrix, oracle
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # The anchor the `core` cell's structural-golden references are stored RELATIVE to:
-# the parent dir that contains the (read-only) ``System2/`` plugin repo. Derived from
-# the portable plugin-root resolution so it tracks a sibling layout or a
-# ``SYSTEM2_PLUGIN_ROOT`` override, while keeping the frozen ``System2/...``-prefixed
-# relative paths byte-identical.
-_WORKSPACE_ROOT = os.path.dirname(oracle.PLUGIN_REPO_ROOT)
+# the plugin repo root (the dir that holds the read-only ``evals/goldens/`` tree).
+# Derived from the portable plugin-root resolution so it tracks a sibling layout or a
+# ``SYSTEM2_PLUGIN_ROOT`` override; the stored paths are repo-relative
+# (``evals/goldens/…``) and resolve to ``<repo-root>/<path>``.
+_WORKSPACE_ROOT = oracle.PLUGIN_REPO_ROOT
 
 DEFAULT_GOLDENS_DIR = os.path.join(_THIS_DIR, "goldens")
 
@@ -63,6 +63,7 @@ _STRUCTURAL_GOLDEN_FILES = (
     "manifest_schemas.json",
     "prohibited_patterns.json",
     "required_readme_patterns.json",
+    "skill_inventory.json",
 )
 
 
@@ -160,7 +161,7 @@ def _materialize_profile_home(cell: "matrix.Cell") -> str:
     """Create a hermetic HOME containing ``.system2/profiles.json`` from the store fixture.
 
     The store's ``overlays[].path`` is rewritten to the resolved absolute ``TEST_OVERLAY``
-    so the baseline is root-correct (TASK-007 portability note).
+    so the baseline is root-correct.
     """
     home = tempfile.mkdtemp(prefix="capture-home-")
     os.makedirs(os.path.join(home, ".system2"), exist_ok=True)
@@ -281,7 +282,7 @@ def capture_all(
     """Capture declared matrix cells into ``goldens_dir``.
 
     ``rebaseline`` is accepted for symmetry with the runner; capture always (re)writes the
-    snapshot tree from the oracle, which is the baseline-materialization step (TASK-006).
+    snapshot tree from the oracle, which is the baseline-materialization step (the implementation work).
     ``only`` restricts capture to a single named cell (the rest of the frozen baseline is
     left byte-for-byte untouched); ``assert_complete`` is then skipped so a partial capture
     does not fail on the unbuilt cells.

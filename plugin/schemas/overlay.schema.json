@@ -187,7 +187,7 @@
             "properties": {
               "prompt_sections": {
                 "type": "object",
-                "description": "Prompt section contributions keyed by anchor name. Valid anchor names vary per agent; see anchor-map.json for the full mapping. In Phase 1, prompt sections flow through composed CLAUDE.md delegation instructions (summary inline, full text as file pointer). Phase 2 may materialize them into agent system prompts.",
+                "description": "Prompt section contributions keyed by anchor name. Valid anchor names vary per agent; see anchor-map.json for the full mapping. In original implementation, prompt sections flow through composed CLAUDE.md delegation instructions (summary inline, full text as file pointer). IR/capability implementation may materialize them into agent system prompts.",
                 "additionalProperties": {
                   "type": "array",
                   "items": {
@@ -221,7 +221,7 @@
               },
               "tools": {
                 "type": "array",
-                "description": "Tools to add to this agent's tool list. Deferred in Phase 1: declared contributions are validated but not registered in agent frontmatter until Phase 3.",
+                "description": "Tools to add to this agent's tool list. Deferred in original implementation: declared contributions are validated but not registered in agent frontmatter until first backend implementation.",
                 "items": {
                   "type": "object",
                   "required": ["tool_name", "justification"],
@@ -239,7 +239,7 @@
               },
               "hooks": {
                 "type": "array",
-                "description": "Hooks to add to this agent's hook configuration. Deferred in Phase 1: declared hooks are security-validated at composition time but not registered in agent frontmatter until Phase 3. Hook scripts must use Python 3.8+ stdlib only.",
+                "description": "Hooks to add to this agent's hook configuration. Deferred in original implementation: declared hooks are security-validated at composition time but not registered in agent frontmatter until first backend implementation. Hook scripts must use Python 3.8+ stdlib only.",
                 "items": {
                   "type": "object",
                   "required": ["event", "command"],

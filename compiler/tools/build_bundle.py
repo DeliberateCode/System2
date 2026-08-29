@@ -1,8 +1,8 @@
 """Deterministic bundler: emit the vendored, stdlib-only ``_system2_compiler/`` subtree.
 
-Phase 5 (AC-5.5, OQ-5.4). The plugin ships a verbatim copy of the compiler's
+convergence implementation (AC-5.5, OQ-5.4). The plugin ships a verbatim copy of the compiler's
 product modules so its runtime stays ZERO-DEPENDENCY (G7/C3). This tool generates
-that copy from the ``System2-Compiler`` source:
+that copy from the ``compiler/`` source:
 
     <dest>/_system2_compiler/
         system2_compiler/      (the product package — verbatim)
@@ -19,7 +19,7 @@ dispatch (so the adapter and ``cli.py`` cannot drift). ``cli.py`` therefore ship
 as the adapter's private implementation dependency — not as an exposed entry; the
 multi-target ``cli.main`` is never reachable from the plugin because the adapter
 pins the target. Both are stdlib-only, so the bundle is stdlib-only by
-construction (a pure copy of the stdlib-only compiler — REQ-016/043).
+construction (a pure copy of the stdlib-only compiler — the requirement/043).
 
 The bundle is a PURE COPY (no import rewriting): the package structure is
 preserved so imports resolve as-is and the module-boundary / stdlib-only
@@ -36,9 +36,16 @@ silently drop it (the regression that motivated ``_BUNDLE_COMPANIONS``).
 
 ``BUNDLE.json`` records ``compiler_source_sha256`` (the drift anchor — a sha256
 over the sorted ``(relpath, bytes)`` of the copied source), ``compiler_version``,
-``generated_from`` (``System2-Compiler@<git-rev>``), and ``bundled_at`` (ISO).
+``generated_from`` (``System2@<short-rev>`` — the consolidated repo's HEAD at regen
+time, informational only and EXCLUDED from the hash), and ``bundled_at`` (ISO).
 ``bundled_at`` is EXCLUDED from the hash so a re-bundle of identical source is
-hash-stable (the drift guard depends on this).
+hash-stable (the drift guard depends on this). The drift anchor stays
+``compiler_source_sha256``, whose relpath basis (``system2_compiler/…``) is
+unchanged by the in-repo move.
+
+Note the inherent one-commit lag in ``generated_from``: the recorded rev is HEAD at
+regen time, i.e. the PARENT of the commit that then records the regenerated bundle —
+same semantics as before the consolidation.
 
 Stdlib-only, emit-only, deterministic. ``--dest`` lets the generator write into a
 TEMP dir (this tool never writes into ``System2/plugin/`` itself — that is the
@@ -167,7 +174,12 @@ def _compiler_version(compiler_root: str) -> str:
 
 
 def _git_rev(compiler_root: str) -> str:
-    """Return the short git rev of the compiler source, or ``unknown``."""
+    """Return the short git rev of the consolidated repo HEAD, or ``unknown``.
+
+    ``compiler_root`` lives inside the consolidated ``System2`` repo (subtree, no
+    own ``.git``), so this resolves the monorepo's HEAD — the one-commit-lag rev
+    stamped into ``generated_from`` as ``System2@<short-rev>``.
+    """
     try:
         rev = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -203,7 +215,7 @@ def build_bundle(compiler_root: str, dest: str) -> dict:
     manifest = {
         "compiler_source_sha256": source_hash,
         "compiler_version": _compiler_version(compiler_root),
-        "generated_from": f"System2-Compiler@{_git_rev(compiler_root)}",
+        "generated_from": f"System2@{_git_rev(compiler_root)}",
         "bundled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     with open(os.path.join(bundle_root, "BUNDLE.json"), "w", encoding="utf-8") as fh:

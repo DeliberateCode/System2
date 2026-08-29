@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "system2-compiler"
 version = "0.1.0"
-description = "Harness-neutral compiler for System2 overlay composition (IR + pluggable backends), targeting Claude Code, Goose, and Pi."
+description = "Harness-neutral compiler for System2 overlay composition (IR + pluggable backends), targeting Claude Code, Pi, and Codex."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
     { name = "James Nordlund", email = "james.nordlund@gmail.com" },
 ]
-keywords = ["system2", "compiler", "overlays", "claude-code", "goose", "pi", "agent"]
+keywords = ["system2", "compiler", "overlays", "claude-code", "pi", "codex", "agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -32,9 +32,9 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/DeliberateCode/System2-Compiler"
-Repository = "https://github.com/DeliberateCode/System2-Compiler"
-Changelog = "https://github.com/DeliberateCode/System2-Compiler/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/DeliberateCode/System2"
+Repository = "https://github.com/DeliberateCode/System2"
+Changelog = "https://github.com/DeliberateCode/System2/blob/main/compiler/CHANGELOG.md"
 
 [project.scripts]
 system2 = "system2_compiler.cli:main"
@@ -49,3 +49,10 @@ packages = [
 
 [tool.setuptools.package-data]
 "system2_compiler.backends.capabilities" = ["*.json"]
+# PR #10 review finding 6 (Codex second-opinion review, round 2): `system2 codex
+# init` needs its user-hooks reference tree available regardless of install
+# method. Mirrored into the package by compiler/tools/regen_all.py's
+# _mirror_user_hooks_into_package (single source of truth: CodexBackend's own
+# emit output, never a second hand-authored copy) -- see
+# system2_compiler/_packaged_data/codex_user_hooks/.
+"system2_compiler" = ["_packaged_data/codex_user_hooks/**/*"]

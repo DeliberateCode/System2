@@ -5,36 +5,27 @@ composes System2 core plus overlays plus a profile into a single intermediate
 representation (the **System2 graph** / IR), then lowers that IR onto a concrete
 agent harness through a capability-typed **backend**.
 
-There are **three** backends, each now with a **full per-target lifecycle**
+There are **two** backends, each now with a **full per-target lifecycle**
 (compile + uninstall + doctor + from-lock):
 
 - **`claude-code`** — the privileged, full-fidelity *reference* target. It
   reproduces the System2 plugin's existing `composer.py` output **byte-for-byte**,
   and every safety capability is `native` (enforced — hooks exit non-zero).
-- **`goose`** — the second backend (Phase 3). It lowers the same IR onto a Goose
-  **recipe** workflow plus enforcement artifacts. Goose has no
-  PreToolUse/PostToolUse/SubagentStop hooks, so **nothing is `native`** here:
-  `block-dangerous`/`protect-sensitive` are `adapted` (a Goose permission policy +
-  `smart_approve`, delivered via an ephemeral `XDG_CONFIG_HOME`), and
-  `enforce-lease`/`format`/`typecheck`/`budget` are `advisory` (labelled
-  instruction text). A standalone degradation report makes that loud and
-  machine-readable.
-- **`pi`** — the third backend (Phase 4), and the **high-fidelity** one. Pi has
+- **`pi`** — the second backend (Phase 4), and the **high-fidelity** one. Pi has
   **no** built-in permission system, so the compiler generates a TypeScript
   extension whose `on("tool_call")` handler returns `{ block: true, reason }`
   **before** a tool runs — the handler *is* the gate. This makes
   `enforce-lease`/`block-dangerous`/`protect-sensitive` genuinely **native**
   (deterministic pre-execution blocks), `budget` `adapted` (an `agent_end`
   report, not a block), and `format`/`typecheck` `advisory` (instruction text).
-  It is the project's first **MIXED-status** backend, and the marquee result: the
-  write-lease that is only *advisory* on Goose is **really enforced** on Pi.
+  It is the project's first **MIXED-status** backend.
 
 The core idea: `composer.py` was already a compiler with one hardcoded backend.
 This package cuts the seam that already existed — a harness-neutral front-end
 (`compose`) on one side, a Claude projection (`emit`) on the other — so that
 overlay authors write domain guidance *once* and additional harnesses become
 "declare a capability map and write a backend," with no change to overlays,
-agents, or the template. Goose proved the seam; Pi proves it carries **native
+agents, or the template. Pi proves the seam carries **native
 enforcement** onto a second harness; Phase 5 grows that seam from a single `emit`
 into a full lifecycle and **converges the live plugin onto the compiler** — all
 under `backends/`, with **zero** change to overlays, agents, or the byte output
@@ -42,8 +33,8 @@ of the `claude-code` backend.
 
 ## Status
 
-This package implements **Phases 0–5** of the rollout. **All six phases are
-complete**: the compiler is feature-complete across Claude Code, Goose, and Pi
+This package implements **Phases 0–5** of the rollout. **All phases are
+complete**: the compiler is feature-complete across Claude Code and Pi
 with full lifecycle parity, and the live System2 plugin has converged onto the
 vendored compiler bundle.
 
@@ -52,12 +43,11 @@ vendored compiler bundle.
 | **Phase 0 — Freeze** | Output-level golden suite snapshotting the live `composer.py`; the plugin's `composer.py` is the hash-pinned frozen reference oracle. | Done |
 | **Phase 1 — Extract IR / split compose-from-render** | Front-end lifted into `ir/` (produces a `System2Graph`); Claude projection lifted behind `Backend.emit(ir, project_path)` as `backends/claude_code.py`; `cli.py` added. Output is byte-identical to the oracle across the golden matrix. | Done |
 | **Phase 2 — Anchors → IR + capability model** | Overlay anchors resolved against the IR (not literal-heading matching); agents declare *intent* capabilities; per-backend capability descriptors and a per-capability degradation report appended to the lock file. | Done |
-| **Phase 3 — Goose backend** | A second backend (`backends/goose.py`) lowering the same IR to a Goose recipe workflow: an orchestrator recipe, 13 role sub-recipes, a permission policy, an honest standalone degradation report, and a thin launcher. Recipes are gated by the real `goose recipe validate`. No `ir/` or `claude-code` change. | Done |
-| **Phase 4 — Pi backend** | A third backend (`backends/pi.py`) lowering the same IR to a Pi **extension** plus context/skill/prompt markdown. The generated `.pi/extensions/system2.ts` gate **natively blocks** via `on("tool_call")`; a shared degradation helper (PG6) drives the honest MIXED report; native blocking is proven by a synthetic-`tool_call` node harness. No `ir/` change to the `claude-code`/`goose` byte output. | Done |
+| **Phase 4 — Pi backend** | A second backend (`backends/pi.py`) lowering the same IR to a Pi **extension** plus context/skill/prompt markdown. The generated `.pi/extensions/system2.ts` gate **natively blocks** via `on("tool_call")`; a shared degradation helper (PG6) drives the honest MIXED report; native blocking is proven by a synthetic-`tool_call` node harness. No `ir/` change to the `claude-code` byte output. | Done |
 | **Phase 5 — Convergence & Lifecycle Parity** | The `Backend` contract grows from a single `emit` into a four-method **lifecycle** (`emit` + `uninstall` + `doctor` + `recompose_from_lock`); the CLI reaches **full parity** with `composer.py` (`compile`/`uninstall`/`doctor`/`from-lock`/`profile`); and the **live plugin converges** onto a vendored, stdlib-only compiler bundle behind a thin `composer.py` shim, guarded by a tamper + staleness drift check. Byte-identical Claude output preserved across the flip. | Done |
 
-The Goose and Pi backends remain purely additive — selected only via
-`--target goose` / `--target pi`. After the Phase 5 convergence flip the plugin's
+The Pi backend remains purely additive — selected only via
+`--target pi`. After the Phase 5 convergence flip the plugin's
 `composer.py` is a thin shim over the vendored `claude-code` bundle; the Claude
 end-user experience is **unchanged** (byte-identical output, identical CLI
 contract, zero runtime dependency), with a one-environment-variable escape hatch
@@ -82,13 +72,11 @@ System2-Compiler/
 │   ├── backends/
 │   │   ├── base.py              Backend protocol: emit + uninstall + doctor + from-lock lifecycle
 │   │   ├── claude_code.py       The Claude projection (byte-identical reference) + lifecycle
-│   │   ├── goose.py             The Goose projection (recipe workflow, Phase 3) + lifecycle
 │   │   ├── pi.py                The Pi projection (native TS-gate extension, Phase 4) + lifecycle
 │   │   ├── _degradation.py      Shared descriptor-driven degradation helper (PG6, Phase 4)
-│   │   ├── _yaml.py             Internal, stdlib-only block-YAML serializer (Phase 3)
+│   │   ├── _yaml.py             Internal, stdlib-only block-YAML serializer (retained shared infra)
 │   │   └── capabilities/
 │   │       ├── claude_code.json Per-capability status descriptor (all native)
-│   │       ├── goose.json       Per-capability status descriptor (adapted/advisory)
 │   │       └── pi.json          Per-capability status descriptor (MIXED: native/adapted/advisory)
 │   ├── plugin_adapter.py        Bundle ENTRY: the composer.py flag contract, --target pinned to claude-code
 │   └── cli.py                   `system2` verb dispatcher: compile/uninstall/doctor/from-lock/profile
@@ -131,13 +119,9 @@ System2/plugin/scripts/
      `spec/overlay-manifest.lock`, overlay-contributed auxiliary agent files
      (`.claude/agents/<aux>.md`), and overlay content copies under
      `.system2/overlays/<name>/`, using atomic write with backup/restore.
-   - The `goose` backend writes the Goose recipe tree (see below), also under
-     `project_path` only, with the same backup/restore posture. It renders from
-     the **structured** IR fields only; it never consumes `base_template` /
-     `OverlayInput` (the Claude-targeted byte-fidelity carriers).
    - The `pi` backend writes the Pi extension + context/skill/prompt tree (see
      below), also under `project_path` only, with the same backup/restore
-     posture. Like Goose, it renders from the **structured** IR fields only and
+     posture. It renders from the **structured** IR fields only and
      never consumes `base_template` / `OverlayInput`.
 
 The IR is the *sole* interface between the front-end and any backend: no backend
@@ -146,14 +130,14 @@ reads manifests, the anchor map, profiles, or the schema directly.
 ### Lifecycle parity (Phase 5)
 
 Phase 1 declared a single `emit` seam. Phase 5 grows the `Backend` contract
-(`backends/base.py`) into a **four-method lifecycle** so Goose and Pi reach
+(`backends/base.py`) into a **four-method lifecycle** so Pi reaches
 feature-completeness alongside Claude — each backend owns its own artifact
 lifecycle, exactly the seam Phase 1 cut for `emit`:
 
 - **`emit(ir, project_path)`** — the projection (unchanged from Phase 1).
 - **`uninstall(project_path, overlay_name, *, dry_run)`** — remove one overlay.
   Recompose the remaining recorded sources → `emit`; on the *last* overlay, revert
-  to base (Claude) or **remove the generated tree** (Goose/Pi) and clean empty
+  to base (Claude) or **remove the generated tree** (Pi) and clean empty
   dirs, with atomic backup/restore. Returns a neutral `UninstallResult`.
 - **`doctor(project_path)`** — a read-only drift/status check. Returns a neutral
   `DoctorReport` with a `status` of `current | stale_base | stale_overlay |
@@ -168,40 +152,21 @@ A backend reads only its **own** target lock + artifacts under `project_path`
 recompose arrives as an already-recomposed IR.
 
 **Per-target lifecycle via additive lock keys.** Claude already records its
-overlay set in `spec/overlay-manifest.lock`. Goose and Pi gain an **additive
-`overlay_sources[]`** key (appended last to `system2.goose.lock.json` /
+overlay set in `spec/overlay-manifest.lock`. Pi gains an **additive
+`overlay_sources[]`** key (appended last to
 `system2.pi.lock.json`, mirroring the Claude lock's additive `degradation_report`)
 so `uninstall` / `from-lock` can recompose the right set. The key is byte-additive
-— it is a new trailing key — and re-baselines the Goose / Pi golden exactly once.
+— it is a new trailing key — and re-baselines the Pi golden exactly once.
 
-**Honest doctor on Goose/Pi.** The Claude `doctor` ports the oracle's drift check
-byte-for-byte (exit 0 iff `current`). Goose/Pi `doctor` runs the same structural
-checks and additionally shells the **real validator** (`goose recipe validate` /
+**Honest doctor on Pi.** The Claude `doctor` ports the oracle's drift check
+byte-for-byte (exit 0 iff `current`). Pi's `doctor` runs the same structural
+checks and additionally shells the **real validator** (
 the Pi extension load); when that validator is absent it surfaces a **LOUD**
 `validator_unavailable` finding rather than a silent `current`.
 
 The CLI verbs (below) are thin contract-faithful wrappers over this lifecycle;
 the claude-code path of every verb reproduces the frozen oracle's exact arg names,
 exit codes, stdout/stderr bodies, and JSON envelopes.
-
-### The Goose backend (Phase 3)
-
-`backends/goose.py` lowers the same `System2Graph` to a Goose recipe workflow.
-`emit` writes the following deterministic tree under `project_path` (output is a
-pure function of the IR — no timestamps; identical IR → byte-identical artifacts):
-
-| Artifact | Contents |
-|----------|----------|
-| `system2.recipe.yaml` | Orchestrator recipe: the gate graph 0→5 as an ordered checklist, the delegation contract (required fields + the 13-role preferred order), the post-execution and maintenance policy, and `sub_recipes` referencing the 13 role recipes — all rendered from the *structured* IR. |
-| `agents/<role>.recipe.yaml` (×13) | One isolated-session sub-recipe per pipeline role: persona, gate-role, write-scope, `settings.goose_model` from `model_hint` when present, and per-role advisory capability blocks. Role recipes declare **no** nested `sub_recipes` (maps onto "subagents cannot spawn subagents"). |
-| `goose/permission.yaml` | The generated permission policy fragment: `user:` tool entries (`Bash`/`shell`/`Read`/`Write`/`Edit` → `ask_before`) plus the named `never_allow_commands` dangerous set. This is the `adapted` enforcement path, not a native block. |
-| `system2.goose.lock.json` | The standalone degradation report (the Goose analogue of the Claude lock's `degradation_report`): every IR capability with its `status`, `mechanism`, `enforced`/`gated` flags, a LOUD `DEGRADATION` banner, and (Phase 5) the additive `overlay_sources[]` key for the lifecycle verbs. |
-| `run-system2.sh` | The thin generated launcher (executable). It validates every recipe, builds an ephemeral `XDG_CONFIG_HOME`, and runs `goose run`. No workflow logic, no policy lives in bash. |
-
-YAML is emitted by `backends/_yaml.py`, an internal stdlib-only block-YAML
-serializer for the closed Goose-recipe subset (no PyYAML; no third-party
-dependency). Correctness is gated empirically by the real `goose recipe validate`
-in the test suite, not by a hand-written full YAML grammar.
 
 ### The Pi backend (Phase 4) — native enforcement
 
@@ -210,8 +175,7 @@ context/skill/prompt markdown. The headline: **Pi has no built-in permission
 system**, so the generated `.pi/extensions/system2.ts` extension's
 `on("tool_call")` handler — which fires *before* a tool runs and can
 `return { block: true, reason }` — **is** the gate. That handler is what makes
-the safety capabilities genuinely `native` (a deterministic pre-execution block),
-distinct from Goose's LLM-mediated `smart_approve` *adapted* gate.
+the safety capabilities genuinely `native` (a deterministic pre-execution block).
 
 `emit` writes the following deterministic tree under `project_path` (output is a
 pure function of the IR plus backend-owned constants — no timestamps; identical IR
@@ -243,8 +207,7 @@ than blocking everything).
 read-only from the same Claude per-agent `.regex` path allowlists that
 `validate-file-paths.py` uses (e.g. `executor.regex`), carried on the IR `Role`.
 The Pi lease gate compiles that scope into its per-path block, so `enforce-lease`
-is a genuinely-scoped native lease on Pi — the capability that is merely
-`advisory` on Goose. A role with no dedicated allowlist keeps an empty scope (no
+is a genuinely-scoped native lease on Pi. A role with no dedicated allowlist keeps an empty scope (no
 broad fallback that would over-permit); the report says so loudly rather than
 making a vacuous native claim. The `claude-code` backend never reads
 `write_scope`, so its bytes are unchanged.
@@ -268,68 +231,45 @@ assigns every capability exactly one **status**:
 | `advisory` | Prompt text only — described, not enforced. |
 | `unsupported` | Not represented. |
 
-Per-backend status (verified against the descriptors) — the three-way contrast
-between **native** (Claude & Pi) and **adapted/advisory** (Goose):
+Per-backend status (verified against the descriptors) — **native** (Claude & Pi)
+versus Pi's own **adapted** capability:
 
-| Capability | `claude-code` | `goose` | `pi` |
-|------------|---------------|---------|------|
-| `enforce-lease` | native (write-lease lifecycle + path allowlists) | **advisory** — no per-path write gate | **native** — `on("tool_call")` blocks an off-`write_scope` write before it runs (scope sourced from the Claude `.regex` allowlists) |
-| `block-dangerous` | native (`dangerous-command-blocker.py`) | adapted — permission policy + `smart_approve` | **native** — `on("tool_call")` hard-blocks a dangerous bash command before it runs |
-| `protect-sensitive` | native (`sensitive-file-protector.py` + `boundary-check.py`) | adapted — permission policy + `smart_approve` | **native** — `on("tool_call")` hard-blocks any read/write/edit/bash touching a sensitive path |
-| `format` | native (`auto-formatter.py`, PostToolUse) | advisory — no PostToolUse hook | advisory — instruction text only (no post-edit formatter seam) |
-| `typecheck` | native (`type-checker.py`, PostToolUse) | advisory — no PostToolUse hook | advisory — instruction text only (no post-edit type-check seam) |
-| `budget` | native (`change-budget-reporter.py`, SubagentStop) | advisory — no SubagentStop hook | **adapted** — `on("agent_end")` reports the change budget (a report, not a block) |
+| Capability | `claude-code` | `pi` |
+|------------|---------------|------|
+| `enforce-lease` | native (write-lease lifecycle + path allowlists) | **native** — `on("tool_call")` blocks an off-`write_scope` write before it runs (scope sourced from the Claude `.regex` allowlists) |
+| `block-dangerous` | native (`dangerous-command-blocker.py`) | **native** — `on("tool_call")` hard-blocks a dangerous bash command before it runs |
+| `protect-sensitive` | native (`sensitive-file-protector.py` + `boundary-check.py`) | **native** — `on("tool_call")` hard-blocks any read/write/edit/bash touching a sensitive path |
+| `format` | native (`auto-formatter.py`, PostToolUse) | advisory — instruction text only (no post-edit formatter seam) |
+| `typecheck` | native (`type-checker.py`, PostToolUse) | advisory — instruction text only (no post-edit type-check seam) |
+| `budget` | native (`change-budget-reporter.py`, SubagentStop) | **adapted** — `on("agent_end")` reports the change budget (a report, not a block) |
 
 The active backend emits a **degradation report** enumerating every IR capability
 with its status. No capability is ever dropped silently: if it is present in the
 IR but absent from the descriptor, emit raises rather than dropping it. For
 `claude-code` the report is the single additive `degradation_report` key in
-`spec/overlay-manifest.lock`; for `goose` it is the standalone
-`system2.goose.lock.json`; for `pi` it is the standalone `system2.pi.lock.json`
-(neither Goose nor Pi has a lock to append to, and a separate file keeps the
+`spec/overlay-manifest.lock`; for `pi` it is the standalone `system2.pi.lock.json`
+(Pi has no lock to append to, and a separate file keeps the
 Claude lock byte-untouched).
 
-All three backends derive that report through one shared, descriptor-driven
+Both backends derive that report through one shared, descriptor-driven
 helper, **`backends/_degradation.py` (PG6)**. It owns the per-capability
 report-record assembly and the total `status → (enforced, gated)` flag rule over
 the four-value enum (`native` → enforced; `adapted` → gated; `advisory`/
 `unsupported` → neither). Each backend keeps its own report envelope and `fields`
-selection, so the serialized bytes of the existing Claude and Goose reports are
+selection, so the serialized bytes of the existing Claude report are
 unchanged, while Pi's MIXED status is correct by construction. This is what lets a
-single backend honestly report **native and non-native capabilities together** —
-the gap the Goose-shaped (nothing-native) machinery could not have expressed.
+single backend honestly report **native and non-native capabilities together**.
 
 > The enforced-vs-advisory distinction is the central safety property of this
-> project. On Claude **and now Pi** the safety primitives actually block (Claude
+> project. On Claude and Pi the safety primitives actually block (Claude
 > hooks exit non-zero; Pi's `on("tool_call")` handler returns `{ block: true }`
-> before the tool runs). On Goose they cannot, so `block-dangerous`/
-> `protect-sensitive` degrade to a best-effort permission gate (`adapted`) and the
-> rest to `advisory` instruction text. Every backend's degradation report and its
-> headline banner exist so a user can always read which capabilities are
+> before the tool runs), except for Pi's `budget` (adapted) and `format`/
+> `typecheck` (advisory instruction text). Every backend's degradation report and
+> its headline banner exist so a user can always read which capabilities are
 > *enforced* versus merely *adapted* or *described* on their harness. `adapted` is
 > not `enforced`; `advisory` is not `enforced`.
 
-### Goose enforcement delivery (ephemeral `XDG_CONFIG_HOME`)
-
-Goose's per-tool `permission.yaml` is **global** (`~/.config/goose/`), not
-project-scoped, so the adapted policy cannot be delivered by a file inside the
-project alone. The split is:
-
-- **`emit` stays home-dir-free.** It writes the policy fragment only as the
-  project-local `goose/permission.yaml`; it never touches `$HOME`. This keeps
-  `emit` pure, deterministic, and testable (a test proves the real
-  `~/.config/goose` is untouched).
-- **The launcher owns delivery, reversibly.** By **default**, `run-system2.sh`
-  builds a throwaway `XDG_CONFIG_HOME` dir, copies the user's own `config.yaml`
-  (provider/model/keys) and the System2 `permission.yaml` into it, runs `goose`
-  with `XDG_CONFIG_HOME` pointed there, and removes the dir on exit. It **never**
-  mutates `~/.config/goose`. The adapted policy is the safe default — there is no
-  global mutation to opt into.
-  - `SYSTEM2_NO_PERMISSIONS=1` runs against the user's own config instead, with a
-    LOUD notice that the adapted gates are NOT active that run.
-  - `SYSTEM2_KEEP_CONFIG=1` retains the ephemeral dir for debugging.
-
-By contrast, the Pi extension needs **no** such delivery dance: it is
+The Pi extension needs no delivery dance for its enforcement: it is
 auto-discovered from the project-local `.pi/extensions/` directory, so the native
 gates are active simply by running Pi from the project root.
 
@@ -418,21 +358,21 @@ leading `--target` (or no subcommand) dispatches to `compile`, so the historical
 `--target …` invocation is unchanged.
 
 ```
-system2 compile   --target {claude-code|goose|pi}
+system2 compile   --target {claude-code|pi}
                   ( --profile NAME | --overlays P1,P2,… | --from-lock )
                   --base PATH --project PATH
                   [--dry-run] [--allow-newer-schema] [--allow-injection]
                   [--format text|json]
 
-system2 uninstall --target {claude-code|goose|pi}
+system2 uninstall --target {claude-code|pi}
                   --base PATH --project PATH --name OVERLAY
                   [--dry-run] [--allow-newer-schema] [--allow-injection]
                   [--format text|json]
 
-system2 doctor    --target {claude-code|goose|pi}
+system2 doctor    --target {claude-code|pi}
                   --base PATH --project PATH [--format text|json]
 
-system2 from-lock --target {claude-code|goose|pi}
+system2 from-lock --target {claude-code|pi}
                   --base PATH --project PATH
                   [--dry-run] [--allow-newer-schema] [--allow-injection]
                   [--format text|json]
@@ -459,8 +399,8 @@ pip install dist/system2_compiler-*.whl
 #   pip install "system2-compiler @ git+ssh://…/System2-Compiler.git"
 ```
 
-This puts the `system2` console script on `PATH`. The "System2 for Goose / Pi"
-examples are **not** separately packaged — they live in `examples/` in this repo.
+This puts the `system2` console script on `PATH`. The "System2 for Pi"
+example is **not** separately packaged — they live in `examples/` in this repo.
 
 Once installed, run the `system2` console script; or, from a source checkout
 without installing, run `python3 -m system2_compiler.cli` from the repo root:
@@ -494,9 +434,7 @@ system2 doctor --target claude-code \
   --base /path/to/System2 \
   --project /path/to/my-project
 
-# Lower the SAME composition onto Goose (recipe tree + launcher) or Pi (native TS-gate extension):
-system2 compile --target goose \
-  --base /path/to/System2 --project /path/to/my-project --overlays /path/to/overlay-a
+# Lower the SAME composition onto Pi (native TS-gate extension):
 system2 compile --target pi \
   --base /path/to/System2 --project /path/to/my-project --overlays /path/to/overlay-a
 
@@ -518,7 +456,7 @@ Flag reference for the write/lifecycle verbs (verified against `cli.py`):
 
 | Flag | Verbs | Required | Purpose |
 |------|-------|----------|---------|
-| `--target` | compile/uninstall/doctor/from-lock | yes | Backend to lower onto: `claude-code`, `goose`, or `pi`. |
+| `--target` | compile/uninstall/doctor/from-lock | yes | Backend to lower onto: `claude-code` or `pi`. |
 | `--base PATH` | compile/uninstall/doctor/from-lock | yes | Path to the System2 plugin root (schema, anchor map, base template, the per-agent `.regex` allowlists). |
 | `--project PATH` | all | yes (write/lifecycle); optional for `profile` | Target project root. Must not be inside or equal to `--base`. |
 | `--profile NAME` | compile | xor `--overlays` / `--from-lock` | Activate the named profile's overlay set. |
@@ -534,7 +472,7 @@ Flag reference for the write/lifecycle verbs (verified against `cli.py`):
 `--profile`, `--overlays`, and `--from-lock` are mutually exclusive on `compile`.
 Output is deterministic and independent of overlay argument order. The front-end
 refusal path is backend-independent: a known conflict/tension or path-safety
-violation refuses *before* any backend runs, so Goose and Pi (like Claude) emit
+violation refuses *before* any backend runs, so Pi (like Claude) emits
 nothing for a refused composition. On refusal the CLI exits non-zero (1 validation,
 2 structural conflict, 3 I/O; 4 = injection blocked in write mode) and the
 `claude-code` path prints the oracle-identical error text. **Profiles are
@@ -558,25 +496,6 @@ Read `.pi/SYSTEM.md` for the orchestrator context and the honest MIXED enforceme
 summary, use `/delegate <role>` to dispatch to one of the 13 roles, and read
 `system2.pi.lock.json` for the per-capability degradation report and the
 `FIDELITY` banner.
-
-### Running the Goose workflow
-
-After `compile --target goose` writes the recipe tree, run the generated launcher
-from the project root:
-
-```bash
-cd /path/to/my-project
-
-# Default: adapted permission policy via an ephemeral XDG_CONFIG_HOME
-# (~/.config/goose is never modified). Validates every recipe, then `goose run`.
-./run-system2.sh "your task here"
-
-# Run against your own goose config instead (adapted gates NOT active this run):
-SYSTEM2_NO_PERMISSIONS=1 ./run-system2.sh "your task here"
-```
-
-The launcher requires `goose` on `PATH` (it runs `goose recipe validate` on the
-orchestrator and every role sub-recipe before `goose run`).
 
 ### Regenerating + checking the vendored bundle
 
@@ -618,26 +537,7 @@ explicit `--rebaseline` flag. If the oracle's source content changes, the suite
 fails with an "oracle changed / re-baseline required" message rather than
 silently re-baselining.
 
-Goose has **no** byte-identical oracle (its output is new, not a relocation), so
-its goldens are gated differently: the Goose harness drives
-`compose → GooseBackend().emit` and validates every emitted recipe with the real
-`goose recipe validate` (the orchestrator plus all 13 role sub-recipes, ≥14
-recipes), under a hermetic temp `HOME`. When `goose` is on `PATH` the validation
-MUST run and pass; when it is absent the suite records a **LOUD skip**, never a
-silent pass:
-
-```bash
-cd System2-Compiler
-
-# Goose recipe validity (real `goose recipe validate`), determinism, structure,
-# emit purity, and refusal parity:
-python3 -m unittest evals.test_goose_goldens
-
-# Point at a specific goose binary if it is not on PATH:
-GOOSE_BIN=/path/to/goose python3 -m unittest evals.test_goose_goldens
-```
-
-Pi, likewise, has no byte oracle: its validity is gated by **Pi's own
+Pi has no byte oracle: its validity is gated by **Pi's own
 `discoverAndLoadExtensions`** loading the emitted extension, and its native
 blocking is gated by a synthetic-`tool_call` node harness. With `node`/`pi`
 present these MUST run and pass; absent, they record a **LOUD skip**, never a
@@ -674,17 +574,16 @@ pytest evals
 
 These cover path safety, atomic-write/restore, dry-run, refusal text, module
 boundaries, the mechanism → capability mapping, the degradation report
-(completeness + no-silent-drop) for all three backends, lowering invariance,
-unknown-capability warnings, the Goose recipe goldens (`goose recipe validate`),
-the Pi goldens (`discoverAndLoadExtensions` load + the proven-blocking node
-harness), the shared `_degradation` helper (PG6) and its byte-identity gate, the
-stdlib YAML serializer, the Goose launcher (ephemeral-config / `bash -n`), the
-**Phase 5 lifecycle verbs** (uninstall / doctor / from-lock parity across the
-three targets; the CLI-contract goldens pinning the claude-code path to the frozen
-oracle's exit codes + stdout/stderr; the additive `overlay_sources[]` locks), the
+(completeness + no-silent-drop) for both backends, lowering invariance,
+unknown-capability warnings, the Pi goldens (`discoverAndLoadExtensions` load +
+the proven-blocking node harness), the shared `_degradation` helper (PG6) and its
+byte-identity gate, the stdlib YAML serializer, the
+**Phase 5 lifecycle verbs** (uninstall / doctor / from-lock parity across both
+targets; the CLI-contract goldens pinning the claude-code path to the frozen
+oracle's exit codes + stdout/stderr; the additive `overlay_sources[]` lock), the
 **convergence flip** (the bundle-equivalence gate and the plugin's own evals on
 the bundle), the **bundle drift guard** (tamper + staleness), no-regression (Claude
-goldens stay empty-diff; the Claude and Goose locks stay byte-identical across the
+goldens stay empty-diff; the Claude lock stays byte-identical across the
 PG6 refactor; `ir/` and `backends/claude_code.py` byte output unchanged), the
 vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determinism
 + anchor-exclusion).
@@ -694,8 +593,7 @@ vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determini
 - **Stdlib-only.** `ir/`, `backends/`, `cli.py`, and `tools/` import only the
   Python standard library; no third-party runtime dependency, and never a
   `pip install` requirement for end-users (`profiles.py` and `_hook_security.py`
-  are vendored stdlib-only copies; Goose YAML is emitted by the internal
-  `backends/_yaml.py`, not PyYAML; the Pi backend emits TypeScript/markdown/JSON as
+  are vendored stdlib-only copies; the Pi backend emits TypeScript/markdown/JSON as
   **text** and never runs or transpiles TS — `node`/`pi` live only in the eval
   tests). The vendored plugin bundle is stdlib-only **by construction** (a pure
   copy of the stdlib-only compiler).
@@ -710,33 +608,31 @@ vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determini
   output, exit codes, and parsed stdout/stderr byte-for-byte — which is what makes
   the convergence flip safe (the plugin now runs the bundle for those paths). The
   Phase 2 lock `degradation_report` is the single additive Claude key; stripping it
-  yields the baseline lock byte-for-byte. Adding the Goose and Pi backends and
+  yields the baseline lock byte-for-byte. Adding the Pi backend and
   growing the lifecycle did not perturb any of this; the PG6 degradation refactor
-  is byte-preserving for the Claude and Goose reports.
-- **Validate-as-oracle for new backends.** Goose has no byte oracle; every emitted
-  recipe must pass the real `goose recipe validate`. Pi has no byte oracle; the
+  is byte-preserving for the Claude report.
+- **Validate-as-oracle for new backends.** Pi has no byte oracle; the
   emitted extension must load under Pi's own `discoverAndLoadExtensions` and its
-  native blocks must be proven by the synthetic-`tool_call` harness. Both backends
-  emit byte-deterministically (identical IR → identical tree, no timestamps).
-- **Per-target lifecycle is additive.** Goose/Pi gained `uninstall`/`doctor`/
+  native blocks must be proven by the synthetic-`tool_call` harness. The backend
+  emits byte-deterministically (identical IR → identical tree, no timestamps).
+- **Per-target lifecycle is additive.** Pi gained `uninstall`/`doctor`/
   `from-lock` and an additive `overlay_sources[]` lock key (appended last); a
-  re-baseline of the Goose/Pi golden happens exactly once and no existing key's
-  bytes shift. Goose/Pi `doctor` never reports a silent `current` when its real
+  re-baseline of the Pi golden happens exactly once and no existing key's
+  bytes shift. Pi's `doctor` never reports a silent `current` when its real
   validator is unavailable — it surfaces a LOUD `validator_unavailable` finding.
 - **No silent capability dropping.** Every capability present in the IR appears in
   the active backend's degradation report with one of `native | adapted |
   advisory | unsupported`. A capability present in the IR but absent from the
-  descriptor makes emit raise. On Goose nothing is `native`; on Pi the status is
+  descriptor makes emit raise. On Pi the status is
   honestly MIXED.
-- **Pure, home-dir-free `emit`.** All three backends write only under
-  `project_path`. The Goose backend never touches `~/.config/goose`; the Pi
-  backend never touches `~/.pi`. Global delivery (Goose only) is the launcher's
-  reversible, ephemeral-config job; Pi needs none (project-local auto-discovery).
-- **Harness-neutral front-end.** `ir/` contains no Claude-, Goose-, or
+- **Pure, home-dir-free `emit`.** Both backends write only under
+  `project_path`. The Pi backend never touches `~/.pi` (project-local
+  auto-discovery, no delivery step needed).
+- **Harness-neutral front-end.** `ir/` contains no Claude- or
   Pi-specific rendering, hook-wiring, frontmatter, YAML-emission, or
   TypeScript-emission logic; backends may import the IR graph type but not the
-  manifest/anchor-map/profile/schema loaders. The Goose and Pi backends render
-  only structured IR fields and never read `base_template` / `OverlayInput`.
+  manifest/anchor-map/profile/schema loaders. The Pi backend renders
+  only structured IR fields and never reads `base_template` / `OverlayInput`.
 - **Harness-neutral profiles.** Profile management (`profile` verb) is shared
   across all backends — an activated profile feeds compose for any `--target` —
   and mutates only `~/.system2/profiles.json`, never a project artifact.
@@ -764,14 +660,13 @@ vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determini
   altering it. The Pi backend reads the `.regex` allowlists **read-only** to
   source each role's `write_scope` — it never writes them.
 - Overlay anchor contributions are rendered into `CLAUDE.md` delegation /
-  agent-augmentation instructions (Claude), into recipe instruction blocks
-  (Goose), and into `.pi/SYSTEM.md` / role prompt templates (Pi), not into
-  pipeline-agent system prompts.
-- **Structured-policy-only gap on Goose and Pi (T5/OQ-G3).** Both the Goose and Pi
-  backends faithfully render the *structured* policy (roles, gate graph,
+  agent-augmentation instructions (Claude), and into `.pi/SYSTEM.md` / role
+  prompt templates (Pi), not into pipeline-agent system prompts.
+- **Structured-policy-only gap on Pi (T5/OQ-G3).** The Pi
+  backend faithfully renders the *structured* policy (roles, gate graph,
   delegation contract, capabilities). Any policy that exists only as
   Claude-targeted `base_template` prose has no structured IR representation and is
-  **not** re-expressed on those backends; this is recorded (not silently dropped)
+  **not** re-expressed on that backend; this is recorded (not silently dropped)
   and flagged as a future IR-enrichment question, not implied parity.
 - **Pi `/delegate` isolation honesty.** The bounded `/delegate` dispatcher
   switches the active role in-session (it mutates `activeRole`); the report's
@@ -779,5 +674,5 @@ vendored-pin drift guard, and the eval-breadth gaps (argument-ordering determini
   native isolated sub-session.
 - **Plugin is Claude-only.** The vendored bundle's entry pins `--target` to
   `claude-code`; the multi-target `cli.main` surface ships only as the adapter's
-  private dependency and is never reachable from the plugin. Goose/Pi targets are
+  private dependency and is never reachable from the plugin. The Pi target is
   reached only through the compiler package's own `cli.py`.

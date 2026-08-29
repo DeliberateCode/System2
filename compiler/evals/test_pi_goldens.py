@@ -1,19 +1,28 @@
-"""TASK-407 — Pi artifact goldens + the load-validity leg.
+"""the implementation work — Pi artifact goldens + the load-validity leg.
 
 Drives the in-process ``ir.compose -> PiBackend.emit`` path for the Pi matrix cells
-and asserts (design §"Phase 4 — Pi Backend", §"Test/validity strategy" legs 1 + 3;
+and asserts (design §"Pi implementation — Pi Backend", §"Test/validity strategy" legs 1 + 3;
 AC-P2/AC-P6/AC-P7):
 
 * **Artifact set** — the full deterministic Pi tree is emitted under ``project_path``
   only: ``.pi/extensions/system2.ts``, ``.pi/SYSTEM.md``, ``AGENTS.md``, the
-  orchestrator prompt + the 13 ``.pi/prompts/role-*.md``, the three
-  ``.pi/skills/system2-{init,compose,doctor}/SKILL.md``, and
-  ``system2.pi.lock.json``.
+  orchestrator prompt + the 13 ``.pi/prompts/role-*.md``, all six
+  ``.pi/skills/system2-{init,compose,doctor,codex,gemini,stateless-loop}/SKILL.md``
+  (exact name-set, not just a count), and ``system2.pi.lock.json``.
 * **Determinism** — emit twice into two temp projects; the trees are byte-identical
   (output is a pure function of the IR + backend constants; no timestamps).
+* **Frontmatter presence (K1a)** — each of the six skills opens with a YAML
+  frontmatter block carrying a non-empty ``name``/``description`` (the RATIFIED
+  base-skill fix; K0 proved this is the Pi discovery-format minimum). Checks
+  presence, not an exact-string match against K1a's pinned text (Decision D5).
+* **Sync guard (D2/the recorded decision)** — the three NEW utility skills' load-bearing invariant
+  tokens (design.md Public Interfaces 4a) appear in both the merged
+  ``plugin/skills/<name>/SKILL.md`` source and the emitted Pi skill — the drift
+  control for the derived-literal adaptation (mirror of
+  ``test_codex_honesty.py``'s ``CodexSyncGuardTest``, K3/CC-036).
 * **Comparator self-teeth** — flip a single byte of one snapshot and assert the
   byte-diff comparator surfaces **exactly one** failure (the gap flagged for
-  Claude/Goose, applied to Pi). Proves the comparator is not a block-everything /
+  Claude, applied to Pi). Proves the comparator is not a block-everything /
   pass-everything stub.
 * **Emit purity** — emit writes only under ``project_path``; the real ``~/.pi`` /
   ``~/.config`` is provably not created/modified by emit.
@@ -44,6 +53,9 @@ from evals import matrix, oracle
 
 _BASE = oracle.PLUGIN_ROOT
 _TEST_OVERLAY = matrix.TEST_OVERLAY
+
+# compiler/evals/ -> compiler/ -> repo root.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
 _PI_BIN = os.environ.get("PI_BIN") or shutil.which("pi")
@@ -91,7 +103,7 @@ _ORCH_PROMPT = os.path.join(".pi", "prompts", "orchestrator.md")
 _LOCK = "system2.pi.lock.json"
 _SKILLS = tuple(
     os.path.join(".pi", "skills", f"system2-{name}", "SKILL.md")
-    for name in ("init", "compose", "doctor")
+    for name in ("init", "compose", "doctor", "codex", "gemini", "stateless-loop")
 )
 
 
@@ -134,6 +146,50 @@ def _emit_core_overlay(project_dir):
     return result.graph, written
 
 
+def committed_pi_dist():
+    """Return the committed ``distributions/pi`` package dir (the SHIPPED bytes), or None.
+
+    ``SYSTEM2_PI_DIST`` overrides the location. Present iff the package's gate extension
+    exists on disk — i.e. the implementation work has committed the npm package.
+    """
+    cand = os.environ.get("SYSTEM2_PI_DIST") or os.path.join(
+        _REPO_ROOT, "distributions", "pi"
+    )
+    return cand if os.path.isfile(
+        os.path.join(cand, "extensions", "system2.ts")
+    ) else None
+
+
+def materialize_pi_project(project_dir):
+    """Populate *project_dir* with the loadable Pi layout under test; return the source.
+
+    Path-parameterized exactly like the codex proven-blocking test: when the committed
+    npm package exists (``committed``), reconstruct the materialized project from the
+    SHIPPED bytes — ``payload/project/*`` into the project root and the package's
+    ``extensions/system2.ts`` into ``.pi/extensions/`` (where Pi's loader discovers it) —
+    so the load + block legs validate the exact bytes that get published. Otherwise
+    (``emitted``) emit the backend's canonical BASE+overlay cell in-process (the
+    pre-commit path). The committed gate extension is byte-identical to that emission
+    (empty vs test overlay does not change the gate), so both sources exercise the same
+    gate — the committed leg additionally proves the SHIPPED payload loads under Pi.
+    """
+    dist = committed_pi_dist()
+    if dist is None:
+        _emit_core_overlay(project_dir)
+        return "emitted"
+    payload = os.path.join(dist, "payload", "project")
+    for dirpath, _dirs, files in os.walk(payload):
+        for fn in files:
+            src = os.path.join(dirpath, fn)
+            dst = os.path.join(project_dir, os.path.relpath(src, payload))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src, dst)
+    ext_dst = os.path.join(project_dir, ".pi", "extensions", "system2.ts")
+    os.makedirs(os.path.dirname(ext_dst), exist_ok=True)
+    shutil.copyfile(os.path.join(dist, "extensions", "system2.ts"), ext_dst)
+    return "committed"
+
+
 def _read_tree(root):
     """Return {relpath: bytes} for every file under *root*."""
     tree = {}
@@ -144,6 +200,39 @@ def _read_tree(root):
             with open(full, "rb") as fh:
                 tree[rel] = fh.read()
     return tree
+
+
+def _parse_leading_frontmatter(text):
+    """Parse a leading ``---\\nkey: value\\n...\\n---\\n\\n`` YAML block (K1a's exact
+    emitted shape — single-line key/value pairs only). Returns ``{key: value}``, or
+    ``None`` if *text* does not open with one."""
+    if not text.startswith("---\n"):
+        return None
+    close = text.find("\n---\n", 4)
+    if close == -1:
+        return None
+    fields = {}
+    for line in text[4:close].splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+# PR #10 review finding 1: use Pi's actual YAML parser, not a hand-written
+# approximation. _PI_PKG_ENTRY resolves the installed, CI-pinned Pi package.
+_FRONTMATTER_PARSE_HARNESS = r'''
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const { parseFrontmatter } = await import(pathToFileURL(process.argv[2]).href);
+for (const path of process.argv.slice(3)) {
+  const { frontmatter } = parseFrontmatter(readFileSync(path, "utf8"));
+  if (!frontmatter.name || !frontmatter.description) {
+    throw new Error(`${path}: missing name or description after YAML parse`);
+  }
+}
+'''
 
 
 def _byte_diff(snapshot, current):
@@ -202,23 +291,64 @@ class PiEmitArtifactSetTest(unittest.TestCase):
             f"{sorted(role_prompts)}",
         )
 
-    def test_three_skills(self):
-        skills = [
+    def test_six_skill_name_set(self):
+        # Exact name-set (K4/K3, CC-036) — fails on a missing OR an extra skill,
+        # not just a count.
+        skills = {
             r for r in self.tree
             if r.startswith(os.path.join(".pi", "skills") + os.sep)
             and r.endswith("SKILL.md")
-        ]
+        }
         self.assertEqual(
-            len(skills), 3,
-            f"expected exactly 3 system2 skills, got {sorted(skills)}",
+            skills, set(_SKILLS),
+            f"expected exactly the six system2-* skill paths {sorted(_SKILLS)}, "
+            f"got {sorted(skills)}",
         )
 
     def test_total_emitted_file_count(self):
-        # 1 extension + SYSTEM.md + AGENTS.md + orchestrator prompt + 13 role prompts
-        # + 3 skills + lock = 21.
+        # Recomputed from actual emission (the consolidation requirement) — never asserted from
+        # arithmetic. The RATIFIED base-skill fix (K1a) changes zero file COUNTS,
+        # only the bytes of the three existing skill files, so the count observed
+        # here still equals the pre-K1 21 + the 3 new skills.
         self.assertEqual(
-            len(self.written), 21,
-            f"expected 21 emitted files, got {len(self.written)}",
+            len(self.written), 24,
+            f"expected 24 emitted files, got {len(self.written)}",
+        )
+
+    def test_all_six_skills_carry_nonempty_frontmatter(self):
+        for rel in _SKILLS:
+            fields = _parse_leading_frontmatter(self.tree[rel].decode("utf-8"))
+            self.assertIsNotNone(
+                fields, f"{rel} does not open with a YAML frontmatter block"
+            )
+            self.assertTrue(
+                fields.get("name"), f"{rel}: frontmatter 'name' is missing/empty"
+            )
+            self.assertTrue(
+                fields.get("description"),
+                f"{rel}: frontmatter 'description' is missing/empty",
+            )
+
+    def test_frontmatter_parses_with_pis_actual_yaml_parser(self):
+        """Pi must load every emitted skill; a syntax error makes it disappear."""
+        if not (_NODE_BIN and _PI_PKG_ENTRY and os.path.isfile(_PI_PKG_ENTRY)):
+            self.skipTest(_LOUD_SKIP)
+        with tempfile.TemporaryDirectory(prefix="pi-frontmatter-") as temp:
+            harness = os.path.join(temp, "parse-frontmatter.mjs")
+            with open(harness, "w", encoding="utf-8") as fh:
+                fh.write(_FRONTMATTER_PARSE_HARNESS)
+            result = subprocess.run(
+                [_NODE_BIN, harness, _PI_PKG_ENTRY, *[
+                    os.path.join(self.project, rel) for rel in _SKILLS
+                ]],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(
+            result.returncode,
+            0,
+            "Pi rejected emitted skill frontmatter:\n" + result.stderr,
         )
 
     def test_extension_registers_expected_seams_in_text(self):
@@ -385,11 +515,12 @@ process.stdout.write(JSON.stringify(out));
 
 
 class PiLoadValidityTest(unittest.TestCase):
-    """Load leg — the emitted extension loads under Pi with errors:[] (AC-P2).
+    """Load leg — the SHIPPED extension loads under Pi with errors:[] (AC-P2).
 
-    PASS-required when node/pi present; LOUD-SKIP (never a silent pass) when absent.
-    Runs under a hermetic temp HOME + hermetic ``.pi``; asserts the real ``~/.pi`` is
-    untouched.
+    Path-parameterized: loads the committed ``distributions/pi/extensions/system2.ts``
+    (the published bytes) when present, else the in-process emission. PASS-required when
+    node/pi present; LOUD-SKIP (never a silent pass) when absent. Runs under a hermetic
+    temp HOME + hermetic ``.pi``; asserts the real ``~/.pi`` is untouched.
     """
 
     def test_extension_loads_under_pi_or_loud_skip(self):
@@ -409,7 +540,9 @@ class PiLoadValidityTest(unittest.TestCase):
         home = tempfile.mkdtemp(prefix="pi-load-home-")
         harness = os.path.join(home, "load_harness.mjs")
         try:
-            _emit_core_overlay(project)
+            # Validate the SHIPPED bytes: load the committed distributions/pi extension
+            # when present, else the in-process emission (pre-commit fallback).
+            materialize_pi_project(project)
             with open(harness, "w", encoding="utf-8") as fh:
                 fh.write(_LOAD_HARNESS)
 
@@ -455,6 +588,90 @@ class PiLoadValidityTest(unittest.TestCase):
             os.path.isdir(_REAL_PI), had_pi,
             "the Pi load leg created/removed the real ~/.pi directory",
         )
+
+
+# ---------------------------------------------------------------------------
+# D2/the recorded decision sync guard (K3, CC-036) — drift control for the derived-literal
+# utility-skill builders (mirror of test_codex_honesty.py's CodexSyncGuardTest,
+# J4). The 3x3 token list is duplicated across that file and this one, with this
+# cross-reference comment (design.md Decision D2 / Public Interfaces 4a row 6;
+# accepted duplication, recorded). Three NEW skills only — init/compose/doctor
+# are not derived-literal adaptations of a Claude source and carry no
+# sync-guard invariant tokens.
+# ---------------------------------------------------------------------------
+
+_SYNC_GUARD_TOKENS = {
+    "codex": (
+        "--ephemeral",
+        "history.persistence=none",
+        "Never pass the prompt unquoted",
+    ),
+    "gemini": (
+        "agy -p",
+        "--print-timeout",
+        "Never pass the prompt unquoted",
+    ),
+    "stateless-loop": (
+        "STATUS: CLEAN",
+        "claude -p",
+        "max_iterations",
+    ),
+}
+
+
+def _source_skill_path(name):
+    return os.path.join(_REPO_ROOT, "plugin", "skills", name, "SKILL.md")
+
+
+def _emitted_skill_path(root, name):
+    return os.path.join(root, ".pi", "skills", f"system2-{name}", "SKILL.md")
+
+
+class PiSyncGuardTest(unittest.TestCase):
+    """D2/the recorded decision: every invariant token survives in both the merged source and the
+    emitted Pi skill, for the three NEW utility skills — the drift control for
+    the tri-copy derived-literal adaptation (Decision D2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.project = tempfile.mkdtemp(prefix="pi-syncguard-")
+        _emit_core_overlay(cls.project)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.project, ignore_errors=True)
+
+    def test_invariant_tokens_present_in_source_and_emitted_skill(self):
+        for name, tokens in _SYNC_GUARD_TOKENS.items():
+            with open(_source_skill_path(name), encoding="utf-8") as fh:
+                source_text = fh.read()
+            with open(_emitted_skill_path(self.project, name), encoding="utf-8") as fh:
+                emitted_text = fh.read()
+            for token in tokens:
+                with self.subTest(skill=name, token=token, surface="plugin/skills source"):
+                    self.assertIn(
+                        token, source_text,
+                        f"{name}: invariant token {token!r} missing from the merged "
+                        f"source plugin/skills/{name}/SKILL.md",
+                    )
+                with self.subTest(skill=name, token=token, surface="emitted Pi skill"):
+                    self.assertIn(
+                        token, emitted_text,
+                        f"{name}: invariant token {token!r} missing from the emitted "
+                        f".pi/skills/system2-{name}/SKILL.md",
+                    )
+
+    def test_guard_trips_if_a_token_is_dropped_from_the_emitted_copy(self):
+        # Mutation self-test (teeth): prove the presence assertion would fail if an
+        # invariant token were dropped from the emitted skill. Only a throwaway
+        # in-memory copy is tampered; the real emission is never touched.
+        name = "codex"
+        token = _SYNC_GUARD_TOKENS[name][0]
+        with open(_emitted_skill_path(self.project, name), encoding="utf-8") as fh:
+            text = fh.read()
+        tampered = text.replace(token, "[token removed]")
+        self.assertNotEqual(tampered, text, "fixture guard: token was not present to remove")
+        self.assertNotIn(token, tampered)
 
 
 if __name__ == "__main__":

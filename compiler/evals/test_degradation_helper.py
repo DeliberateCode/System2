@@ -1,4 +1,4 @@
-"""Phase 4 (PG6/TASK-402): direct unit tests for backends/_degradation.py.
+"""Pi implementation (PG6/the implementation work): direct unit tests for backends/_degradation.py.
 
 The shared, descriptor-driven degradation helper is the single source of truth for
 the per-capability report-record assembly + the status->flags rule. These tests
@@ -8,7 +8,7 @@ mixed-status fixture** — a synthetic descriptor carrying all four statuses
 which is what unblocks the Pi backend's MIXED report.
 
 Negative controls (with teeth): an IR-present capability absent from the descriptor
-(no silent drop) and the ``allow_native=False`` guard (goose's nothing-native rule).
+(no silent drop) and the ``allow_native=False`` guard (Codex's nothing-native rule).
 
 Stdlib-only ``unittest``. All descriptor text here is synthetic test data.
 """
@@ -137,7 +137,7 @@ class FieldsSelectionTest(unittest.TestCase):
             list(records["enforce-lease"].keys()), ["status", "mechanism"]
         )
 
-    def test_goose_four_key_records(self):
+    def test_four_key_records_allow_native_false(self):
         caps = {
             "block-dangerous": {"status": "adapted", "mechanism": "gate"},
             "format": {"status": "advisory", "mechanism": "note"},

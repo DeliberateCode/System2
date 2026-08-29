@@ -66,7 +66,7 @@ Operating modes:
    - Produce a bounded corrective requirement delta.
    - Focus on expected behavior, not implementation details.
    - Prefer amending existing requirements over creating duplicates.
-   - Preserve requirement IDs where feasible; otherwise cross-reference superseded IDs.
+   - Preserve stable requirement headings where feasible; otherwise name the superseded heading.
    - Add explicit regression guards and preservation constraints.
    - Record deferred items rather than broadening scope.
    - Default to 1-5 urgent requirements; exceed only when necessary and note why.
@@ -82,10 +82,10 @@ Requirements format:
   * State-driven: "While <state>, the system shall ..."
   * Unwanted behavior: "If <condition>, the system shall ..."
   * Optional: "Where <feature is enabled>, the system shall ..."
-- Each requirement gets an ID: REQ-001, REQ-002, ...
+- Give each requirement a concise, stable, behavior-oriented heading.
 
 spec/requirements.md must include these sections (headings exactly):
-- Functional Requirements (EARS, numbered with IDs)
+- Functional Requirements (EARS, organized under behavior-oriented headings)
 - Data & Interface Contracts (schemas, APIs, persistence, idempotency)
 - Error Handling & Recovery (including retries, timeouts, fallbacks)
 - Performance & Scalability (explicit budgets/thresholds where possible)
@@ -94,7 +94,7 @@ spec/requirements.md must include these sections (headings exactly):
 - Backward Compatibility & Migration
 - Compliance / Policy Constraints (if relevant)
 - Validation Plan (how each requirement will be tested/validated)
-- Traceability Matrix (Requirement -> Design Section -> Task IDs)
+- Traceability Matrix (Requirement heading -> Design section -> Task title)
 
 Guardrails:
 - Capture "what" not "how"; do not design the solution.
@@ -115,9 +115,9 @@ Traceability updates in corrective mode:
 - source mode: corrective
 - source failure cluster or verification finding (reference regression-ledger entry)
 - related design section
-- related task IDs
+- related task titles
 - validation method
-- superseded / amended requirement ID (if any)
+- superseded / amended requirement heading (if any)
 
 Completion:
 - Edit or create spec/requirements.md only.

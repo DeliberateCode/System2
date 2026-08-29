@@ -1,16 +1,16 @@
-"""TASK-112 — Path-safety, atomic-write/restore, dry-run, and refusal behavioral
+"""the implementation work — Path-safety, atomic-write/restore, dry-run, and refusal behavioral
 regression tests against the ``compose -> emit`` path (stdlib ``unittest``).
 
 Covers the failure/recovery matrix the goldens do not directly exercise:
 
-* REQ-020 — ``project_path`` inside or equal to the base dir ⇒ ``compose``
+* the requirement — ``project_path`` inside or equal to the base dir ⇒ ``compose``
   refuses (``graph is None``, non-empty ``errors``) and emits nothing.
-* REQ-021 — a known-conflict overlay pair ⇒ refusal whose ``errors[0]`` message
+* the requirement — a known-conflict overlay pair ⇒ refusal whose ``errors[0]`` message
   byte-matches the frozen oracle's ``errors[0]`` (oracle invoked as a hermetic
   subprocess via ``evals/oracle.py``).
-* REQ-023 — ``dry_run`` ⇒ ``files_to_write`` is computed and the backend's
+* the requirement — ``dry_run`` ⇒ ``files_to_write`` is computed and the backend's
   dry-run emit writes nothing to the project dir.
-* REQ-044 — a simulated ``OSError`` mid-write (monkeypatched ``shutil.copy2`` in
+* the requirement — a simulated ``OSError`` mid-write (monkeypatched ``shutil.copy2`` in
   ``backends.claude_code``) ⇒ pre-existing ``CLAUDE.md`` / lock are restored with
   no ``.tmp`` / ``.bak`` / ``.staging`` leftovers.
 
@@ -58,7 +58,7 @@ def _walk_leftovers(root: str):
 
 
 class PathSafetyTest(unittest.TestCase):
-    """REQ-020: project_path inside/equal to the base dir is refused."""
+    """the requirement: project_path inside/equal to the base dir is refused."""
 
     def test_project_equal_to_base_refused(self):
         result = ir.compose(_BASE, [], _BASE)
@@ -93,7 +93,7 @@ class PathSafetyTest(unittest.TestCase):
 
 
 class ConflictRefusalParityTest(unittest.TestCase):
-    """REQ-021: known-conflict refusal message byte-matches the oracle."""
+    """the requirement: known-conflict refusal message byte-matches the oracle."""
 
     def test_conflict_refusal_message_matches_oracle(self):
         proj = _mktemp("compose-conflict-")
@@ -130,7 +130,7 @@ class ConflictRefusalParityTest(unittest.TestCase):
 
 
 class DryRunTest(unittest.TestCase):
-    """REQ-023: dry_run computes files_to_write; the backend writes nothing."""
+    """the requirement: dry_run computes files_to_write; the backend writes nothing."""
 
     def test_dry_run_computes_files_and_writes_nothing(self):
         proj = _mktemp("dry-run-")
@@ -156,7 +156,7 @@ class DryRunTest(unittest.TestCase):
             self.assertEqual(
                 [],
                 os.listdir(proj),
-                msg="dry-run emit must not write into the project dir (REQ-023)",
+                msg="dry-run emit must not write into the project dir (the requirement)",
             )
         finally:
             shutil.rmtree(proj, ignore_errors=True)
@@ -177,7 +177,7 @@ class DryRunTest(unittest.TestCase):
 
 
 class AtomicWriteRestoreTest(unittest.TestCase):
-    """REQ-044: a mid-write OSError restores backups with no partial output."""
+    """the requirement: a mid-write OSError restores backups with no partial output."""
 
     def _seed_project(self):
         proj = _mktemp("atomic-")
@@ -202,7 +202,7 @@ class AtomicWriteRestoreTest(unittest.TestCase):
             # .claude/agents/ — this occurs AFTER CLAUDE.md/lock have already
             # been os.replace()'d, so it exercises the restore path.
             if dst.endswith(".md") and (os.sep + "agents" + os.sep) in dst:
-                raise OSError("simulated mid-write failure (REQ-044)")
+                raise OSError("simulated mid-write failure (the requirement)")
             return original_copy2(src, dst, *args, **kwargs)
 
         cc.shutil.copy2 = _boom

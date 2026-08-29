@@ -1,17 +1,16 @@
-"""Phase 4 (PG6): the shared, descriptor-driven degradation helper.
+"""Pi implementation (PG6): the shared, descriptor-driven degradation helper.
 
 Backend-agnostic; lifts the per-capability report-record assembly and the
-status->flags rule out of ``claude_code._build_degradation_report`` and
-``goose._build_degradation_report`` so all three backends (claude_code/goose/pi)
-share one source of truth.
+status->flags rule out of each backend's own ``_build_degradation_report`` so all
+backends (claude_code/pi/codex) share one source of truth.
 
 Internal, stdlib-only, no I/O, no ``ir/*`` import: a backend hands it
 ``ir.capabilities.by_agent`` as plain data plus its own already-parsed descriptor
 dict, so this stays a pure function and respects the module boundary.
 
 BYTE-PRESERVING: each backend keeps its own envelope + ``fields`` selection, so the
-serialized bytes of the claude-code lock ``degradation_report`` and
-``system2.goose.lock.json`` are unchanged. The status->flags rule is total over the
+serialized bytes of each backend's lock ``degradation_report`` are unchanged. The
+status->flags rule is total over the
 four-value enum (native => enforced:true, gated:false; adapted => enforced:false,
 gated:true; advisory/unsupported => both false), which makes Pi's MIXED status
 correct by construction.
@@ -80,7 +79,7 @@ def build_capability_records(
 
     Raises ``ValueError`` (no silent drop) if an IR-present capability is absent
     from the descriptor. Raises ``ValueError`` when ``allow_native`` is False and a
-    selected capability's status is ``native`` (goose's nothing-native guard).
+    selected capability's status is ``native`` (Codex's nothing-native guard).
     """
     descriptor_caps = descriptor.get("capabilities", {})
 

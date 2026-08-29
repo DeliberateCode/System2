@@ -135,6 +135,39 @@ def extract_frontmatter(content: str) -> Optional[str]:
     return "\n".join(lines[1:end])
 
 
+# PR #10 review finding 1: eval_man_004 only ever regex'd for a 'name:' field
+# and never validated any frontmatter VALUE, so an unquoted embedded ": " (an
+# actual regression: stateless-loop's "STATUS: CLEAN" description) shipped as
+# invalid YAML with zero red checks anywhere in the suite. This is a real (if
+# narrow) spec-aware check, not a full parser: a plain YAML scalar cannot
+# contain an unquoted ": " or end in an unquoted ":". Duplicated (with this
+# cross-reference comment) in compiler/evals/test_pi_goldens.py and
+# compiler/evals/test_codex_honesty.py -- kept stdlib-only per this file's own
+# no-external-dependencies posture (module docstring above).
+def yaml_unsafe_reason(value: str) -> Optional[str]:
+    if not isinstance(value, str) or not value:
+        return None
+    if value[0] in ('"', "'") and value[-1:] == value[0]:
+        return None
+    if ": " in value:
+        return f"contains an unquoted ': ' -- invalid as a plain YAML scalar: {value!r}"
+    if value.rstrip().endswith(":"):
+        return f"ends with an unquoted ':' -- invalid as a plain YAML scalar: {value!r}"
+    return None
+
+
+def frontmatter_fields(fm: str) -> dict:
+    """Naive single-line key: value parser, matching the shape emitted by
+    _skill_frontmatter() in every backend (name/description on their own lines)."""
+    fields = {}
+    for line in fm.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip()
+    return fields
+
+
 # ---------------------------------------------------------------------------
 # Result tracking
 # ---------------------------------------------------------------------------
@@ -166,10 +199,10 @@ def record(eval_id: str, description: str, passed: bool, message: str = ""):
 # ---------------------------------------------------------------------------
 
 def eval_path_001():
-    """EVAL-PATH-001: Zero CLAUDE_PROJECT_DIR occurrences in agents/"""
+    """evaluation: Zero CLAUDE_PROJECT_DIR occurrences in agents/"""
     hits = grep_dir(f"{PLUGIN_DIR}/agents", r"CLAUDE_PROJECT_DIR")
     record(
-        "EVAL-PATH-001",
+        "evaluation",
         "Zero CLAUDE_PROJECT_DIR occurrences in agents/",
         len(hits) == 0,
         f"Found {len(hits)} occurrence(s): {hits[:3]}" if hits else "",
@@ -177,10 +210,10 @@ def eval_path_001():
 
 
 def eval_path_002():
-    """EVAL-PATH-002: Zero .claude/hooks or .claude/allowlists paths in agents/"""
+    """evaluation: Zero .claude/hooks or .claude/allowlists paths in agents/"""
     hits = grep_dir(f"{PLUGIN_DIR}/agents", r"\.claude/(hooks|allowlists)")
     record(
-        "EVAL-PATH-002",
+        "evaluation",
         "Zero .claude/(hooks|allowlists) paths in agents/",
         len(hits) == 0,
         f"Found {len(hits)} occurrence(s): {hits[:3]}" if hits else "",
@@ -188,7 +221,7 @@ def eval_path_002():
 
 
 def eval_path_003():
-    """EVAL-PATH-003: All hook commands use CLAUDE_PLUGIN_ROOT/hooks/"""
+    """evaluation: All hook commands use CLAUDE_PLUGIN_ROOT/hooks/"""
     golden = load_golden("agent_inventory.json")
     missing = []
     for filename in golden["agents"]:
@@ -204,7 +237,7 @@ def eval_path_003():
         elif 'CLAUDE_PLUGIN_ROOT}/hooks/' not in fm:
             missing.append(f"{filename}: CLAUDE_PLUGIN_ROOT present but no /hooks/ path")
     record(
-        "EVAL-PATH-003",
+        "evaluation",
         "All agent hook commands use CLAUDE_PLUGIN_ROOT/hooks/",
         len(missing) == 0,
         "; ".join(missing) if missing else "",
@@ -212,7 +245,7 @@ def eval_path_003():
 
 
 def eval_path_004():
-    """EVAL-PATH-004: All allowlist args use CLAUDE_PLUGIN_ROOT/allowlists/"""
+    """evaluation: All allowlist args use CLAUDE_PLUGIN_ROOT/allowlists/"""
     golden = load_golden("agent_allowlist_bindings.json")
     missing = []
     for agent_name, allowlist_file in golden["bindings"].items():
@@ -233,7 +266,7 @@ def eval_path_004():
         if "allowlists/" in fm:
             missing.append(f"{filename}: should not reference allowlists/ but does")
     record(
-        "EVAL-PATH-004",
+        "evaluation",
         "All allowlist args use CLAUDE_PLUGIN_ROOT/allowlists/ with correct file",
         len(missing) == 0,
         "; ".join(missing) if missing else "",
@@ -241,7 +274,7 @@ def eval_path_004():
 
 
 def eval_path_005():
-    """EVAL-PATH-005: Hook command quoting follows expected pattern"""
+    """evaluation: Hook command quoting follows expected pattern"""
     # Pattern: '...  "${CLAUDE_PLUGIN_ROOT}/hooks/...'  (double quote around variable+path)
     golden = load_golden("agent_inventory.json")
     bad_quoting = []
@@ -259,7 +292,7 @@ def eval_path_005():
                 elif not expected_pattern.search(line):
                     bad_quoting.append(f"{filename}: unexpected quoting: {line.strip()}")
     record(
-        "EVAL-PATH-005",
+        "evaluation",
         'Hook command quoting uses "${CLAUDE_PLUGIN_ROOT}/..." pattern',
         len(bad_quoting) == 0,
         "; ".join(bad_quoting[:5]) if bad_quoting else "",
@@ -267,14 +300,14 @@ def eval_path_005():
 
 
 def eval_inv_001():
-    """EVAL-INV-001: Exactly 13 named agent .md files in agents/"""
+    """evaluation: Exactly 13 named agent .md files in agents/"""
     golden = load_golden("agent_inventory.json")
     expected = set(golden["agents"].keys())
     actual = set(list_files(f"{PLUGIN_DIR}/agents", ".md"))
     missing = expected - actual
     extra = actual - expected
     record(
-        "EVAL-INV-001",
+        "evaluation",
         f"Exactly {golden['expected_count']} agent .md files in agents/",
         missing == set() and extra == set() and len(actual) == golden["expected_count"],
         f"missing={sorted(missing)}, extra={sorted(extra)}, count={len(actual)}"
@@ -284,10 +317,10 @@ def eval_inv_001():
 
 
 def eval_inv_002():
-    """EVAL-INV-002: Zero .md files in .claude/agents/"""
+    """evaluation: Zero .md files in .claude/agents/"""
     stale = list_files(".claude/agents", ".md")
     record(
-        "EVAL-INV-002",
+        "evaluation",
         "Zero .md files in .claude/agents/",
         len(stale) == 0,
         f"Found {len(stale)} stale file(s): {stale}" if stale else "",
@@ -295,7 +328,7 @@ def eval_inv_002():
 
 
 def eval_inv_003():
-    """EVAL-INV-003: Correct hook file counts in hooks/"""
+    """evaluation: Correct hook file counts in hooks/"""
     golden = load_golden("hook_inventory.json")
     actual_py = set(list_files(f"{PLUGIN_DIR}/hooks", ".py"))
     actual_regex = set(list_files(f"{PLUGIN_DIR}/hooks", ".regex"))
@@ -323,7 +356,7 @@ def eval_inv_003():
     if extra_regex:
         msg_parts.append(f"extra regex: {sorted(extra_regex)}")
     record(
-        "EVAL-INV-003",
+        "evaluation",
         f"{golden['expected_py_count']} .py and {golden['expected_regex_count']} .regex files in hooks/",
         ok,
         "; ".join(msg_parts) if msg_parts else "",
@@ -331,14 +364,14 @@ def eval_inv_003():
 
 
 def eval_inv_004():
-    """EVAL-INV-004: Correct allowlist file count in allowlists/"""
+    """evaluation: Correct allowlist file count in allowlists/"""
     golden = load_golden("allowlist_inventory.json")
     actual = set(list_files(f"{PLUGIN_DIR}/allowlists", ".regex"))
     expected = set(golden["files"])
     missing = expected - actual
     extra = actual - expected
     record(
-        "EVAL-INV-004",
+        "evaluation",
         f"Exactly {golden['expected_count']} .regex files in allowlists/",
         len(actual) == golden["expected_count"] and not missing,
         f"missing={sorted(missing)}, extra={sorted(extra)}, count={len(actual)}"
@@ -348,10 +381,10 @@ def eval_inv_004():
 
 
 def eval_inv_005():
-    """EVAL-INV-005: hooks/hooks.json does NOT exist"""
+    """evaluation: hooks/hooks.json does NOT exist"""
     exists = file_exists(f"{PLUGIN_DIR}/hooks/hooks.json")
     record(
-        "EVAL-INV-005",
+        "evaluation",
         "plugin/hooks/hooks.json does NOT exist",
         not exists,
         "plugin/hooks/hooks.json exists but should not" if exists else "",
@@ -359,7 +392,7 @@ def eval_inv_005():
 
 
 def eval_man_001():
-    """EVAL-MAN-001: plugin.json valid JSON with correct fields"""
+    """evaluation: plugin.json valid JSON with correct fields"""
     golden = load_golden("manifest_schemas.json")
     path = golden["plugin_json"]["path"]
     errors = []
@@ -385,7 +418,7 @@ def eval_man_001():
                 if actual != expected:
                     errors.append(f"{field}: expected {expected!r}, got {actual!r}")
     record(
-        "EVAL-MAN-001",
+        "evaluation",
         "plugin.json valid JSON with correct fields",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -393,7 +426,7 @@ def eval_man_001():
 
 
 def eval_man_002():
-    """EVAL-MAN-002: marketplace.json valid JSON with correct fields"""
+    """evaluation: marketplace.json valid JSON with correct fields"""
     golden = load_golden("manifest_schemas.json")
     path = golden["marketplace_json"]["path"]
     errors = []
@@ -415,15 +448,21 @@ def eval_man_002():
                 if actual != expected:
                     errors.append(f"{field}: expected {expected!r}, got {actual!r}")
             plugins = data.get("plugins", [])
-            if not plugins:
+            expected_length = golden["marketplace_json"]["plugins_length"]
+            if len(plugins) != expected_length:
+                errors.append(f"plugins length: expected {expected_length!r}, got {len(plugins)!r}")
+            elif not plugins:
                 errors.append("plugins array is empty")
-            elif plugins[0].get("source") != golden["marketplace_json"]["plugins_first_entry"]["source"]:
-                errors.append(
-                    f"plugins[0].source: expected {golden['marketplace_json']['plugins_first_entry']['source']!r}, "
-                    f"got {plugins[0].get('source')!r}"
-                )
+            else:
+                first_entry = plugins[0]
+                for field, expected in golden["marketplace_json"]["plugins_first_entry"].items():
+                    actual = first_entry.get(field)
+                    if actual != expected:
+                        errors.append(
+                            f"plugins[0].{field}: expected {expected!r}, got {actual!r}"
+                        )
     record(
-        "EVAL-MAN-002",
+        "evaluation",
         "marketplace.json valid JSON with correct fields",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -431,7 +470,7 @@ def eval_man_002():
 
 
 def eval_man_003():
-    """EVAL-MAN-003: VERSION file matches plugin.json version"""
+    """evaluation: VERSION file matches plugin.json version"""
     golden = load_golden("manifest_schemas.json")
     version_content = read_file("VERSION").strip()
     plugin_content = read_file(golden["plugin_json"]["path"])
@@ -447,15 +486,61 @@ def eval_man_003():
     if version_content != plugin_version:
         errors.append(f"VERSION ({version_content!r}) != plugin.json version ({plugin_version!r})")
     record(
-        "EVAL-MAN-003",
+        "evaluation",
         "VERSION file matches plugin.json version",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
     )
 
 
+def eval_man_004():
+    """evaluation: skill directory inventory exact-set + per-skill SKILL.md sanity"""
+    golden = load_golden("skill_inventory.json")
+    skills_dir = REPO_ROOT / golden["skills_dir"]
+    errors = []
+    if not skills_dir.is_dir():
+        errors.append(f"{golden['skills_dir']} does not exist or is not a directory")
+        actual_skills = set()
+    else:
+        actual_skills = {p.name for p in skills_dir.iterdir() if p.is_dir()}
+    required_skills = set(golden["required_skills"])
+    missing = sorted(required_skills - actual_skills)
+    extra = sorted(actual_skills - required_skills)
+    if missing:
+        errors.append(f"missing skill directories: {missing}")
+    if extra:
+        errors.append(f"unexpected skill directories: {extra}")
+    if golden.get("require_skill_md"):
+        for skill in sorted(required_skills & actual_skills):
+            content = read_file(f"{golden['skills_dir']}/{skill}/SKILL.md")
+            if not content:
+                errors.append(f"{skill}/SKILL.md does not exist or is empty")
+                continue
+            fm = extract_frontmatter(content)
+            if fm is None:
+                errors.append(f"{skill}/SKILL.md: no frontmatter")
+                continue
+            name_match = re.search(r"^name:\s*(.+)$", fm, re.MULTILINE)
+            if not name_match:
+                errors.append(f"{skill}/SKILL.md: no 'name:' field in frontmatter")
+            else:
+                actual_name = name_match.group(1).strip()
+                if actual_name != skill:
+                    errors.append(f"{skill}/SKILL.md: name={actual_name!r}, expected={skill!r}")
+            for key, value in frontmatter_fields(fm).items():
+                reason = yaml_unsafe_reason(value)
+                if reason:
+                    errors.append(f"{skill}/SKILL.md: frontmatter {key!r} {reason}")
+    record(
+        "evaluation",
+        "Skill directory inventory exact-set + per-skill SKILL.md sanity",
+        len(errors) == 0,
+        "; ".join(errors) if errors else "",
+    )
+
+
 def eval_tpl_001():
-    """EVAL-TPL-001: skills/init/SKILL.md template content matches CLAUDE.md"""
+    """evaluation: skills/init/SKILL.md template content matches CLAUDE.md"""
     init_content = read_file(f"{PLUGIN_DIR}/skills/init/SKILL.md")
     claude_content = read_file("CLAUDE.md").strip()
     errors = []
@@ -492,7 +577,7 @@ def eval_tpl_001():
                             f"Line count mismatch: template={len(t_lines)}, CLAUDE.md={len(c_lines)}"
                         )
     record(
-        "EVAL-TPL-001",
+        "evaluation",
         "skills/init/SKILL.md template == CLAUDE.md content",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -500,14 +585,14 @@ def eval_tpl_001():
 
 
 def eval_tpl_002():
-    """EVAL-TPL-002: No .claude/agents/ path in CLAUDE.md or template"""
+    """evaluation: No .claude/agents/ path in CLAUDE.md or template"""
     errors = []
     for path in ["CLAUDE.md", f"{PLUGIN_DIR}/skills/init/SKILL.md"]:
         hits = grep_file(path, r"\.claude/agents/")
         if hits:
             errors.append(f"{path}: {len(hits)} occurrence(s) at line(s) {[h[0] for h in hits]}")
     record(
-        "EVAL-TPL-002",
+        "evaluation",
         "No .claude/agents/ path in CLAUDE.md or init template",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -515,7 +600,7 @@ def eval_tpl_002():
 
 
 def eval_tpl_003():
-    """EVAL-TPL-003: Template contains all required section headings"""
+    """evaluation: Template contains all required section headings"""
     golden = load_golden("template_sections.json")
     content = read_file(f"{PLUGIN_DIR}/skills/init/SKILL.md")
     missing = []
@@ -523,7 +608,7 @@ def eval_tpl_003():
         if heading not in content:
             missing.append(heading)
     record(
-        "EVAL-TPL-003",
+        "evaluation",
         "Template contains all required section headings",
         len(missing) == 0,
         f"Missing headings: {missing}" if missing else "",
@@ -531,7 +616,7 @@ def eval_tpl_003():
 
 
 def eval_orc_001():
-    """EVAL-ORC-001: Delegation map names match agent filenames"""
+    """evaluation: Delegation map names match agent filenames"""
     golden = load_golden("delegation_map.json")
     agent_files = list_files(f"{PLUGIN_DIR}/agents", ".md")
     agent_names_from_files = sorted(f.replace(".md", "") for f in agent_files)
@@ -544,7 +629,7 @@ def eval_orc_001():
     if missing_in_map:
         errors.append(f"File exists but not in delegation map: {sorted(missing_in_map)}")
     record(
-        "EVAL-ORC-001",
+        "evaluation",
         "Delegation map names match agent filenames",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -552,7 +637,7 @@ def eval_orc_001():
 
 
 def eval_orc_002():
-    """EVAL-ORC-002: Agent frontmatter name: field matches filename"""
+    """evaluation: Agent frontmatter name: field matches filename"""
     golden = load_golden("agent_inventory.json")
     errors = []
     for filename, expected_name in golden["agents"].items():
@@ -570,7 +655,7 @@ def eval_orc_002():
             if actual_name != expected_name:
                 errors.append(f"{filename}: name={actual_name!r}, expected={expected_name!r}")
     record(
-        "EVAL-ORC-002",
+        "evaluation",
         "Agent frontmatter name: matches filename",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -578,7 +663,7 @@ def eval_orc_002():
 
 
 def eval_orc_003():
-    """EVAL-ORC-003: Agent allowlist bindings match design spec"""
+    """evaluation: Agent allowlist bindings match design spec"""
     golden = load_golden("agent_allowlist_bindings.json")
     errors = []
     for agent_name, expected_allowlist in golden["bindings"].items():
@@ -598,7 +683,7 @@ def eval_orc_003():
                 f"{agent_name}: expected allowlist {expected_allowlist!r}, found {matches}"
             )
     record(
-        "EVAL-ORC-003",
+        "evaluation",
         "Agent allowlist bindings match design spec",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -606,7 +691,7 @@ def eval_orc_003():
 
 
 def eval_cln_001():
-    """EVAL-CLN-001: Deleted infrastructure files do not exist"""
+    """evaluation: Deleted infrastructure files do not exist"""
     must_not_exist = [
         ("manifest.json", "file"),
         (".system2", "dir"),
@@ -620,7 +705,7 @@ def eval_cln_001():
         elif kind == "dir" and dir_exists(path):
             still_exist.append(path + "/")
     record(
-        "EVAL-CLN-001",
+        "evaluation",
         "Deleted infrastructure files/dirs do not exist",
         len(still_exist) == 0,
         f"Still exist: {still_exist}" if still_exist else "",
@@ -628,10 +713,10 @@ def eval_cln_001():
 
 
 def eval_cln_002():
-    """EVAL-CLN-002: No .system2/ entries in .gitignore"""
+    """evaluation: No .system2/ entries in .gitignore"""
     hits = grep_file(".gitignore", r"\.system2/")
     record(
-        "EVAL-CLN-002",
+        "evaluation",
         "No .system2/ entries in .gitignore",
         len(hits) == 0,
         f"Found {len(hits)} .system2/ entries" if hits else "",
@@ -639,52 +724,83 @@ def eval_cln_002():
 
 
 def eval_cln_003():
-    """EVAL-CLN-003: spec*/ pattern in .gitignore"""
+    """evaluation: spec*/ pattern in .gitignore"""
     hits = grep_file(".gitignore", r"spec\*/")
     record(
-        "EVAL-CLN-003",
+        "evaluation",
         "spec*/ pattern preserved in .gitignore",
         len(hits) > 0,
         "spec*/ pattern not found in .gitignore" if not hits else "",
     )
 
 
+def _matches(pattern: str, is_regex: bool, text: str) -> bool:
+    return bool(re.search(pattern, text)) if is_regex else pattern in text
+
+
+def _resolve_doc_set(golden: dict) -> Tuple[List[str], List[str]]:
+    """Resolve the golden's doc_set to (rel_paths, errors).
+
+    The set is the user-facing documentation surface: README.md plus the pages it
+    delegates to. A declared glob that resolves to nothing is an ERROR, not an empty
+    scan -- otherwise relocating docs/ would silently shrink the must_not_contain net
+    to zero files and the eval would pass vacuously.
+    """
+    spec = golden.get("doc_set", {"always": ["README.md"], "globs": []})
+    errors: List[str] = []
+    paths: List[str] = []
+    for rel in spec.get("always", []):
+        if not (REPO_ROOT / rel).is_file():
+            errors.append(f"doc_set: required file {rel!r} does not exist")
+        else:
+            paths.append(rel)
+    for pattern in spec.get("globs", []):
+        hits = sorted(
+            str(p.relative_to(REPO_ROOT))
+            for p in REPO_ROOT.glob(pattern)
+            if p.is_file()
+        )
+        if not hits:
+            errors.append(f"doc_set: glob {pattern!r} matched no files")
+        paths.extend(h for h in hits if h not in paths)
+    return paths, errors
+
+
 def eval_doc_001():
-    """EVAL-DOC-001: README has required patterns, no prohibited patterns"""
+    """evaluation: documentation set has required patterns, no prohibited patterns"""
     golden = load_golden("required_readme_patterns.json")
-    errors = []
-    readme = read_file("README.md")
-    if not readme:
-        errors.append("README.md does not exist or is empty")
-    else:
+    doc_set, errors = _resolve_doc_set(golden)
+    contents = {rel: read_file(rel) for rel in doc_set}
+
+    if not errors:
         for rule in golden["must_contain"]:
             pattern = rule["pattern"]
             is_regex = rule.get("is_regex", False)
-            if is_regex:
-                if not re.search(pattern, readme):
-                    errors.append(f"must_contain: {rule['id']} -- pattern {pattern!r} not found")
-            else:
-                if pattern not in readme:
-                    errors.append(f"must_contain: {rule['id']} -- {pattern!r} not found")
+            scope = rule.get("scope", "readme")
+            # 'readme' pins the pattern to README.md itself; 'doc_set' accepts it
+            # anywhere in the set, so per-harness detail may live under docs/.
+            targets = ["README.md"] if scope == "readme" else doc_set
+            if not any(_matches(pattern, is_regex, contents.get(t, "")) for t in targets):
+                where = "README.md" if scope == "readme" else "the documentation set"
+                errors.append(f"must_contain: {rule['id']} -- {pattern!r} not found in {where}")
+        # Prohibitions apply to every page in the set: moving prose out of README
+        # must never be a way to reintroduce a banned pattern.
         for rule in golden["must_not_contain"]:
             pattern = rule["pattern"]
             is_regex = rule.get("is_regex", False)
-            if is_regex:
-                if re.search(pattern, readme):
-                    errors.append(f"must_not_contain: {rule['id']} -- pattern {pattern!r} found")
-            else:
-                if pattern in readme:
-                    errors.append(f"must_not_contain: {rule['id']} -- {pattern!r} found")
+            for rel in doc_set:
+                if _matches(pattern, is_regex, contents[rel]):
+                    errors.append(f"must_not_contain: {rule['id']} -- {pattern!r} found in {rel}")
     record(
-        "EVAL-DOC-001",
-        "README has required patterns, no prohibited patterns",
+        "evaluation",
+        "Documentation set has required patterns, no prohibited patterns",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
     )
 
 
 def eval_doc_002():
-    """EVAL-DOC-002: No REQ- IDs in implementation files"""
+    """Implementation files do not embed planning-artifact identifiers."""
     golden = load_golden("prohibited_patterns.json")
     errors = []
     for rule in golden["rules"]:
@@ -712,22 +828,22 @@ def eval_doc_002():
                 locations = [f"line {h[0]}" for h in hits[:3]]
             errors.append(f"{rule['id']} in {scope}: {len(hits)} hit(s) at {locations}")
     record(
-        "EVAL-DOC-002",
-        "No REQ- IDs in implementation files",
+        "evaluation",
+        "Implementation files do not embed planning-artifact identifiers",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
     )
 
 
 def eval_sec_001():
-    """EVAL-SEC-001: No non-stdlib imports in hook scripts"""
+    """evaluation: No non-stdlib imports in hook scripts"""
     errors = []
     hook_dir = REPO_ROOT / PLUGIN_DIR / "hooks"
     if hook_dir.is_dir():
         for fpath in sorted(hook_dir.glob("*.py")):
             errors.extend(check_no_external_deps(str(fpath)))
     record(
-        "EVAL-SEC-001",
+        "evaluation",
         "No non-stdlib imports in hook scripts",
         len(errors) == 0,
         "; ".join(errors[:5]) if errors else "",
@@ -735,14 +851,14 @@ def eval_sec_001():
 
 
 def eval_sec_002():
-    """EVAL-SEC-002: No network calls in hook scripts"""
+    """evaluation: No network calls in hook scripts"""
     errors = []
     hook_dir = REPO_ROOT / PLUGIN_DIR / "hooks"
     if hook_dir.is_dir():
         for fpath in sorted(hook_dir.glob("*.py")):
             errors.extend(check_no_network_calls(str(fpath)))
     record(
-        "EVAL-SEC-002",
+        "evaluation",
         "No network calls in hook scripts",
         len(errors) == 0,
         f"Found network call patterns: {errors[:3]}" if errors else "",
@@ -750,14 +866,14 @@ def eval_sec_002():
 
 
 def eval_sec_003():
-    """EVAL-SEC-003: Safety instruction present in CLAUDE.md and template"""
+    """evaluation: Safety instruction present in CLAUDE.md and template"""
     errors = []
     for path in ["CLAUDE.md", f"{PLUGIN_DIR}/skills/init/SKILL.md"]:
         content = read_file(path)
         if "untrusted input" not in content:
             errors.append(f"{path}: 'untrusted input' safety instruction not found")
     record(
-        "EVAL-SEC-003",
+        "evaluation",
         "Safety instruction present in CLAUDE.md and template",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -765,7 +881,7 @@ def eval_sec_003():
 
 
 def eval_sec_004():
-    """EVAL-SEC-004: All allowlist .regex files contain valid regex"""
+    """evaluation: All allowlist .regex files contain valid regex"""
     errors = []
     allowlist_dir = REPO_ROOT / PLUGIN_DIR / "allowlists"
     if allowlist_dir.is_dir():
@@ -791,7 +907,7 @@ def eval_sec_004():
     else:
         errors.append(f"{PLUGIN_DIR}/allowlists/ directory not found")
     record(
-        "EVAL-SEC-004",
+        "evaluation",
         "All allowlist .regex files contain valid regex",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -799,7 +915,7 @@ def eval_sec_004():
 
 
 def eval_sec_005():
-    """EVAL-SEC-005: Overlay hook security catches process execution and dynamic imports"""
+    """evaluation: Overlay hook security catches process execution and dynamic imports"""
     from hook_security import check_no_banned_overlay_modules
     errors = []
 
@@ -852,7 +968,7 @@ def eval_sec_005():
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     record(
-        "EVAL-SEC-005",
+        "evaluation",
         "Overlay hook security catches process exec and dynamic imports",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -860,7 +976,7 @@ def eval_sec_005():
 
 
 def eval_sec_006():
-    """EVAL-SEC-006: Rollback cleans up parent directories created by composition"""
+    """evaluation: Rollback cleans up parent directories created by composition"""
     errors = []
     tmpdir = tempfile.mkdtemp(prefix="eval-sec-006-")
     try:
@@ -893,7 +1009,7 @@ def eval_sec_006():
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     record(
-        "EVAL-SEC-006",
+        "evaluation",
         "Rollback cleans up parent directories",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -978,13 +1094,13 @@ def _extract_test_functions(content: str) -> List[str]:
 # ---------------------------------------------------------------------------
 
 def eval_maint_001():
-    """EVAL-MAINT-001: Diff-size growth ratio within threshold"""
+    """evaluation: Diff-size growth ratio within threshold"""
     try:
         thresholds = load_golden("maintenance_thresholds.json")
         max_ratio = thresholds["diff_size_growth_max_ratio"]
         snapshots = _load_fixture_snapshots()
     except FileNotFoundError as e:
-        record("EVAL-MAINT-001", "Diff-size growth ratio within threshold", False,
+        record("evaluation", "Diff-size growth ratio within threshold", False,
                f"Fixture or golden file not found: {e}")
         return
 
@@ -1016,7 +1132,7 @@ def eval_maint_001():
             )
 
     record(
-        "EVAL-MAINT-001",
+        "evaluation",
         "Diff-size growth ratio within threshold",
         len(violations) == 0,
         "; ".join(violations) if violations else "",
@@ -1024,7 +1140,7 @@ def eval_maint_001():
 
 
 def eval_maint_002():
-    """EVAL-MAINT-002: Interface churn within threshold"""
+    """evaluation: Interface churn within threshold"""
     try:
         thresholds = load_golden("maintenance_thresholds.json")
         max_new = thresholds["interface_churn_max_new_exports_per_task"]
@@ -1034,7 +1150,7 @@ def eval_maint_002():
             meta = json.load(f)
         modules = meta["modules"]
     except FileNotFoundError as e:
-        record("EVAL-MAINT-002", "Interface churn within threshold", False,
+        record("evaluation", "Interface churn within threshold", False,
                f"Fixture or golden file not found: {e}")
         return
 
@@ -1055,7 +1171,7 @@ def eval_maint_002():
             )
 
     record(
-        "EVAL-MAINT-002",
+        "evaluation",
         "Interface churn within threshold",
         len(violations) == 0,
         "; ".join(violations) if violations else "",
@@ -1063,7 +1179,7 @@ def eval_maint_002():
 
 
 def eval_maint_003():
-    """EVAL-MAINT-003: Test preservation rate above threshold"""
+    """evaluation: Test preservation rate above threshold"""
     try:
         thresholds = load_golden("maintenance_thresholds.json")
         min_rate = thresholds["test_preservation_min_rate"]
@@ -1073,7 +1189,7 @@ def eval_maint_003():
             meta = json.load(f)
         test_file = meta["test_file"]
     except FileNotFoundError as e:
-        record("EVAL-MAINT-003", "Test preservation rate above threshold", False,
+        record("evaluation", "Test preservation rate above threshold", False,
                f"Fixture or golden file not found: {e}")
         return
 
@@ -1081,7 +1197,7 @@ def eval_maint_003():
     baseline_tests = set(_extract_test_functions(baseline_content))
 
     if not baseline_tests:
-        record("EVAL-MAINT-003", "Test preservation rate above threshold", False,
+        record("evaluation", "Test preservation rate above threshold", False,
                "No test functions found in baseline")
         return
 
@@ -1099,7 +1215,7 @@ def eval_maint_003():
             )
 
     record(
-        "EVAL-MAINT-003",
+        "evaluation",
         "Test preservation rate above threshold",
         len(violations) == 0,
         "; ".join(violations) if violations else "",
@@ -1111,7 +1227,7 @@ def eval_maint_003():
 # ---------------------------------------------------------------------------
 
 def eval_ovl_001():
-    """EVAL-OVL-001: overlay.schema.json exists, valid JSON, and covers all contribution types"""
+    """evaluation: overlay.schema.json exists, valid JSON, and covers all contribution types"""
     path = f"{PLUGIN_DIR}/schemas/overlay.schema.json"
     errors = []
     if not file_exists(path):
@@ -1155,7 +1271,7 @@ def eval_ovl_001():
                 )
 
     record(
-        "EVAL-OVL-001",
+        "evaluation",
         "overlay.schema.json exists, valid, covers all contribution types",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1163,13 +1279,13 @@ def eval_ovl_001():
 
 
 def eval_ovl_002():
-    """EVAL-OVL-002: anchor-map.json has 13 agents, 22 anchors, all after_section headings exist in agent files"""
+    """evaluation: anchor-map.json has 13 agents, 22 anchors, all after_section headings exist in agent files"""
     path = f"{PLUGIN_DIR}/schemas/anchor-map.json"
     errors = []
     if not file_exists(path):
         errors.append(f"{path} does not exist")
         record(
-            "EVAL-OVL-002",
+            "evaluation",
             "anchor-map.json integrity and sync validation",
             False,
             errors[0],
@@ -1181,7 +1297,7 @@ def eval_ovl_002():
         data = json.loads(content)
     except json.JSONDecodeError as e:
         record(
-            "EVAL-OVL-002",
+            "evaluation",
             "anchor-map.json integrity and sync validation",
             False,
             f"{path} is not valid JSON: {e}",
@@ -1214,7 +1330,7 @@ def eval_ovl_002():
                 )
 
     record(
-        "EVAL-OVL-002",
+        "evaluation",
         "anchor-map.json integrity and sync validation",
         len(errors) == 0,
         "; ".join(errors[:5]) if errors else "",
@@ -1222,7 +1338,7 @@ def eval_ovl_002():
 
 
 def eval_ovl_003():
-    """EVAL-OVL-003: composer.py exists and is syntactically valid Python"""
+    """evaluation: composer.py exists and is syntactically valid Python"""
     path = f"{PLUGIN_DIR}/scripts/composer.py"
     errors = []
     if not file_exists(path):
@@ -1234,7 +1350,7 @@ def eval_ovl_003():
         except SyntaxError as e:
             errors.append(f"{path} has syntax error: {e}")
     record(
-        "EVAL-OVL-003",
+        "evaluation",
         "composer.py exists and is syntactically valid Python",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1242,7 +1358,7 @@ def eval_ovl_003():
 
 
 def eval_ovl_004():
-    """EVAL-OVL-004: Composition with test fixture succeeds in dry-run mode"""
+    """evaluation: Composition with test fixture succeeds in dry-run mode"""
     fixture_path = str(FIXTURES_DIR / "test-overlay")
     base_path = str(REPO_ROOT / PLUGIN_DIR)
     errors = []
@@ -1250,7 +1366,7 @@ def eval_ovl_004():
     if not (FIXTURES_DIR / "test-overlay" / "system2.overlay.json").is_file():
         errors.append("test fixture system2.overlay.json not found")
         record(
-            "EVAL-OVL-004",
+            "evaluation",
             "Composition with test fixture succeeds (dry-run)",
             False,
             errors[0],
@@ -1300,7 +1416,7 @@ def eval_ovl_004():
             errors.append(f"composer.py dry-run output is not valid JSON: {e}")
 
     record(
-        "EVAL-OVL-004",
+        "evaluation",
         "Composition with test fixture succeeds (dry-run)",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1308,7 +1424,7 @@ def eval_ovl_004():
 
 
 def eval_ovl_005():
-    """EVAL-OVL-005: Composed CLAUDE.md preserves base content and includes overlay content"""
+    """evaluation: Composed CLAUDE.md preserves base content and includes overlay content"""
     fixture_path = str(FIXTURES_DIR / "test-overlay")
     base_path = str(REPO_ROOT / PLUGIN_DIR)
     errors = []
@@ -1316,7 +1432,7 @@ def eval_ovl_005():
     if not (FIXTURES_DIR / "test-overlay" / "system2.overlay.json").is_file():
         errors.append("test fixture system2.overlay.json not found")
         record(
-            "EVAL-OVL-005",
+            "evaluation",
             "Composed CLAUDE.md preserves base + adds overlay content",
             False,
             errors[0],
@@ -1423,7 +1539,7 @@ def eval_ovl_005():
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-005",
+        "evaluation",
         "Composed CLAUDE.md preserves base + adds overlay content",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1431,7 +1547,7 @@ def eval_ovl_005():
 
 
 def eval_ovl_006():
-    """EVAL-OVL-006: Skipped unknown-anchor contributions do not block composition (REQ-OVL-051)"""
+    """evaluation: Skipped unknown-anchor contributions do not block composition (the requirement)"""
     fixture_path = str(FIXTURES_DIR / "skipped-anchor-injection")
     base_path = str(REPO_ROOT / PLUGIN_DIR)
     errors = []
@@ -1439,7 +1555,7 @@ def eval_ovl_006():
     manifest_file = FIXTURES_DIR / "skipped-anchor-injection" / "system2.overlay.json"
     if not manifest_file.is_file():
         errors.append("skipped-anchor-injection fixture not found")
-        record("EVAL-OVL-006", "Skipped anchor with injection does not block compose", False, errors[0])
+        record("evaluation", "Skipped anchor with injection does not block compose", False, errors[0])
         return
 
     result = subprocess.run(
@@ -1482,15 +1598,15 @@ def eval_ovl_006():
             errors.append(f"failed to parse composer output: {exc}")
 
     record(
-        "EVAL-OVL-006",
-        "Skipped anchor with injection does not block compose (REQ-OVL-051)",
+        "evaluation",
+        "Skipped anchor with injection does not block compose (the requirement)",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
     )
 
 
 def eval_ovl_007():
-    """EVAL-OVL-007: known_conflicts declarations produce structural conflicts"""
+    """evaluation: known_conflicts declarations produce structural conflicts"""
     from composer import detect_conflicts
 
     anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
@@ -1526,7 +1642,7 @@ def eval_ovl_007():
         errors.append("clean manifests should not have structural conflicts")
 
     record(
-        "EVAL-OVL-007",
+        "evaluation",
         "known_conflicts declarations produce structural conflicts",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1534,7 +1650,7 @@ def eval_ovl_007():
 
 
 def eval_ovl_008():
-    """EVAL-OVL-008: Auxiliary agent name collisions across overlays are structural conflicts"""
+    """evaluation: Auxiliary agent name collisions across overlays are structural conflicts"""
     from composer import detect_conflicts
 
     anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
@@ -1567,7 +1683,7 @@ def eval_ovl_008():
             errors.append(f"expected 'auxiliary_agent_collision' type, got {types}")
 
     record(
-        "EVAL-OVL-008",
+        "evaluation",
         "Auxiliary agent name collisions are structural conflicts",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1575,7 +1691,7 @@ def eval_ovl_008():
 
 
 def eval_ovl_009():
-    """EVAL-OVL-009: After-declaration cycles produce structural conflicts"""
+    """evaluation: After-declaration cycles produce structural conflicts"""
     from composer import detect_conflicts
 
     anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
@@ -1610,7 +1726,7 @@ def eval_ovl_009():
             errors.append(f"expected 'ordering_cycle' type, got {types}")
 
     record(
-        "EVAL-OVL-009",
+        "evaluation",
         "After-declaration cycles produce structural conflicts",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1618,7 +1734,7 @@ def eval_ovl_009():
 
 
 def eval_ovl_010():
-    """EVAL-OVL-010: Deterministic additive ordering across overlays"""
+    """evaluation: Deterministic additive ordering across overlays"""
     from composer import detect_conflicts
 
     anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
@@ -1671,7 +1787,7 @@ def eval_ovl_010():
             )
 
     record(
-        "EVAL-OVL-010",
+        "evaluation",
         "Deterministic additive ordering across overlays",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1679,7 +1795,7 @@ def eval_ovl_010():
 
 
 def eval_ovl_011():
-    """EVAL-OVL-011: Semantic tension warnings for high-leverage surfaces"""
+    """evaluation: Semantic tension warnings for high-leverage surfaces"""
     from composer import detect_conflicts
 
     anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
@@ -1746,7 +1862,7 @@ def eval_ovl_011():
         errors.append("expected high_leverage_surface semantic tension for executor.safety_rules")
 
     record(
-        "EVAL-OVL-011",
+        "evaluation",
         "Semantic tension warnings for high-leverage surfaces",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1754,7 +1870,7 @@ def eval_ovl_011():
 
 
 def eval_ovl_012():
-    """EVAL-OVL-012: Semantic tension warnings for shared review tags"""
+    """evaluation: Semantic tension warnings for shared review tags"""
     from composer import detect_conflicts
 
     anchor_map = json.loads(read_file(os.path.join(PLUGIN_DIR, "schemas", "anchor-map.json")))
@@ -1791,7 +1907,7 @@ def eval_ovl_012():
         errors.append("non-matching review tags should not produce tension")
 
     record(
-        "EVAL-OVL-012",
+        "evaluation",
         "Semantic tension warnings for shared review tags",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1836,7 +1952,7 @@ def _compose_fixture_overlay(tmp_dir):
 
 
 def eval_ovl_013():
-    """EVAL-OVL-013: drift_check returns 'current' for freshly composed project"""
+    """evaluation: drift_check returns 'current' for freshly composed project"""
     from composer import drift_check
 
     errors = []
@@ -1860,7 +1976,7 @@ def eval_ovl_013():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-013",
+        "evaluation",
         "drift_check returns 'current' for freshly composed project",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1868,7 +1984,7 @@ def eval_ovl_013():
 
 
 def eval_ovl_014():
-    """EVAL-OVL-014: drift_check detects stale base version"""
+    """evaluation: drift_check detects stale base version"""
     from composer import drift_check
 
     errors = []
@@ -1893,7 +2009,7 @@ def eval_ovl_014():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-014",
+        "evaluation",
         "drift_check detects stale base version",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1901,7 +2017,7 @@ def eval_ovl_014():
 
 
 def eval_ovl_015():
-    """EVAL-OVL-015: drift_check detects stale overlay manifest"""
+    """evaluation: drift_check detects stale overlay manifest"""
     from composer import drift_check
 
     errors = []
@@ -1926,7 +2042,7 @@ def eval_ovl_015():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-015",
+        "evaluation",
         "drift_check detects stale overlay manifest",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1934,7 +2050,7 @@ def eval_ovl_015():
 
 
 def eval_ovl_016():
-    """EVAL-OVL-016: drift_check detects stale overlay content"""
+    """evaluation: drift_check detects stale overlay content"""
     from composer import drift_check
 
     errors = []
@@ -1959,7 +2075,7 @@ def eval_ovl_016():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-016",
+        "evaluation",
         "drift_check detects stale overlay content",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -1967,7 +2083,7 @@ def eval_ovl_016():
 
 
 def eval_ovl_017():
-    """EVAL-OVL-017: drift_check detects missing overlay source path"""
+    """evaluation: drift_check detects missing overlay source path"""
     from composer import drift_check
 
     errors = []
@@ -1992,7 +2108,7 @@ def eval_ovl_017():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-017",
+        "evaluation",
         "drift_check detects missing overlay source path",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -2000,7 +2116,7 @@ def eval_ovl_017():
 
 
 def eval_ovl_018():
-    """EVAL-OVL-018: drift_check detects missing project-local overlay copy"""
+    """evaluation: drift_check detects missing project-local overlay copy"""
     from composer import drift_check
 
     errors = []
@@ -2024,7 +2140,7 @@ def eval_ovl_018():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-018",
+        "evaluation",
         "drift_check detects missing project-local overlay copy",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -2032,7 +2148,7 @@ def eval_ovl_018():
 
 
 def eval_ovl_019():
-    """EVAL-OVL-019: --from-lock recomposes using locked overlay paths"""
+    """evaluation: --from-lock recomposes using locked overlay paths"""
     errors = []
     tmp_dir = tempfile.mkdtemp(prefix="eval_ovl019_")
     try:
@@ -2074,7 +2190,7 @@ def eval_ovl_019():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-019",
+        "evaluation",
         "--from-lock recomposes using locked overlay paths",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -2082,7 +2198,7 @@ def eval_ovl_019():
 
 
 def eval_ovl_020():
-    """EVAL-OVL-020: drift_check returns 'no_lock' when lock file is absent"""
+    """evaluation: drift_check returns 'no_lock' when lock file is absent"""
     from composer import drift_check
 
     errors = []
@@ -2099,7 +2215,7 @@ def eval_ovl_020():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-020",
+        "evaluation",
         "drift_check returns 'no_lock' when lock file is absent",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -2107,7 +2223,7 @@ def eval_ovl_020():
 
 
 def eval_ovl_021():
-    """EVAL-OVL-021: doctor skill file exists with correct frontmatter"""
+    """evaluation: doctor skill file exists with correct frontmatter"""
     path = f"{PLUGIN_DIR}/skills/doctor/SKILL.md"
     errors = []
     if not file_exists(path):
@@ -2128,7 +2244,7 @@ def eval_ovl_021():
             errors.append("SKILL.md should describe the command as read-only")
 
     record(
-        "EVAL-OVL-021",
+        "evaluation",
         "doctor skill file exists with correct frontmatter",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -2136,7 +2252,7 @@ def eval_ovl_021():
 
 
 def eval_ovl_022():
-    """EVAL-OVL-022: drift_check detects mutated project-local overlay copy"""
+    """evaluation: drift_check detects mutated project-local overlay copy"""
     from composer import drift_check
 
     errors = []
@@ -2169,7 +2285,7 @@ def eval_ovl_022():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     record(
-        "EVAL-OVL-022",
+        "evaluation",
         "drift_check detects mutated project-local overlay copy",
         len(errors) == 0,
         "; ".join(errors) if errors else "",
@@ -2197,6 +2313,7 @@ ALL_EVALS = [
     eval_man_001,
     eval_man_002,
     eval_man_003,
+    eval_man_004,
     # Template
     eval_tpl_001,
     eval_tpl_002,
@@ -2229,7 +2346,7 @@ ALL_EVALS = [
     eval_ovl_003,
     eval_ovl_004,
     eval_ovl_005,
-    # Overlay: REQ-OVL-051 regression
+    # Overlay: the requirement regression
     eval_ovl_006,
     # Overlay: conflict detection
     eval_ovl_007,

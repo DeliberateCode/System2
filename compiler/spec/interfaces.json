@@ -1,5 +1,6 @@
 {
   "version": "1.0.0",
+  "_frozen_historical_record": "PR #10 review finding 8: this file is a frozen historical record of the compiler's original build cycle (spec home compiler/spec/, per the recorded freeze decision that also covers the workspace-root spec/ and spec-goose-removal/ directories). It is NOT updated as the codebase evolves and does not describe current behavior -- e.g. the 'backends/goose.py' entry below describes a module removed from the repo by the later spec-goose-removal cycle. For the current, real module surface see compiler/system2_compiler/ directly; for the current channel set see distributions/.",
   "modules": {
     "ir/__init__.py": {
       "description": "Public front-end entry point. Re-exports compose() and the System2Graph schema. Harness-neutral; imports no backend.",

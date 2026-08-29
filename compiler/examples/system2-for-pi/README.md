@@ -37,6 +37,14 @@ system2-for-pi/
   system2.pi.lock.json         # composition lock / drift gate
 ```
 
+**Note (PR #10 review finding 9):** `system2.pi.lock.json`'s `overlay_sources` entry is
+normalized to the placeholder `<OVERLAY_SRC>` rather than the real absolute path used to
+generate this example (matching the same normalization `compiler/evals/test_pi_snapshots.py`
+applies to its own committed snapshots) — a real absolute path baked into a committed example
+is inherently machine-specific and would go stale on every other checkout. This directory is a
+static, read-only illustration of compiler output, not a live composed project; do not run
+`system2 codex/pi doctor`-style drift checks against it.
+
 ## Running it
 
 Pi reads its configuration from the project's `.pi/` directory, so running this
