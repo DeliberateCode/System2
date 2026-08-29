@@ -1,0 +1,1 @@
+ERROR: Either --overlays or --from-lock is required

@@ -1,0 +1,11 @@
+Status: Stale base
+System2 version: installed=1.1.1, locked=0.0.0-stale
+CLAUDE.md composed: yes
+
+Overlays (1):
+  test-overlay: source=ok, local=ok, manifest=ok, content=ok, local_content=ok
+
+Findings:
+  - Installed System2 version (1.1.1) differs from locked version (0.0.0-stale)
+
+Run /system2:compose --from-lock to refresh composition.

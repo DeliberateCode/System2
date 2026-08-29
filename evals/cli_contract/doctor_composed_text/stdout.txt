@@ -1,0 +1,8 @@
+Status: Current
+System2 version: installed=1.1.1, locked=1.1.1
+CLAUDE.md composed: yes
+
+Overlays (1):
+  test-overlay: source=ok, local=ok, manifest=ok, content=ok, local_content=ok
+
+All overlays match the lock file. No action needed.

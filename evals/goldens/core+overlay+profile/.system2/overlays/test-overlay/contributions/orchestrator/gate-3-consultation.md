@@ -1,0 +1,1 @@
+Before approving the design, verify test coverage plan exists.

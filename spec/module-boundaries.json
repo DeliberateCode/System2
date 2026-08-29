@@ -1,0 +1,287 @@
+{
+  "version": "1.0.0",
+  "boundaries": [
+    {
+      "module": "ir/",
+      "description": "Harness-neutral front-end. Reads manifests, schema, anchor map, and profiles; produces the System2Graph IR. Contains no Claude rendering, hook-wiring, frontmatter-emission, or lock-formatting logic (REQ-040). Knows nothing about any backend.",
+      "allowed_imports_from": [
+        "ir/",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "backends/",
+        "backends/claude_code.py",
+        "backends/base.py",
+        "backends/capabilities/",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "ir/graph.py",
+      "description": "The System2Graph schema (dataclasses). Pure data; depends only on ir/ sibling type modules (anchors, capabilities) and stdlib.",
+      "allowed_imports_from": [
+        "ir/anchors.py",
+        "ir/capabilities.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "backends/",
+        "cli.py",
+        "ir/build.py",
+        "ir/manifest.py",
+        "ir/conflicts.py",
+        "ir/contributions.py",
+        "ir/profiles.py"
+      ]
+    },
+    {
+      "module": "ir/build.py",
+      "description": "Assembles the graph from validated inputs. May import all neutral ir/ helpers. May not import any backend.",
+      "allowed_imports_from": [
+        "ir/graph.py",
+        "ir/contributions.py",
+        "ir/conflicts.py",
+        "ir/manifest.py",
+        "ir/anchors.py",
+        "ir/capabilities.py",
+        "ir/profiles.py",
+        "ir/_hook_security.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "backends/",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "ir/manifest.py",
+      "description": "Manifest read/validation, schema + anchor-map loaders, injection scan. May import the vendored hook-security shim. Treats all input as untrusted; no dynamic execution.",
+      "allowed_imports_from": [
+        "ir/_hook_security.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "backends/",
+        "cli.py",
+        "ir/graph.py",
+        "ir/build.py"
+      ]
+    },
+    {
+      "module": "backends/base.py",
+      "description": "The Backend lowering protocol. Imports only the IR graph type and stdlib typing.",
+      "allowed_imports_from": [
+        "ir/graph.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/build.py",
+        "ir/manifest.py",
+        "ir/conflicts.py",
+        "ir/contributions.py",
+        "ir/anchors.py",
+        "ir/profiles.py",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "backends/claude_code.py",
+      "description": "The Claude projection. Consumes only the System2Graph and the project path. MUST NOT read overlay manifests, the anchor map, profiles, or the schema directly (REQ-015) — all needed data arrives via the IR. Owns all Claude byte-level details and the IR-anchor -> CLAUDE.md location mapping. Phase 4: its _build_degradation_report becomes a thin BYTE-PRESERVING wrapper over backends/_degradation.py (PG6); emitted bytes unchanged.",
+      "allowed_imports_from": [
+        "ir/graph.py",
+        "backends/base.py",
+        "backends/_degradation.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/build.py",
+        "ir/manifest.py",
+        "ir/conflicts.py",
+        "ir/contributions.py",
+        "ir/anchors.py",
+        "ir/capabilities.py",
+        "ir/profiles.py",
+        "ir/_hook_security.py",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "backends/goose.py",
+      "description": "Phase 3: the Goose backend (second backend). Consumes only the System2Graph + project path; same boundary as claude_code. Reads its own backends/capabilities/goose.json data file (a JSON read, not an ir/* import). Emits YAML via the backend-internal serializer backends/_yaml.py. MUST NOT read overlay manifests, the anchor map, profiles, or the schema (REQ-015). MUST NOT consume ir.base_template or ir.overlay_inputs (Claude-targeted; Goose renders from structured IR fields only). Output is a pure function of the IR (no timestamps). Phase 4: its _build_degradation_report becomes a thin BYTE-PRESERVING wrapper over backends/_degradation.py (PG6); system2.goose.lock.json bytes unchanged.",
+      "allowed_imports_from": [
+        "ir/graph.py",
+        "backends/base.py",
+        "backends/_yaml.py",
+        "backends/_degradation.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/build.py",
+        "ir/manifest.py",
+        "ir/conflicts.py",
+        "ir/contributions.py",
+        "ir/anchors.py",
+        "ir/capabilities.py",
+        "ir/profiles.py",
+        "ir/_hook_security.py",
+        "backends/claude_code.py",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "backends/_yaml.py",
+      "description": "Phase 3: internal, stdlib-only deterministic block-YAML serializer (emit-only; no parser). Pure helper for the closed recipe YAML subset. Imports only stdlib. No knowledge of the IR, no I/O. Backend-internal; consumed by backends/goose.py only.",
+      "allowed_imports_from": [
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/",
+        "backends/base.py",
+        "backends/claude_code.py",
+        "backends/goose.py",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "backends/_degradation.py",
+      "description": "Phase 4 (PG6): the shared, descriptor-driven degradation helper. Internal, stdlib-only, no I/O; backend-agnostic record assembly + the status->flags rule. Imports only stdlib (it receives ir.capabilities-as-data + a parsed descriptor dict as arguments — it does NOT import ir/*). Consumed by claude_code/goose/pi only. BYTE-PRESERVING: each backend keeps its own envelope + 'fields' selection so the claude-code lock degradation_report and system2.goose.lock.json bytes are unchanged.",
+      "allowed_imports_from": [
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/",
+        "backends/base.py",
+        "backends/claude_code.py",
+        "backends/goose.py",
+        "backends/pi.py",
+        "backends/_yaml.py",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "backends/pi.py",
+      "description": "Phase 4: the Pi backend (third backend; first MIXED-status backend). Consumes only the System2Graph + project path; same boundary as claude_code/goose. Reads its own backends/capabilities/pi.json data file (a JSON read, not an ir/* import). Uses the shared backends/_degradation.py for the mixed degradation report. Emits the Pi extension TypeScript + Pi context/skill/prompt markdown + JSON lock as TEXT (no node/TS/third-party in the compiler; node/pi only in TESTS). MUST NOT read overlay manifests, the anchor map, profiles, or the schema (REQ-015). MUST NOT consume ir.base_template or ir.overlay_inputs (Claude-targeted; Pi renders from structured IR fields only). Owns DEFAULT dangerous-command + sensitive-path pattern sets (keeps the IR neutral). Output is a pure function of the IR (no timestamps).",
+      "allowed_imports_from": [
+        "ir/graph.py",
+        "backends/base.py",
+        "backends/_degradation.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/build.py",
+        "ir/manifest.py",
+        "ir/conflicts.py",
+        "ir/contributions.py",
+        "ir/anchors.py",
+        "ir/capabilities.py",
+        "ir/profiles.py",
+        "ir/_hook_security.py",
+        "backends/claude_code.py",
+        "backends/goose.py",
+        "backends/_yaml.py",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "backends/capabilities/",
+      "description": "Declarative per-backend capability descriptors (JSON: claude_code.json, goose.json, pi.json). No code; loaded by the owning backend only. goose.json carries the OQ1-locked honest statuses (nothing native). pi.json is the first MIXED descriptor (native + adapted + advisory).",
+      "allowed_imports_from": [],
+      "forbidden_imports_from": [
+        "ir/",
+        "backends/",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "cli.py",
+      "description": "Thin orchestration: parse args -> ir.compose -> select backend -> backend.{emit|uninstall|doctor|recompose_from_lock} -> render neutral warnings/reports. May import the front-end entry and the backend registry. Phase 4 registers 'pi'. Phase 5 (parity): a subcommand dispatcher (compile|uninstall|doctor|from-lock|profile) reaching FULL composer.py parity. Lifecycle verbs go through the GROWN Backend contract (the CLI stays target-agnostic; per-target lock parsing lives in the backend). Profiles are harness-NEUTRAL — the CLI MAY import ir/profiles.py for the profile verb (the one ir/ helper the CLI uses, since profiles feed compose for ANY target and are not a backend concern). Does not touch the plugin's /system2:* surface (additive).",
+      "allowed_imports_from": [
+        "ir/__init__.py",
+        "ir/graph.py",
+        "ir/profiles.py",
+        "backends/base.py",
+        "backends/claude_code.py",
+        "backends/goose.py",
+        "backends/pi.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/manifest.py",
+        "ir/conflicts.py",
+        "ir/contributions.py",
+        "ir/anchors.py",
+        "backends/_yaml.py",
+        "backends/_degradation.py"
+      ]
+    },
+    {
+      "module": "tools/",
+      "description": "Phase 5: build/CI tooling (NOT product modules). build_bundle.py generates the vendored plugin bundle by copying ir/+backends/+plugin_adapter verbatim and writing BUNDLE.json (the compiler-source hash). check_bundle_fresh.py is the CI staleness guard (regenerate -> hash -> compare -> fail-if-stale). May import stdlib only; reads compiler product source as files (a copy, not an import).",
+      "allowed_imports_from": [
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "ir/",
+        "backends/",
+        "cli.py"
+      ]
+    },
+    {
+      "module": "plugin/scripts/_system2_compiler/",
+      "description": "Phase 5 [PLUGIN]: the vendored, stdlib-only bundle the plugin ships — a VERBATIM COPY of the compiler's ir/ + backends/ (+ plugin_adapter.py + BUNDLE.json), generated by tools/build_bundle.py. Same internal boundaries as the compiler source (it IS the source). plugin_adapter.py preserves the composer.py flag CLI contract (maps --doctor/--uninstall/--from-lock/--profile/--save-profile/--profile-op/--profile-* onto ClaudeCodeBackend lifecycle + ir.compose + ir/profiles.py). Stdlib-only by construction; never adds a plugin runtime dependency (G7/C3).",
+      "allowed_imports_from": [
+        "plugin/scripts/_system2_compiler/",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "System2/plugin/scripts/composer.py.preflip",
+        "third-party"
+      ]
+    },
+    {
+      "module": "evals/",
+      "description": "Compiler's own golden suite. Invokes the frozen oracle as a subprocess (never imports it). From Phase 1, invokes the compiler in-process via ir.compose + backend.emit. Phase 3: also drives the goose backend, snapshots its artifacts as goldens, and runs 'goose recipe validate' as the validity oracle (LOUD SKIP when goose is absent; never a silent pass). Phase 4: also drives the pi backend, snapshots its artifacts as goldens, loads the generated .pi/extensions/system2.ts via node/pi and fires synthetic tool_call events for the PROVEN-BLOCKING test (LOUD SKIP when node/pi absent; never a silent pass), and drives the backend-parameterized mixed-status degradation fixture. Tests use a hermetic temp HOME and a hermetic .pi; they never touch the user's real ~/.pi or Pi config. May import backends/_degradation.py to drive the PG6 fixture. Stdlib-only harness.",
+      "allowed_imports_from": [
+        "ir/__init__.py",
+        "ir/graph.py",
+        "backends/base.py",
+        "backends/claude_code.py",
+        "backends/goose.py",
+        "backends/pi.py",
+        "backends/_degradation.py",
+        "stdlib"
+      ],
+      "forbidden_imports_from": [
+        "System2/plugin/scripts/composer.py",
+        "System2/plugin/scripts/profiles.py",
+        "System2/plugin/scripts/hook_security.py"
+      ]
+    }
+  ],
+  "global_invariants": [
+    "No module under ir/ or backends/ imports any third-party package (stdlib only; REQ-016/043).",
+    "No module introduces network calls or telemetry (REQ-047).",
+    "backends/* receive all data via the System2Graph argument; a static test fails if any backend references manifest/anchor-map/profile/schema source files (REQ-015).",
+    "ir/* contains no Claude prompt-rendering, hook-wiring, or frontmatter-emission code (REQ-040).",
+    "The frozen plugin composer.py is never imported by product code; only the evals/ oracle runner touches it, and only via subprocess (REQ-006/017).",
+    "Phase 3: the ir/ schema and backends/claude_code.py are byte-unchanged by the Goose work; the Goose backend adds files under backends/ only (NFR-001) and consumes the shared System2Graph read-only.",
+    "Phase 3: ir.base_template and ir.overlay_inputs are Claude-targeted; only backends/claude_code.py may consume them. backends/goose.py MUST NOT read them (renders from structured IR fields only).",
+    "Phase 3: GooseBackend.emit is a pure function of the IR — no timestamps in emitted artifacts, no writes outside project_path; global ~/.config/goose/permission.yaml delivery is the launcher's job only.",
+    "Phase 3: no capability is reported 'native' for the goose backend; every IR capability appears in goose.json and in system2.goose.lock.json with a matching status (no silent downgrade, NFR-003).",
+    "Phase 4 (PG6): the degradation report is built by the shared backends/_degradation.py for ALL backends; the refactor is BYTE-PRESERVING — the claude-code lock degradation_report and system2.goose.lock.json are byte-identical to their pre-refactor goldens (AC-P1), gated before any Pi code merges.",
+    "Phase 4: backends/_degradation.py imports only stdlib and never imports ir/* (it receives ir.capabilities-as-data + a parsed descriptor dict as arguments); the status->flags rule (native=>enforced:true,gated:false; adapted=>enforced:false,gated:true; advisory/unsupported=>both false) lives there as the single source of truth.",
+    "Phase 4: the ir/ schema and backends/{claude_code,goose}.py are byte-unchanged by the Pi work (only their _build_degradation_report wrappers are rewired to the shared helper, preserving bytes); the Pi backend adds files under backends/ only (NFR-001) and consumes the shared System2Graph read-only.",
+    "Phase 4: ir.base_template and ir.overlay_inputs are Claude-targeted; backends/pi.py MUST NOT read them (renders from structured IR fields only).",
+    "Phase 4: PiBackend.emit is a pure function of the IR — no timestamps in emitted artifacts, no writes outside project_path; it never touches $HOME or the user's real ~/.pi. The compiler emits TS/markdown/JSON as TEXT; no node/TS/third-party import in the compiler (node/pi only in the evals/ tests).",
+    "Phase 4: the pi backend is the first MIXED-status backend — enforce-lease/block-dangerous/protect-sensitive are 'native' (generated extension on('tool_call') hard-block; Pi has no built-in permission system), budget is 'adapted', format/typecheck are 'advisory'; every IR capability appears in pi.json and in system2.pi.lock.json with a matching status (no silent drop, NFR-003/NFR-004).",
+    "Phase 4: dangerous-command + sensitive-path pattern sets are BACKEND-OWNED defaults in backends/pi.py (not in the IR), keeping the IR neutral (mirrors goose._DANGEROUS_COMMANDS); enforce-lease uses role write_scope when present, else is wired-but-unscoped and reported honestly (never a silent vacuous native claim).",
+    "Phase 5: the Backend contract GROWS to a per-target lifecycle (emit + uninstall + doctor + recompose_from_lock + lock helpers); Goose and Pi reach feature-completeness, not just Claude. The boundary is unchanged — each backend imports only ir.graph (+ its helpers) + stdlib; the from-lock recompose path arrives as an IR; no backend reads manifests/anchor-map/profiles/schema directly.",
+    "Phase 5: profiles stay HARNESS-NEUTRAL and SHARED — the single ir/profiles.py feeds compose for ANY --target; the CLI's profile verb is the only place the CLI imports ir/profiles.py; there is no per-target profile surface.",
+    "Phase 5: the claude-code lifecycle (uninstall/doctor/from-lock) is a byte-faithful PORT of composer._uninstall/_uninstall_last_overlay/drift_check/from-lock (relocation, not rewrite); the CLI-contract goldens diff the compiler CLI (and the vendored bundle/shim) against the FROZEN pre-flip oracle's args/exit-codes/stdout/stderr (no auto-rebaseline; REQ-007 extends to the lifecycle verbs).",
+    "Phase 5: no Claude artifact bytes change (REQ-014 holds). The ONLY intentional non-Claude byte change is the additive overlay_sources[] key appended LAST to the goose/pi locks (re-baselines those two goldens once, reviewed; asserted additive/last).",
+    "Phase 5 (convergence): the plugin ships a vendored, stdlib-only SUBTREE (plugin/scripts/_system2_compiler/) that is a VERBATIM copy of the compiler's product source -> byte-identical Claude output by construction; the plugin stays ZERO-DEPENDENCY (no pip/submodule/network; verified by a dep scan over the vendored subtree).",
+    "Phase 5 [PLUGIN] the flip is a THIN SHIM (not full-replace): composer.py/profiles.py become ~10-line shims delegating to the bundle via plugin_adapter, preserving the EXACT ${PLUGIN_ROOT}/scripts/composer.py flag CLI + exit codes + stdout/stderr the skills invoke -> the skills (compose/doctor/profile/init/uninstall) are UNCHANGED; the pre-flip composer.py is preserved as composer.py.preflip (immutable oracle baseline + one-commit reversible backout).",
+    "Phase 5 (G8/NFR-006): vendored-bundle freshness is MACHINE-ENFORCED — tools/check_bundle_fresh.py FAILS CI on a stale/hand-edited bundle (a stale bundle cannot merge) and system2:doctor surfaces bundle_freshness/bundle_tampered; a drift-guard self-test (mutate a vendored byte -> CI fails AND doctor reports tampered) proves the guard has teeth.",
+    "Phase 5 GATE: the flip is not merged until the bundle-equivalence gate (bundle output == compiler == frozen oracle, compose) is empty-diff, the CLI-contract goldens (all lifecycle verbs) are empty-diff, AND the plugin's own System2/evals/ suite is green on the flipped plugin."
+  ]
+}

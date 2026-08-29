@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "profiles": {
+    "test-profile": {
+      "overlays": [
+        {
+          "path": "/Users/james/DeliberateCode/System2/evals/fixtures/test-overlay"
+        }
+      ]
+    }
+  }
+}

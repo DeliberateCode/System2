@@ -1,0 +1,19 @@
+Composition Report
+========================================
+  Overlay: test-overlay@1.0.0
+
+Composed CLAUDE.md: 257 lines
+
+Contributions applied:
+  orchestrator.principles: ['test-principle-1']
+  orchestrator.gates.3.consultation: ['test-gate3-consultation']
+  delegation.advisory_sources: ['test-advisory-1']
+  agents.executor.prompt_sections.implementation_discipline: ['test-executor-discipline']
+  spec.context.required_sections: ['test-spec-section']
+  auxiliary_agents: ['test-scout']
+
+Files written:
+  <PROJECT>/.system2/overlays/test-overlay
+  <PROJECT>/CLAUDE.md
+  <PROJECT>/spec/overlay-manifest.lock
+  <PROJECT>/.claude/agents/test-scout.md

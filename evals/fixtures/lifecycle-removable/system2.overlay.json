@@ -1,0 +1,13 @@
+{
+  "name": "lifecycle-removable",
+  "version": "1.0.0",
+  "description": "Lifecycle fixture: a plain, removable overlay (schema 1.0.0).",
+  "schema_version": "1.0.0",
+  "tags": ["lifecycle-removable"],
+  "compatibility": {
+    "known_conflicts": [],
+    "tested_with": [],
+    "review_when_combined_with_tags": []
+  },
+  "contributions": {}
+}

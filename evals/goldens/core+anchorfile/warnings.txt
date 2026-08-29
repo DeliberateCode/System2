@@ -1,0 +1,1 @@
+  WARNING: [anchorfile] contributions.agents.executor.prompt_sections.nonexistent_anchor_zzz: unknown anchor 'nonexistent_anchor_zzz' for agent 'executor' (contributions ['af-unknown'] will be skipped); valid anchors: ['implementation_discipline', 'safety_rules', 'verification_rules']
