@@ -1,32 +1,4 @@
-"""The Pi backend (the third backend) — the first MIXED-status backend.
-
-Lowers the same harness-neutral ``System2Graph`` onto a Pi **extension**
-(generated TypeScript text) plus Pi context / skill / prompt markdown and a
-standalone degradation report. Same boundary as ``claude_code``:
-imports only ``ir.graph`` + ``backends._degradation`` + stdlib (it structurally
-satisfies the backend Protocol without importing ``backends.base``), and reads its
-own ``backends/capabilities/pi.json`` data file (a JSON read, not an ``ir/*``
-import). It never reads overlay manifests, the anchor map, profiles, or the
-schema, and it MUST NOT consume ``ir.base_template`` / ``ir.overlay_inputs`` (the
-Claude-targeted byte-fidelity carriers) — Pi renders from the *structured* IR
-fields only.
-
-The honesty job here is proving native enforcement is real: Pi has a real native
-enforcement seam. Pi has NO built-in permission system — the generated extension's ``on("tool_call")``
-handler fires BEFORE a tool and can ``return { block: true, reason }``, so the
-handler IS the gate. ``enforce-lease`` / ``block-dangerous`` / ``protect-sensitive``
-are therefore genuinely **native** (a deterministic pre-execution block); ``budget``
-is **adapted** (``on("agent_end")`` report, not a block); ``format`` / ``typecheck``
-are **advisory** (SYSTEM.md instruction only). The degradation report
-(``system2.pi.lock.json``) and a loud ``FIDELITY`` banner make the mixed story
-machine-readable; when a role's ``write_scope`` is empty the lease gate is wired but
-unscoped and the report says so loudly (never a silent vacuous native claim).
-
-The compiler emits TypeScript / markdown / JSON as **text**; it never runs or
-transpiles TS (node / pi live only in the eval tests). Output is a pure function of
-the IR + backend-owned constants — no timestamps, sorted / insertion-ordered
-emission, LF endings, single trailing newline. Identical IR -> byte-identical tree.
-"""
+"""Pi backend with native safety gates and adapted reporting."""
 
 import json
 import os
@@ -56,18 +28,9 @@ _DESCRIPTOR_PATH = os.path.join(
 
 _PI_VERSION_ASSUMED = "0.80.2"
 
-# The dangerous-command and sensitive-path matcher sets moved to backends/_enforcement.py
-# (shared with the codex backend) and are consumed here VERBATIM via
-# build_dangerous_command_patterns() / build_sensitive_path_patterns() — pi calls the
-# default (no canary) so its emitted TS bytes are unchanged. Each returned entry is
-# (js_regex_source, js_flags, reason), fixed order (deterministic, NOT sorted — regex
-# evaluation order is semantic); emitted into the generated TS as `new RegExp(source,
-# flags)`, escaped via _ts_escape like every other literal.
+# Shared matcher order is semantic because the extension reports the first match.
 
-# The role whose write_scope governs an un-delegated turn. The /delegate dispatcher
-# switches the active role; until then the executor scope is the default (it is the
-# implementation role). Chosen deterministically: executor if present, else the
-# first role in the preferred order.
+# Default role before /delegate selects another scope.
 _DEFAULT_ACTIVE_ROLE = "executor"
 
 _ADVISORY_LABEL = "ADVISORY — NOT ENFORCED ON PI (instruction only)"
@@ -109,12 +72,7 @@ def _load_descriptor(descriptor_path: str = _DESCRIPTOR_PATH) -> dict:
 
 
 def _ir_capabilities(ir: System2Graph) -> List[str]:
-    """Every intent capability present in the IR, in descriptor order.
-
-    A capability present in the IR but absent from the descriptor would raise in
-    the shared helper (no silent drop); here it is filtered to descriptor order for
-    deterministic prose rendering.
-    """
+    """Every intent capability present in the IR, in descriptor order."""
     union = _degradation.ir_capability_union(ir.capabilities.by_agent)
     descriptor = _load_descriptor()
     return [c for c in descriptor.get("capabilities", {}) if c in union]
@@ -128,25 +86,14 @@ def _status_by_capability() -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Escaping (untrusted IR strings -> TS / JSON literals; never raw-spliced)
-# ---------------------------------------------------------------------------
 
 def _ts_escape(value: str) -> str:
-    """Escape a Python string for a double-quoted TypeScript string literal.
-
-    Every IR-derived string interpolated into the generated ``.ts`` (role names,
-    write-scope regexes, reasons, the SYSTEM prompt) passes through here so no raw
-    overlay/IR text is spliced into executable TS ( injection posture).
-    Uses ``json.dumps`` (a superset-safe JS string literal) so quotes, backslashes,
-    newlines, and control characters are all escaped canonically.
-    """
+    """Escape a Python string for a double-quoted TypeScript string literal."""
     return json.dumps(value)
 
 
-# ---------------------------------------------------------------------------
 # Structured-IR markdown rendering (shared by SYSTEM.md / prompts)
-# ---------------------------------------------------------------------------
 
 def _gate_order(gate_graph) -> List[int]:
     """Gate numbers in edge order (0 first), falling back to sorted nodes."""
@@ -171,13 +118,7 @@ def _gate_order(gate_graph) -> List[int]:
 
 
 def _orchestrator_scoped_lines(ir: System2Graph) -> List[str]:
-    """Render orchestrator-scoped contribution metadata into markdown lines.
-
-    Renders only the structured metadata already on each ``Contribution.raw`` (ids,
-    names, descriptions, summaries, headings) — it does NOT read overlay content
-    files (that is the Claude backend's job). Deterministic: scopes follow the IR's
-    insertion order; entries follow the front-end's topological order.
-    """
+    """Render orchestrator-scoped contribution metadata into markdown lines."""
     principles: List[str] = []
     consultations: List[str] = []
     advisory_sources: List[str] = []
@@ -296,9 +237,7 @@ def _any_empty_write_scope(ir: System2Graph) -> bool:
     return any(not (r.write_scope or "").strip() for r in ir.roles)
 
 
-# ---------------------------------------------------------------------------
 # Markdown artifact builders (.pi/SYSTEM.md, AGENTS.md, prompts, skills)
-# ---------------------------------------------------------------------------
 
 def _build_system_md(ir: System2Graph) -> str:
     lines: List[str] = ["# System2 orchestrator context (Pi)"]
@@ -477,26 +416,13 @@ def _build_orchestrator_prompt(ir: System2Graph) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Every Pi skill carries YAML frontmatter with a non-empty description, which is
-# the minimum shape Pi needs for discovery. Frontmatter-less init, compose, and doctor
-# skills would be undiscoverable.
+# Pi requires non-empty skill frontmatter for discovery.
 def _skill_frontmatter(name: str, description: str) -> str:
-    """Emit frontmatter through the canonical YAML serializer.
-
-    Skill descriptions are backend-owned today, but treating them as data rather
-    than interpolating plain scalars keeps every future description valid YAML
-    (notably values containing ``: ``).
-    """
+    """Emit frontmatter through the canonical YAML serializer."""
     return "---\n" + _yaml.dump({"name": name, "description": description}) + "---\n\n"
 
 
-# The base-skill descriptions come from Pi's own emitted purpose lines rather than
-# Claude frontmatter, which names Claude-specific mechanics that
-# would be factually wrong here (e.g. init's Claude description cites writing CLAUDE.md, which
-# the Pi body never does). The three new skills' descriptions are adapted from each merged
-# source SKILL.md's own frontmatter description — verbatim match to codex.py's identical
-# constant, since the description names only the external-CLI prerequisite, not any
-# channel-specific mechanic.
+# Use Pi-specific descriptions rather than Claude-specific frontmatter.
 _SKILL_DESCRIPTIONS = {
     "init": "Set up the System2 workflow on Pi.",
     "compose": "Run the System2 gate pipeline and delegation.",
@@ -515,7 +441,7 @@ _SKILL_DESCRIPTIONS = {
     ),
 }
 
-#  rule 4: each new utility skill's external-CLI prerequisite.
+# External CLI prerequisites for utility skills.
 _UTILITY_SKILL_PREREQUISITES = {
     "codex": "the OpenAI Codex CLI (`codex`) on PATH",
     "gemini": "Google's Antigravity CLI (`agy`) on PATH",
@@ -589,9 +515,7 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "report and the FIDELITY banner.\n"
         )
     elif name == "codex":
-        # Adapted from plugin/skills/codex/SKILL.md — keep the sync-guard invariants
-        # (--ephemeral, history.persistence=none, "Never pass the prompt unquoted") intact
-        # on any future edit.
+        # Keep Codex CLI flags synchronized with the source skill.
         lines: List[str] = []
         lines.append(f"# {skill_name} -- Codex CLI Runner")
         lines.append("")
@@ -707,9 +631,7 @@ def _build_skill(name: str, ir: System2Graph) -> str:
         )
         body = "\n".join(lines).rstrip("\n") + "\n"
     elif name == "gemini":
-        # Adapted from plugin/skills/gemini/SKILL.md — keep the sync-guard invariants
-        # (agy -p, --print-timeout, "Never pass the prompt unquoted") intact on any future
-        # edit.
+        # Keep Gemini CLI flags synchronized with the source skill.
         lines = []
         lines.append(f"# {skill_name} -- Antigravity (agy) CLI Runner")
         lines.append("")
@@ -820,8 +742,7 @@ def _build_skill(name: str, ir: System2Graph) -> str:
         )
         body = "\n".join(lines).rstrip("\n") + "\n"
     elif name == "stateless-loop":
-        # Adapted from plugin/skills/stateless-loop/SKILL.md — keep the sync-guard
-        # invariants (STATUS: CLEAN, claude -p, max_iterations) intact on any future edit.
+        # Keep loop status and iteration behavior synchronized with the source skill.
         lines = []
         lines.append(f"# {skill_name} -- Stateless Subprocess Loop")
         lines.append("")
@@ -923,9 +844,7 @@ def _build_skill(name: str, ir: System2Graph) -> str:
     return _skill_frontmatter(skill_name, _SKILL_DESCRIPTIONS[name]) + body
 
 
-# ---------------------------------------------------------------------------
 # Degradation report (system2.pi.lock.json) via the shared helper
-# ---------------------------------------------------------------------------
 
 def _fidelity_banner(ir: System2Graph) -> str:
     banner = (
@@ -965,9 +884,7 @@ def _build_degradation_report(ir: System2Graph) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # The generated TypeScript extension (.pi/extensions/system2.ts) — emitted as TEXT
-# ---------------------------------------------------------------------------
 
 def _role_scope_entries(ir: System2Graph) -> List[Tuple[str, str]]:
     """``(role_name, write_scope)`` in preferred order; scopes may be empty."""
@@ -1005,28 +922,16 @@ def _build_extension_ts(ir: System2Graph) -> str:
         f"[{_ts_escape(name)}, {_ts_escape(scope)}]" for name, scope in scope_entries
     )
     role_lits = ", ".join(_ts_escape(r) for r in valid_roles)
-    # Roles that DO take writes but whose scope is empty must fail closed (a write
-    # by an unscoped role is blocked, not allowed). A read-only role (code-reviewer)
-    # simply has no scope entry; an empty-string scope entry marks "wired but the
-    # allowlist produced no pattern" -> deny writes.
+    # Empty scopes fail closed.
     writeable_roles = sorted(name for name, _scope in scope_entries)
 
     lines: List[str] = []
-    lines.append("// Generated by the System2 compiler (Pi backend). Do not edit by hand.")
-    lines.append("// Pi has no built-in permission system: this extension IS the gate.")
-    lines.append("// The on(\"tool_call\") handler returns { block: true } BEFORE a tool")
-    lines.append("// runs, so the safety capabilities are NATIVE (deterministic blocks).")
-    lines.append("// The matchers below are PORTED from the proven Claude hooks")
-    lines.append("// (dangerous-command-blocker.py, validate-file-paths.py / _hook_utils.py,")
-    lines.append("// sensitive-file-protector.py) so the Pi gate and the Claude hook cannot")
-    lines.append("// drift: real flag-permutation regexes (not substring includes), a")
-    lines.append("// normalize_path-equivalent that fails closed on .. / absolute escapes,")
-    lines.append("// and start-anchored scope matching (mirroring pattern.match).")
+    lines.append("// Generated by the System2 compiler. Do not edit by hand.")
+    lines.append("// The tool_call handler blocks unsafe operations before execution.")
     lines.append("")
     lines.append('import type { ExtensionAPI, ToolCallEvent, BashToolCallEvent } from "@earendil-works/pi-coding-agent";')
     lines.append("")
-    lines.append("// --- Backend-owned default pattern sets (fixed order, deterministic). ---")
-    lines.append("// Ported from dangerous-command-blocker.py: [pattern, reason].")
+    lines.append("// Dangerous-command matchers; order is semantic.")
     lines.append("const DANGEROUS_REGEXES: [RegExp, string][] = [")
     lines.append(f"  {dangerous_lits},")
     lines.append("];")
@@ -1036,17 +941,13 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append(f"  {sensitive_lits},")
     lines.append("];")
     lines.append("")
-    lines.append("// Per-role write scope (regex string) compiled from IR Role.write_scope,")
-    lines.append("// OR-joined from the role's allowlist (mirroring _hook_utils.load_patterns).")
-    lines.append("// A role absent from this map is read-only (no writes expected). A role")
-    lines.append("// present with an EMPTY scope writes nothing (fail-closed, see WRITEABLE_ROLES).")
+    lines.append("// Per-role write scopes; absent or empty scopes deny writes.")
     lines.append("const ROLE_WRITE_SCOPES: Map<string, string> = new Map([")
     if scope_lits:
         lines.append(f"  {scope_lits},")
     lines.append("]);")
     lines.append("")
-    lines.append("// Roles that are expected to write; a write/edit by any other (read-only)")
-    lines.append("// role is blocked by default (fail-closed for unscoped writers).")
+    lines.append("// Roles permitted to write when their path also matches the scope.")
     lines.append(
         "const WRITEABLE_ROLES: Set<string> = new Set(["
         + ", ".join(_ts_escape(r) for r in writeable_roles)
@@ -1056,12 +957,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append(f"const VALID_ROLES: string[] = [{role_lits}];")
     lines.append(f"let activeRole: string = {_ts_escape(default_role)};")
     lines.append("")
-    lines.append("// Path-bearing tool-input keys. Assumed tool-input shape (Pi tool set):")
-    lines.append("//   read/write/edit -> { path | file_path }")
-    lines.append("//   move/rename/patch/copy -> additionally { from, to, source, destination,")
-    lines.append("//   old_path, new_path, target_file }")
-    lines.append("// ALL of these are extracted so a rename/move shape cannot silently bypass")
-    lines.append("// the sensitive-path and lease gates by carrying the path under an alias.")
+    lines.append("// Extract every supported path alias before applying policy.")
     lines.append("const PATH_KEYS: string[] = [")
     lines.append('  "path", "file_path", "filepath", "filename", "file", "target_file",')
     lines.append('  "from", "to", "source", "destination", "old_path", "new_path",')
@@ -1092,12 +988,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("  return undefined;")
     lines.append("}")
     lines.append("")
-    lines.append("// normalize_path equivalent: project-relativize a path and FAIL CLOSED on")
-    lines.append("// any escape. Returns null when the path leaves the project tree (a leading")
-    lines.append("// `..`, an absolute path, or a `~` home path) so the lease blocks it")
-    lines.append("// regardless of suffix — mirroring the reference's anchored allowlist over")
-    lines.append("// normalize_path candidates. `.` and `./` are collapsed; interior `..` is")
-    lines.append("// resolved and blocks only if it escapes the root.")
+    lines.append("// Normalize project-relative paths and return null on any escape.")
     lines.append("function normalizeProjectPath(p: string): string | null {")
     lines.append('  if (typeof p !== "string" || p.length === 0) return null;')
     lines.append('  if (p === "~" || p.startsWith("~/")) return null; // home dir: outside project')
@@ -1120,8 +1011,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append('  if (event.toolName !== "write" && event.toolName !== "edit") return undefined;')
     lines.append("  const paths = pathsOf(event);")
     lines.append("  if (paths.length === 0) return undefined;")
-    lines.append("  // Fail closed: a write/edit by a role with no write scope (read-only role")
-    lines.append("  // or an empty allowlist) is blocked — an unscoped role cannot write.")
+    lines.append("  // Unscoped roles cannot write.")
     lines.append("  const scope = ROLE_WRITE_SCOPES.get(activeRole);")
     lines.append("  if (!WRITEABLE_ROLES.has(activeRole) || !scope) return paths[0];")
     lines.append("  let re: RegExp;")
@@ -1138,7 +1028,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("}")
     lines.append("")
     lines.append("export default function (pi: ExtensionAPI) {")
-    lines.append("  // --- NATIVE safety gates: on(\"tool_call\") fires BEFORE the tool and CAN block. ---")
+    lines.append("  // Block unsafe tool calls before execution.")
     lines.append("  pi.on(\"tool_call\", (event) => {")
     lines.append("    // block-dangerous: a bash command matching the ported regex set -> hard block.")
     lines.append('    if (event.toolName === "bash") {')
@@ -1166,7 +1056,7 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("    return; // allow")
     lines.append("  });")
     lines.append("")
-    lines.append("  // --- ADAPTED: budget reporting at agent_end (a report, NOT a block). ---")
+    lines.append("  // Report the budget after the agent ends; this does not block.")
     lines.append("  pi.on(\"agent_end\", (_event, ctx) => {")
     lines.append("    ctx.ui.notify(")
     lines.append("      \"System2 budget: report files touched and lines added/removed in your completion summary.\",")
@@ -1174,12 +1064,12 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("    );")
     lines.append("  });")
     lines.append("")
-    lines.append("  // --- Inject the System2 orchestrator context (: before_agent_start seam). ---")
+    lines.append("  // Inject the orchestrator context before the agent starts.")
     lines.append("  pi.on(\"before_agent_start\", (event) => ({")
     lines.append("    systemPrompt: `${event.systemPrompt}\\n\\nSystem2 orchestrator context is in .pi/SYSTEM.md. Drive the gate graph 0 -> 5 and delegate via /delegate <role>.`,")
     lines.append("  }));")
     lines.append("")
-    lines.append("  // --- Bounded /delegate dispatcher over the 13 roles (isolation honest: adapted). ---")
+    lines.append("  // Limit /delegate to known roles.")
     lines.append("  pi.registerCommand(\"/delegate\", {")
     lines.append("    description: \"Delegate a sub-task to one of the 13 System2 roles.\",")
     lines.append("    handler: async (args, ctx) => {")
@@ -1199,21 +1089,10 @@ def _build_extension_ts(ir: System2Graph) -> str:
     return "\n".join(lines) + "\n"
 
 
-# ---------------------------------------------------------------------------
 # Write posture (atomic write + backup/restore; mirrors claude-code)
-# ---------------------------------------------------------------------------
 
 def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
-    """Assemble the standalone Pi lock dict.
-
-    The MIXED degradation report is unchanged; ``overlay_sources`` is appended LAST
-    (additive — /), mirroring the Claude lock's additive
-    ``degradation_report`` discipline: every prior key keeps its bytes and only a
-    new trailing key is introduced. The recorded sources are the overlay
-    ``source_path`` set that produced this tree, taken from the neutral IR
-    (``active_profile.ordered_source_paths``) or the explicit list the lifecycle
-    recompose path supplies — never from the Claude-targeted ``ir.overlay_inputs``.
-    """
+    """Assemble the standalone Pi lock dict."""
     lock = _build_degradation_report(ir)
     lock["overlay_sources"] = list(overlay_sources)
     return lock
@@ -1222,12 +1101,7 @@ def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
 def _planned_files(
     ir: System2Graph, project_path: str, overlay_sources: List[str]
 ) -> List[Tuple[str, str]]:
-    """Return the ordered ``(relative_path, content)`` set emit writes.
-
-    Deterministic order: the extension, SYSTEM.md, AGENTS.md, the orchestrator
-    prompt, the 13 role prompts (preferred order), the three skills, then the
-    degradation report.
-    """
+    """Return the ordered ``(relative_path, content)`` set emit writes."""
     planned: List[Tuple[str, str]] = []
 
     planned.append(
@@ -1269,13 +1143,7 @@ def _planned_files(
 
 
 def _default_file_mode(existing_path: Optional[str] = None) -> int:
-    """Return the mode a regenerated file should have.
-
-    Preserve an existing destination's mode when overwriting. For a new file, use
-    0o666 masked by the process umask, matching ``open`` rather than ``mkstemp``'s
-    fixed 0o600. This behavior is intentionally duplicated in the Claude and Codex
-    writers.
-    """
+    """Return the mode a regenerated file should have."""
     if existing_path is not None and os.path.exists(existing_path):
         return os.stat(existing_path).st_mode & 0o777
     umask = os.umask(0)
@@ -1284,12 +1152,7 @@ def _default_file_mode(existing_path: Optional[str] = None) -> int:
 
 
 def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[str]:
-    """Write planned files under ``project_path`` with backup/restore on failure.
-
-    Backs up any existing target, writes via temp + ``os.replace``, and on any
-    failure restores backups and removes newly created files/dirs. Writes ONLY
-    under ``project_path`` — never touches ``$HOME`` / ``~/.pi``.
-    """
+    """Write planned files under ``project_path`` with backup/restore on failure."""
     backups: List[Tuple[str, str]] = []
     newly_created: List[str] = []
     dirs_created: List[str] = []
@@ -1310,11 +1173,7 @@ def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[st
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
-                # mkstemp() defaults to mode 0600; os.replace()
-                # does not change it. Codex's identical write path shipped 25/26 files at
-                # 0600 in the committed distribution -- this backend has avoided the same
-                # symptom only because build_pi_package.build() repackages the staged
-                # tree afterward, not because this write path is itself safe.
+                # Apply the final mode because mkstemp creates files as 0600.
                 os.chmod(tmp, _default_file_mode(dst))
                 os.replace(tmp, dst)
             except Exception:
@@ -1363,9 +1222,7 @@ def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
         dirs_created.append(d)
 
 
-# ---------------------------------------------------------------------------
 # Lifecycle helpers (lock read / removal / hermetic extension-load validation)
-# ---------------------------------------------------------------------------
 
 # The fixed (non-prompt) Pi artifacts emit owns; uninstall removes these plus the
 # 13 role prompts and the three skills when the last overlay is removed.
@@ -1377,10 +1234,7 @@ _PI_FIXED_ARTIFACTS = (
     "system2.pi.lock.json",
 )
 
-# The node harness that loads the generated extension through Pi's own
-# discoverAndLoadExtensions and reports whether it loaded + registered the gate.
-# Mirrors the proven-blocking eval harness; doctor only needs the load + seam
-# check, so this is the minimal variant (no synthetic tool_call firing).
+# Minimal harness for validating extension loading and gate registration.
 _PI_LOAD_HARNESS = """\
 const PKG = process.argv[2];
 const projectRoot = process.argv[3];
@@ -1404,12 +1258,7 @@ process.stdout.write(JSON.stringify(out));
 
 
 def _resolve_pi_pkg_entry(pi_bin: Optional[str]) -> Optional[str]:
-    """Resolve the Pi package entry (dist/index.js) for the node load harness.
-
-    Probes the env override, then the global npm/node_modules roots derived from
-    the ``pi`` binary location. Returns the entry path when it exists, else None
-    (doctor then reports the validator unavailable, never a silent pass).
-    """
+    """Resolve the Pi package entry (dist/index.js) for the node load harness."""
     override = os.environ.get("PI_PKG_ENTRY")
     if override and os.path.isfile(override):
         return override
@@ -1432,12 +1281,7 @@ def _resolve_pi_pkg_entry(pi_bin: Optional[str]) -> Optional[str]:
 
 
 def _hermetic_env() -> dict:
-    """A minimal env with HOME + a hermetic Pi discovery dir under a throwaway dir.
-
-    The real ``~/.pi`` must never be touched by doctor's load probe, so HOME /
-    XDG_CONFIG_HOME / PI_CONFIG_DIR all point under a fresh temp dir (the caller
-    removes it).
-    """
+    """A minimal env with HOME + a hermetic Pi discovery dir under a throwaway dir."""
     home = tempfile.mkdtemp(prefix="system2-pi-doctor-home-")
     env = {"HOME": home, "PATH": os.environ.get("PATH", "")}
     for k in ("LANG", "LC_ALL", "LC_CTYPE"):
@@ -1454,15 +1298,7 @@ def _overlay_name_of(source_path: str) -> str:
 
 
 class PiBackend:
-    """Project a ``System2Graph`` onto a Pi extension + context/skill/prompt tree.
-
-    ``emit`` writes (under ``project_path`` only) the generated TypeScript gate
-    (``.pi/extensions/system2.ts``), the orchestrator context (``.pi/SYSTEM.md``,
-    ``AGENTS.md``), the orchestrator + 13 role prompt templates, the three skills,
-    and the standalone MIXED degradation report (``system2.pi.lock.json``). Output
-    is a pure function of the IR (no timestamps). When the IR carries a ``dry_run``
-    intent it returns the would-write set without touching the filesystem.
-    """
+    """Project a ``System2Graph`` onto a Pi extension + context/skill/prompt tree."""
 
     name = "pi"
 
@@ -1477,13 +1313,7 @@ class PiBackend:
         self._overlay_sources = list(overlay_sources) if overlay_sources else None
 
     def _resolve_overlay_sources(self, ir: System2Graph) -> List[str]:
-        """The overlay ``source_path`` set that produced this tree (neutral only).
-
-        Prefers the explicit list injected at construction (the recompose
-        lifecycle and CLI supply it), else the neutral
-        ``active_profile.ordered_source_paths`` when a profile is active, else an
-        empty list. Never reads the Claude-targeted ``ir.overlay_inputs``.
-        """
+        """The overlay ``source_path`` set that produced this tree (neutral only)."""
         if self._overlay_sources is not None:
             return list(self._overlay_sources)
         profile = ir.active_profile
@@ -1504,20 +1334,14 @@ class PiBackend:
             return [os.path.join(project_path, rel) for rel, _ in planned]
         return _write_outputs(project_path, planned)
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: lock helpers
-    # -----------------------------------------------------------------------
+    # Lock helpers
 
     def lock_path(self, project_path: str) -> str:
         """The Pi target lock artifact: ``system2.pi.lock.json``."""
         return os.path.join(project_path, "system2.pi.lock.json")
 
     def read_lock_overlay_sources(self, project_path: str) -> List[str]:
-        """Read the additive ``overlay_sources[]`` key from the Pi lock.
-
-        Raises ``FileNotFoundError`` when the lock is absent and
-        ``json.JSONDecodeError`` when it is malformed. Skips empty entries.
-        """
+        """Read the additive ``overlay_sources[]`` key from the Pi lock."""
         lp = self.lock_path(project_path)
         if not os.path.isfile(lp):
             raise FileNotFoundError(lp)
@@ -1525,27 +1349,17 @@ class PiBackend:
             lock_data = json.load(fh)
         return [s for s in lock_data.get("overlay_sources", []) if s]
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: recompose from lock
-    # -----------------------------------------------------------------------
+    # Lock-based recomposition
 
     def recompose_from_lock(
         self, ir: System2Graph, project_path: str, *, dry_run: bool = False
     ) -> List[str]:
-        """Re-emit from a recomposed IR (the ``--from-lock`` recompose path).
-
-        The CLI reads the lock's ``overlay_sources[]`` via
-        ``read_lock_overlay_sources``, recomposes via ``ir.compose`` over those
-        sources, and passes the resulting graph here; this method re-emits it,
-        re-recording the same source set in the lock.
-        """
+        """Re-emit from a recomposed IR (the ``--from-lock`` recompose path)."""
         return self._emit_with_sources(
             ir, project_path, self._resolve_overlay_sources(ir)
         )
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: uninstall
-    # -----------------------------------------------------------------------
+    # Uninstall
 
     def uninstall(
         self,
@@ -1555,19 +1369,7 @@ class PiBackend:
         dry_run: bool = False,
         allow_newer_schema: bool = False,
     ) -> UninstallResult:
-        """Remove a named overlay from the composed Pi tree.
-
-        Reads ``overlay_sources[]`` from ``system2.pi.lock.json`` and dispatches:
-        on >=1 remaining -> recompose the remaining sources via ``compose_fn`` then
-        ``emit`` (re-recording the trimmed set); on 0 remaining -> remove the
-        generated Pi tree (the extension, ``SYSTEM.md``, ``AGENTS.md``, the
-        orchestrator + 13 role prompts, the three skills, the lock) and clean empty
-        ``.pi/`` dirs, all under the atomic backup/restore. Writes only
-        under ``project_path`` — never the operator's real ``~/.pi``.
-        ``allow_newer_schema`` is threaded into the remaining-set recompose (matching
-        the oracle's uninstall -> compose forwarding), so a remaining overlay
-        declaring a newer schema is accepted exactly as on a direct compose.
-        """
+        """Remove a named overlay from the composed Pi tree."""
         def _err(errors: List[str]) -> UninstallResult:
             return UninstallResult(
                 removed={}, remaining=[], artifacts_removed=[], files_written=[],
@@ -1659,12 +1461,7 @@ class PiBackend:
     def _uninstall_last_overlay(
         self, project_path: str, overlay_name: str, dry_run: bool
     ) -> UninstallResult:
-        """Remove the whole Pi artifact tree (zero overlays remain).
-
-        Removes the extension, context, prompts, skills, and lock; cleans the
-        now-empty ``.pi/`` subdirectories. Backs up every removed file and restores
-        on any failure. Writes/removes only under ``project_path``.
-        """
+        """Remove the whole Pi artifact tree (zero overlays remain)."""
         artifacts = self._existing_artifacts(project_path)
 
         if dry_run:
@@ -1754,28 +1551,10 @@ class PiBackend:
         except OSError:
             pass
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: doctor
-    # -----------------------------------------------------------------------
+    # Drift reporting
 
     def doctor(self, project_path: str) -> DoctorReport:
-        """Read-only drift/status report for a composed Pi tree.
-
-        Status model: ``no_lock`` (no ``system2.pi.lock.json``); ``broken`` (the
-        generated ``.pi/extensions/system2.ts`` missing, or it fails to load via
-        ``discoverAndLoadExtensions`` / does not register the ``tool_call`` gate);
-        ``stale_overlay`` (a recorded ``overlay_sources[]`` path missing);
-        ``current`` otherwise.
-
-        The validity oracle is the real ``node`` + Pi ``discoverAndLoadExtensions``
-        load probe run under a hermetic HOME (the real ``~/.pi`` is never touched).
-        When ``node``/``pi`` is absent the structural checks still run and a LOUD
-        ``validator_unavailable`` finding is recorded with ``validator_available =
-        False`` — never a silent ``current``. Per  the exit code
-        tracks ``status`` alone: exit 0 when ``status == current`` (an absent
-        validator is surfaced LOUDLY, not punished with a non-zero exit), exit 1
-        otherwise.
-        """
+        """Read-only drift/status report for a composed Pi tree."""
         details: List[dict] = []
         lp = self.lock_path(project_path)
         if not os.path.isfile(lp):
@@ -1869,9 +1648,7 @@ class PiBackend:
         details.extend(lock_sources_outside_project(sources, project_path))
 
         locked_version = lock_data.get("pi_version_assumed", "")
-        # Exit 0 when nothing is stale/broken. A LOUD validator_unavailable finding
-        # is exit 0 (the operator is not faulted for an absent validator — ),
-        # never a silent "current": the finding is always recorded above.
+        # A missing validator is reported but does not make current artifacts stale.
         exit_code = 0 if status == "current" else 1
         return DoctorReport(
             status=status,
@@ -1886,11 +1663,7 @@ class PiBackend:
     def _run_load_probe(
         self, node_bin: str, pkg_entry: str, project_path: str
     ) -> Optional[dict]:
-        """Run the node load harness; return its parsed JSON, or None on failure.
-
-        Writes the harness to a hermetic temp HOME and runs node with HOME / Pi
-        discovery dir pointed there, so the real ``~/.pi`` is untouched.
-        """
+        """Run the node load harness; return its parsed JSON, or None on failure."""
         env = _hermetic_env()
         home = env["HOME"]
         harness = os.path.join(home, "load_probe.mjs")

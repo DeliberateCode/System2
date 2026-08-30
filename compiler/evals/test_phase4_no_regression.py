@@ -1,40 +1,4 @@
-"""Phase-4 DoD sign-off: no claude-code regression.
-
-This integrity gate proves the Pi backend and shared degradation helper remain
-additive: they change no Claude bytes, confine the neutral graph change to
-``write_scope`` population, and honor product import boundaries.
-
-Assertions:
-
-1. **Registry / CLI.** ``PiBackend`` is registered in ``cli._BACKENDS``
-   under ``"pi"``; claude-code is still registered; ``--target`` accepts
-   claude-code / pi and rejects an unknown target.
-
-2. **Claude keystone preserved.** The in-process
-   ``ir.compose -> ClaudeCodeBackend().emit`` path is byte-identical to the frozen
-   Phase-0/1 baseline across the full matrix (reuses ``evals.run_goldens``,
-   ``--driver compiler``).
-
-3. **Pi emit perturbs no claude-code artifact.** Emitting Pi into a
-   project and then composing+emitting claude-code into a separate project yields
-   the same claude-code bytes as without the Pi emit.
-
-4. **Import boundaries.** ``backends/pi.py`` imports
-   only ``ir.graph`` + ``backends._degradation`` + stdlib (never ``ir.base_template``
-   / ``ir.overlay_inputs`` / any manifest/anchor/profile/schema loader);
-   ``backends/_degradation.py`` imports only stdlib and **no ``ir/*``**. Both are
-   stdlib-only with no network calls.
-
-5. **IR change is write_scope-only.** Composing two IRs shows the only
-   behavioral delta vs an empty-scope projection is non-empty ``write_scope`` — no
-   other field; and the claude bytes are unchanged.
-
-6. **TS emitted as text.** ``backends/pi.py`` imports no ``node`` / ``tsc`` /
-   third-party transpiler — it writes TypeScript as plain text.
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. No product code or
-``System2/`` is modified. All overlay/fixture contents are untrusted data.
-"""
+"""Cross-backend regression checks for Claude Code output."""
 
 import ast
 import os
@@ -132,12 +96,7 @@ def _external_imports(rel):
 
 
 def _seed_prior_lock(src_project_dir, dst_project_dir):
-    """Copy ``spec/overlay-manifest.lock`` from one project into another (if present).
-
-    A claude-code emit reuses ``composed_at`` from a prior lock in the project dir
-    when the recomputed ``content_fingerprint`` matches — so seeding the prior lock
-    makes a re-emit byte-deterministic regardless of wall-clock drift.
-    """
+    """Copy ``spec/overlay-manifest.lock`` from one project into another (if present)."""
     src = os.path.join(src_project_dir, "spec", "overlay-manifest.lock")
     if os.path.isfile(src):
         dst = os.path.join(dst_project_dir, "spec", "overlay-manifest.lock")
@@ -204,7 +163,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
         self.assertEqual(
             [], failures,
             msg=(
-                "claude-code compose->emit goldens regressed under Phase 4:\n"
+                "claude-code compose->emit goldens regressed:\n"
                 + "\n".join(failures)
             ),
         )
@@ -213,7 +172,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
         failures = run_goldens.run_goldens(driver="oracle")
         self.assertEqual(
             [], failures,
-            msg="oracle-driver goldens regressed under Phase 4:\n" + "\n".join(failures),
+            msg="oracle-driver goldens regressed:\n" + "\n".join(failures),
         )
 
 
@@ -230,11 +189,7 @@ class PiDoesNotPerturbOtherBackendsTest(unittest.TestCase):
         pi_dir = tempfile.mkdtemp(prefix="phase4-pi-")
         _emit_bytes(pi_dir, PiBackend())
 
-        # Seed the second claude project with the baseline lock so the matching
-        # content_fingerprint reuses ``composed_at`` (idempotency) — mirrors how
-        # run_goldens seeds the prior lock. The claim under test is that Pi emit
-        # changes no claude CONTENT; the wall-clock timestamp line is not content,
-        # and without this seed the two emits can straddle a one-second boundary.
+        # Seed the second claude project with the baseline lock so the matching content_fingerprint reuses ``composed_at`` (idempotency) — mirrors how run_goldens seeds the prior lock.
         after_dir = tempfile.mkdtemp(prefix="phase4-claude2-")
         _seed_prior_lock(baseline_dir, after_dir)
         after = _emit_bytes(after_dir, ClaudeCodeBackend())
@@ -300,10 +255,7 @@ class PiBoundaryTest(unittest.TestCase):
     def test_pi_imports_only_degradation_backend_submodule(self):
         imported = _imported_module_paths(_PI_FILE)
         backend_imports = {p for p in imported if p.startswith("system2_compiler.backends.")}
-        # pi.py uses only shared backend helpers: _degradation, _enforcement, and
-        # _yaml (the deterministic serializer used for skill frontmatter). The bare
-        # `backends` package token is not a forbidden submodule. Importing another
-        # target backend (claude_code/codex) still fails this assertion.
+        # pi.py uses only shared backend helpers: _degradation, _enforcement, and _yaml (the deterministic serializer used for skill frontmatter).
         self.assertTrue(
             backend_imports <= {
                 "system2_compiler.backends._degradation",
@@ -393,9 +345,7 @@ class IrChangeIsWriteScopeOnlyTest(unittest.TestCase):
             result = ir.compose(oracle.PLUGIN_ROOT, list(cell.overlays), project)
             self.assertIsNotNone(result.graph)
             roles = result.graph.roles
-            #  populated write_scope from the .regex allowlists: at least the
-            # pipeline-implementing roles carry a non-empty scope (the enrichment is
-            # real, not a no-op). Some roles (e.g. code-reviewer) are honestly empty.
+            # populated write_scope from the .regex allowlists: at least the pipeline-implementing roles carry a non-empty scope (the enrichment is real, not a no-op).
             non_empty = [r.name for r in roles if (r.write_scope or "").strip()]
             self.assertGreater(
                 len(non_empty), 0,

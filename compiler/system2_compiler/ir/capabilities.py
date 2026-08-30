@@ -1,17 +1,4 @@
-"""Intent-capability vocabulary, role attributes, and blocking semantics (Phase 2).
-
-Defines the fixed six-term intent-capability vocabulary and the three role
-attributes, the ``BlockingSemantic`` record (an honest description of what each
-enforced capability does on a fully-faithful target), ``CapabilitySet`` (per-agent
-intent capabilities), and unknown-capability validation.
-
-Contains **no** Claude mechanism fields (``tools`` / ``hooks`` / ``permissionMode``):
-the mechanism→capability lowering lives in the backend and its descriptor; the IR
-carries only neutral intent. The ``BlockingSemantic`` records below
-are derived from the design's mechanism→capability mapping table: every
-enforced capability appears with its enforcement point and blocking flag, with a
-neutral description that names no Claude hook.
-"""
+"""Intent-capability vocabulary, role attributes, and blocking semantics."""
 
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -38,13 +25,7 @@ ROLE_ATTRIBUTES = (
 
 @dataclass(frozen=True)
 class BlockingSemantic:
-    """Honest description of an enforced capability's blocking behavior.
-
-    ``enforcement_point`` is one of ``PreToolUse`` / ``PostToolUse`` /
-    ``SubagentStop`` / ``orchestrator-lifecycle``. ``blocking`` is ``True`` when the
-    disallowed action is actually blocked (not merely described). ``description``
-    is neutral and names no harness mechanism.
-    """
+    """Honest description of an enforced capability's blocking behavior."""
 
     capability: str
     enforcement_point: str
@@ -54,21 +35,12 @@ class BlockingSemantic:
 
 @dataclass(frozen=True)
 class CapabilitySet:
-    """Per-agent intent capabilities.
-
-    ``by_agent[agent] -> list[str]`` where each entry is a member of
-    ``INTENT_CAPABILITIES``.
-    """
+    """Per-agent intent capabilities."""
 
     by_agent: Dict[str, List[str]] = field(default_factory=dict)
 
 
-# Blocking-semantics records, one per enforced intent capability, derived from the
-# design's mechanism→capability mapping table. Order follows INTENT_CAPABILITIES.
-# Every enforced capability is blocking on a fully-faithful target; the descriptions
-# are neutral (no hook/allowlist names). enforce-lease participates in two arms
-# (the per-task lease lifecycle and the per-agent path scope); its defining
-# enforcement is the lease lifecycle, recorded here as orchestrator-lifecycle.
+# Keep blocking semantics harness-neutral and ordered with INTENT_CAPABILITIES.
 _BLOCKING_SEMANTICS = (
     BlockingSemantic(
         capability="enforce-lease",
@@ -120,11 +92,7 @@ def blocking_semantics() -> List[BlockingSemantic]:
 
 
 def validate_declared_capabilities(declared: List[str]) -> List[str]:
-    """Return warnings for any declared capability outside the vocabulary.
-
-    A declared capability not in ``INTENT_CAPABILITIES`` yields one warning; valid
-    capabilities yield none. Deterministic: warnings follow input order.
-    """
+    """Return warnings for any declared capability outside the vocabulary."""
     warnings: List[str] = []
     for cap in declared:
         if cap not in INTENT_CAPABILITIES:

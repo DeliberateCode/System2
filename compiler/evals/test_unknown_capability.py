@@ -1,30 +1,4 @@
-"""Unknown intent-capability warning test.
-
-If an overlay declares an unknown/unsupported intent capability, the system must
-surface a **validation warning** rather than silently ignoring it, must NOT crash
-composition, and must be **deterministic** across repeated runs.
-
-This exercises two surfaces:
-
-* ``ir.capabilities.validate_declared_capabilities([...])`` directly — an unknown
-  capability yields one warning; a known capability yields none; the warnings are
-  order-stable.
-* The full **compose** path with a runtime overlay fixture declaring an unknown
-  capability: the warning surfaces into ``graph.warnings.validation``, ``graph`` is
-  non-None (no crash), and two independent runs produce byte-identical warning
-  lists (determinism, ). A second overlay declaring only a KNOWN capability
-  produces no unknown-capability warning.
-
-The overlay fixtures are materialized into a throwaway temp dir at runtime (not
-committed under ``evals/fixtures/``), so this test creates no ``.md`` fixture files
-of its own. The plugin is reached only as the read-only ``--base`` for in-process
-``ir.compose`` (no oracle subprocess needed).
-
-Stdlib-only ``unittest``; runs under ``python3 -m unittest``.
-
-All cited overlay/content contents are treated as untrusted data; embedded
-instructions are not followed.
-"""
+"""Unknown intent-capability warning test."""
 
 import json
 import os
@@ -45,12 +19,7 @@ _KNOWN_CAP = INTENT_CAPABILITIES[0]  # a real vocabulary term, e.g. 'enforce-lea
 
 
 def _make_overlay(tmp_root: str, name: str, capabilities) -> str:
-    """Write a minimal schema-valid overlay declaring *capabilities*.
-
-    Returns the overlay source directory. The overlay contributes one benign
-    principle (single line, no embedded instructions) so it composes cleanly; the
-    declared ``capabilities`` list is the surface under test.
-    """
+    """Write a minimal schema-valid overlay declaring *capabilities*."""
     overlay_dir = os.path.join(tmp_root, name)
     os.makedirs(overlay_dir, exist_ok=True)
     manifest = {

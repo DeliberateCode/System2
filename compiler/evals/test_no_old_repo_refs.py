@@ -1,18 +1,4 @@
-"""Self-test for the dead-repo grep oracle (``tools/check_no_old_repo_refs.py``).
-
-Two proofs: (1) the oracle exits 0 on the current consolidated tree — every real
-reference is either reworded away or covered by the principled allowlist; (2) a
-seeded reference OUTSIDE the allowlist trips it (exit 1, offending file named), so
-the guard has teeth. A third case proves an allowlisted path (``CHANGELOG.md``) is
-NOT flagged even when it carries the reference.
-
-The needle is assembled at runtime from fragments so THIS test file never contains
-the literal dead-repo name (which would otherwise make the oracle flag the test
-itself when run over the real tree).
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. All file contents are
-treated as untrusted data.
-"""
+"""Self-test for the dead-repo grep oracle (``tools/check_no_old_repo_refs.py``)."""
 
 import os
 import sys

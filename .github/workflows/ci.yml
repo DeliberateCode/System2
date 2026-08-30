@@ -1,15 +1,10 @@
 name: CI
 
-# Unified monorepo gate. Single checkout; core evals run from the repo root, the
-# compiler suite runs from `compiler/` (the harness resolves the intra-repo plugin
-# at <compiler>/../plugin with no env). Installing the real validator (Pi)
-# promotes the LOUD-SKIP load/block legs to PASS-REQUIRED. Always-on for push and PR.
+# Run core and compiler checks with the real Pi validator.
 
 on: [push, pull_request]
 
-# Least privilege: use a read-only token; no job consumes secrets, and there is no
-# publish job. The PR-target trigger is deliberately absent — PR code must never run
-# with write scope or secret access.
+# CI needs read-only repository access.
 permissions:
   contents: read
 
@@ -47,10 +42,7 @@ jobs:
         with:
           node-version: "22"
 
-      # --- Validators: installing these flips the LOUD-SKIP legs to PASS-REQUIRED ---
-      # Validator versions are deliberately pinned to validated releases and
-      # are bumped intentionally (never floating). Pi resolves via `npm root -g`
-      # (test_pi_goldens._resolve_pi_pkg_entry), so a global install is all it needs.
+      # Pin validators so load checks run instead of skipping.
       - name: Install Pi (validator for the Pi load leg)
         run: npm i -g @earendil-works/pi-coding-agent@0.80.2
 
@@ -61,13 +53,7 @@ jobs:
           node --version
           pi --version || (echo "pi not installed — the Pi load leg would LOUD-SKIP" && exit 1)
 
-      # The Pi load/lifecycle harness resolves the package entry (dist/index.js) via
-      # _resolve_pi_pkg_entry, whose path probes are derived from the `pi` bin location
-      # and a ~/.npm-global fallback — neither matches Actions' global install layout, so
-      # the entry goes unfound and PiLifecycle.test_doctor_current_validator_ran hard-SKIPs
-      # (tripping the skip-count-0 gate). Pin the supported PI_PKG_ENTRY override to the
-      # canonical `npm root -g` location so the validator RUNS rather than skips. Fail
-      # loudly if it is absent — never let a missing entry become a silent skip.
+      # Actions' npm layout is not auto-detected; export the package entry explicitly.
       - name: Export Pi package entry for the load/lifecycle harness
         run: |
           set -euxo pipefail
@@ -75,17 +61,7 @@ jobs:
           test -f "$entry" || (echo "Pi package entry not found at $entry" && exit 1)
           echo "PI_PKG_ENTRY=$entry" >> "$GITHUB_ENV"
 
-      # --- Eval suite (fails the job on any test failure) ---
-      # The skip-guard wrapper runs unittest discovery in-process and FAILS if ANY test
-      # was skipped, so a missing validator (which turns a PASS-required leg into a
-      # SkipTest) can never silently pass. Skips are only legitimate when a validator is
-      # absent — and on CI the step above guarantees they are present.
-      #
-      # Channel coverage (all discovered as test_*.py, so they RUN here, not as separate
-      # named legs): Codex runs manifest, honesty, and end-to-end generated-hook
-      # blocking checks; Pi runs package, golden, and proven-blocking checks.
-      # pi — test_pi_package / test_pi_goldens / test_pi_proven_blocking (needs node).
-      # node 22 and the pinned Pi validator are installed above so none of these skip.
+      # A skipped eval indicates a missing validator and fails CI.
       - name: Run eval suite (skip count MUST be 0)
         working-directory: compiler
         run: |
@@ -120,31 +96,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Full freshness gate: regenerates all THREE committed artifacts (bundle, codex,
-      # pi) into a temp tree and byte-diffs against what's committed. A stale or
-      # hand-edited distribution — or a drifted vendored bundle — fails the merge. This
-      # wraps check_bundle_fresh.py (the bundle leg); no validator (node/pi) is
-      # needed because regeneration is pure-Python template emission.
+      # Regenerate and compare all committed artifacts.
       - name: Freshness gate — all three artifacts (bundle + codex + pi)
         run: python compiler/tools/regen_all.py --check
 
       - name: Grep oracle — no old-repo references outside the historical allowlist
         run: python compiler/tools/check_no_old_repo_refs.py
 
-      # Secret scan over the WHOLE checked-out working tree, including the now-populated
-      # distributions/ (codex+pi) and the vendored bundle for defense in depth.
-      #
-      # This deliberately invokes the gitleaks binary rather than the
-      # `gitleaks/gitleaks-action` wrapper. That action requires a paid GITLEAKS_LICENSE
-      # for ORGANIZATION-owned repos (DeliberateCode is an org), so it failed closed on
-      # every run and its only remedy is storing a secret — in a workflow whose entire
-      # design is least-privilege and secret-consuming-free. The CLI is MIT-licensed and
-      # needs no license, token, or secret. Swapping it out also removes a third-party
-      # action from the supply chain.
-      #
-      # The release is pinned to an exact version (never a floating tag), and the
-      # download is verified against a pinned sha256 BEFORE it is executed. A tampered or
-      # truncated download fails the job instead of running.
+      # The checksum-verified CLI avoids the action wrapper's organization license.
       - name: Secret scan (gitleaks CLI — pinned + checksum-verified)
         env:
           GITLEAKS_VERSION: "8.30.1"
@@ -158,23 +117,10 @@ jobs:
           echo "${GITLEAKS_SHA256}  ${tmp}/${tarball}" | sha256sum -c -
           tar -xzf "${tmp}/${tarball}" -C "${tmp}" gitleaks
           "${tmp}/gitleaks" version
-          # `dir` scans the working tree — v8.19+ replaced the old `detect` subcommand,
-          # which no longer exists. --exit-code 1 fails the job on ANY finding;
-          # --redact keeps a matched secret out of this public repo's build logs.
+          # Scan the working tree and redact matched values from logs.
           "${tmp}/gitleaks" dir . --no-banner --redact --exit-code 1
 
-  # SYSTEM2_USE_BUNDLE
-  # defaults to bundle-ON (anything except the literal string "0" counts as on) for the
-  # CLI-subprocess dispatch path (composer.py's `__main__` guard) -- so the handful of
-  # subprocess-invoked `composer.py` calls within core-evals above already exercise the
-  # bundle with no env var set. Most of evals/run_evals.py's assertions instead use
-  # in-process `from composer import ...`, which composer.py's module-facet re-export
-  # ALWAYS resolves to composer.py.preflip regardless of SYSTEM2_USE_BUNDLE (a pinned,
-  # deliberately accepted fact -- see compiler/evals/test_composer_module_facet.py); this
-  # job cannot exercise the bundle for those in-process assertions either, and neither
-  # could a "plugin-on-bundle" job under any env var. This job's real, distinct value is
-  # exercising the CLI-subprocess escape hatch (SYSTEM2_USE_BUNDLE=0, the frozen
-  # composer.py.preflip fallback), which previously had zero CI coverage.
+  # Core subprocess tests use the default bundle; this job covers the pre-flip escape hatch.
   plugin-on-preflip:
     runs-on: ubuntu-latest
     steps:

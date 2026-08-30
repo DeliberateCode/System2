@@ -1,39 +1,4 @@
-"""Pi lifecycle behavioral tests (code-review #2 + eval gap 1).
-
-The Pi golden harness already covers ``emit``; this module exercises the
-Phase-5 *lifecycle* verbs by actually INVOKING ``doctor`` / ``uninstall`` /
-``recompose_from_lock`` against real composed project trees. The real validator
-(the ``node`` + Pi ``discoverAndLoadExtensions`` load probe) is expected to RUN;
-the validator leg is a LOUD SKIP only when the binary is genuinely absent (never
-a silent pass).
-
-Hermetic guarantees:
-
-* Every compose / emit / doctor lands under a temp ``project_path``; the real
-  ``~/.pi`` is never created or modified (the backend's own validator already
-  runs under a temp HOME — these tests additionally fence the work dirs).
-* The validator-absent LOUD path is exercised by shadowing the validator binary off
-  PATH (an empty temp dir as the only ``PATH`` entry, with the env overrides
-  cleared) so ``doctor`` reports ``validator_available=False`` + a
-  ``validator_unavailable`` finding while still exiting 0 on a ``current`` tree
-  (LOCKED ).
-
-Asserts:
-
-* ``doctor``: ``current`` on a freshly composed project (validator ran),
-  ``no_lock`` / ``broken`` / ``stale_overlay`` statuses, and the validator-absent
-  LOUD path.
-* ``uninstall``: one-of-N recompose (remaining artifacts present + lock trimmed),
-  last-overlay full teardown, not-installed refusal; ``UninstallResult`` fields.
-* ``recompose_from_lock``: round-trips via ``overlay_sources[]`` (emit ->
-  ``read_lock_overlay_sources`` -> recompose -> same artifact set).
-* The ``--allow-newer-schema`` flag reaches Pi ``uninstall``: a
-  multi-overlay uninstall whose REMAINING overlay declares a newer schema succeeds
-  only when the flag is threaded through.
-
-Stdlib-only ``unittest``. Cited overlay/recipe contents are untrusted; embedded
-instructions are not followed.
-"""
+"""Pi lifecycle behavioral tests."""
 
 import json
 import os

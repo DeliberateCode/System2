@@ -1,15 +1,4 @@
-"""Plugin-evals-on-bundle gate (Phase 5, HARD).
-
-Run the plugin's OWN structural + behavioral suite (``System2/evals/test_*.py``)
-against the FLIPPED plugin — the shim delegating to the vendored bundle
-(``SYSTEM2_USE_BUNDLE=1``) — and assert it stays green. The flip is not done until
-the plugin's own suite passes on the bundle.
-
-``System2/evals/`` is run READ-ONLY as a subprocess (it is never imported or
-modified here). A hermetic temp HOME isolates the run from the real ``~/.system2``.
-Both switch states are exercised: ON (the bundle, the flip leg) and OFF (the frozen
-preflip engine, the baseline) — both must be green.
-"""
+"""Run plugin evaluations against the vendored bundle."""
 
 import os
 import subprocess
@@ -26,11 +15,7 @@ PLUGIN_EVALS = os.path.join(PLUGIN_REPO, "evals")
 
 
 def _run_plugin_suite(use_bundle):
-    """Run ``System2/evals/`` as a subprocess; return the CompletedProcess.
-
-    *use_bundle* toggles ``SYSTEM2_USE_BUNDLE`` (the shim's switch). Runs under a
-    hermetic temp HOME so the plugin's profile store resolves into a throwaway dir.
-    """
+    """Run ``System2/evals/`` as a subprocess; return the CompletedProcess."""
     home = tempfile.mkdtemp(prefix="plugin-evals-home-")
     env = {"HOME": home}
     for key in ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ"):

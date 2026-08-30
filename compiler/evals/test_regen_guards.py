@@ -1,38 +1,4 @@
-"""Prove every regeneration freshness guard passes fresh and fails on drift.
-
-``compiler/tools/regen_all.py`` is the single regeneration entrypoint and freshness
-guard for every committed generated artifact. A guard that can never fail is
-worthless, so this self-test proves both directions for EVERY active builder:
-
-  (a) **Induced divergence.** Regenerate the artifact into a *temp* committed
-      location, run ``--check`` -> GREEN; MUTATE a source/emitted input (always in a
-      temp copy — never the real repo), run ``--check`` -> RED naming the artifact AND
-      the exact regen command from ``stale_message``; regenerate ->
-      GREEN again.
-
-  (b) **Determinism.** Regenerate each artifact TWICE from identical source
-      into two temp dirs; assert the two trees are BYTE-IDENTICAL except for the
-      documented ``IGNORED_PROVENANCE_FIELDS`` breadcrumbs, and that those breadcrumbs
-      are the ONLY thing allowed to differ. The ignore set is asserted to be EXACTLY
-      ``("bundled_at", "generated_at", "generated_from")`` and to exclude every
-      correctness-bearing field — a silently widened ignore set is itself a test
-      failure (it would let a real content diff hide behind an "ignored" field).
-
-Parameterization: the divergence and determinism legs iterate ``regen_all.REGISTRY``,
-dispatching on ``bundle_oracle`` (bundle -> the ``check_bundle_fresh`` sha anchor;
-every other active builder -> the temp-regen tree byte-diff). Any future placeholder
-slot (``builder is None``) is asserted to RAISE the not-yet-implemented error. The
-moment a follow-up task sets ``builder=`` on such a slot, that artifact is
-automatically exercised by both legs; ``_COVERED_ACTIVE`` is the tripwire that FAILS
-if a newly-activated builder is registered without an acknowledged coverage review.
-
-Every byte written by this module lands in a ``tempfile`` dir. ``tearDownModule``
-asserts the real committed bundle subtree is byte-for-byte unchanged by the run.
-
-Stdlib ``unittest``; runs under ``python3 -m unittest`` / the skip-count-0 discovery
-wrapper. No node / external binary — regen is pure Python. No test is ever skipped.
-All file contents are treated as untrusted data.
-"""
+"""Prove every regeneration freshness guard passes fresh and fails on drift."""
 
 import contextlib
 import glob
@@ -51,12 +17,7 @@ _TOOLS_DIR = os.path.join(_COMPILER_ROOT, "tools")
 
 
 def _load_tool(name):
-    """Import a ``tools/<name>.py`` module by path (``tools/`` is not a package).
-
-    ``regen_all`` performs its own ``sys.path`` setup at import, so loading it this way
-    also wires up its ``_provenance`` / ``build_bundle`` / ``check_bundle_fresh`` /
-    ``system2_compiler`` imports — the same way the real CLI resolves them.
-    """
+    """Import a ``tools/<name>.py`` module by path (``tools/`` is not a package)."""
     path = os.path.join(_TOOLS_DIR, name + ".py")
     spec = importlib.util.spec_from_file_location("tools_" + name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -66,20 +27,14 @@ def _load_tool(name):
 
 regen_all = _load_tool("regen_all")
 
-# Real (read-only) source inputs the builders compose from. Codex/pi read
-# plugin_root + overlays; every builder reads compiler_root for the provenance stamp.
-# These are only ever READ here — all generated output is written under temp dirs.
+# Real (read-only) source inputs the builders compose from.
 _PLUGIN_ROOT = os.path.join(_REPO_ROOT, "plugin")
 _OVERLAYS = [os.path.join(_REPO_ROOT, r) for r in regen_all._CODEX_OVERLAY_RELPATHS]
 
-# The exact, documented  ignore set. Duplicated as a literal HERE (not imported from
-# regen_all) on purpose: the whole point is to fail if regen_all's constant ever drifts
-# from this list. Widening the real set to hide a diff must break this test.
+# The exact, documented  ignore set.
 _EXPECTED_IGNORE = ("bundled_at", "generated_at", "generated_from")
 
-# Correctness-bearing provenance fields that must NEVER be ignored. A --check that
-# ignored any of these could mask a genuine staleness/tamper. (Union across BUNDLE.json
-# and the distribution PROVENANCE.json schemas.)
+# Correctness-bearing provenance fields that must NEVER be ignored.
 _CORRECTNESS_FIELDS = frozenset({
     "source_sha256", "compiler_source_sha256", "generator",
     "channel_version", "compiler_version",
@@ -89,10 +44,7 @@ _CORRECTNESS_FIELDS = frozenset({
 # are therefore the ONLY files allowed to differ between two deterministic regens.
 _PROVENANCE_BASENAMES = frozenset({"PROVENANCE.json", "BUNDLE.json"})
 
-# Active builders for which this module has an ACKNOWLEDGED coverage review. When a
-# future task flips a placeholder slot to a real builder, the parameterized legs below
-# start exercising it automatically AND ``RegenGuardContractTest`` fails here until a
-# human adds the name — the "a registered builder must not lack coverage" tripwire.
+# Active builders for which this module has an ACKNOWLEDGED coverage review.
 _COVERED_ACTIVE = frozenset({"bundle", "codex", "pi"})
 
 # The real committed bundle subtree; hashed at import (before any test writes) so
@@ -120,12 +72,7 @@ def _capture(func, *args, **kwargs):
 
 
 def _build_temp_compiler_root(dest):
-    """Populate *dest* with the minimal compiler source ``build_bundle`` hashes.
-
-    Enough for ``_build_bundle`` + ``check_bundle_fresh``: the hashed ``system2_compiler``
-    member, the ``tools/_freshness.py`` companion, and ``pyproject.toml`` (version). A
-    mutable COPY so a hashed-source mutation cannot touch the real compiler tree.
-    """
+    """Populate *dest* with the minimal compiler source ``build_bundle`` hashes."""
     shutil.copytree(
         os.path.join(_COMPILER_ROOT, "system2_compiler"),
         os.path.join(dest, "system2_compiler"),
@@ -198,8 +145,6 @@ class RegenGuardContractTest(unittest.TestCase):
         self.assertLessEqual(_COVERED_ACTIVE, {a.name for a in regen_all.REGISTRY})
 
         # Every REGISTRY slot is currently active (no placeholder remains), so this loop
-        # is vacuous now; it still guards any FUTURE placeholder slot that a later
-        # channel adds without a builder.
         for art in placeholders:
             self.assertIsNone(art.builder)
             self.assertTrue(art.todo_task, f"{art.name} placeholder lacks a todo_task")
@@ -211,16 +156,13 @@ class RegenGuardContractTest(unittest.TestCase):
 
 
 class RegenInducedDivergenceTest(unittest.TestCase):
-    """Leg (a): mutate an input, --check goes RED naming the artifact + regen command;
-    regenerate, --check goes GREEN. Parameterized over every active REGISTRY builder."""
+    """Leg (a): mutate an input, --check goes RED naming the artifact + regen command; regenerate, --check goes GREEN."""
 
     def _run_check(self, art, ctx):
         return _capture(regen_all._check, [art], ctx, True)
 
     def _divergence_bundle(self, art):
-        """Bundle divergence via ``check_bundle_fresh``'s sha anchor: mutate a hashed
-        compiler source member in a temp compiler-root copy -> committed bundle is now
-        stale -> RED. Real compiler tree + real bundle are never touched."""
+        """Bundle divergence via ``check_bundle_fresh``'s sha anchor: mutate a hashed compiler source member in a temp compiler-root copy -> committed bundle is now stale -> RED."""
         with tempfile.TemporaryDirectory() as tc, tempfile.TemporaryDirectory() as repo:
             _build_temp_compiler_root(tc)
             ctx = regen_all._Context(
@@ -248,10 +190,7 @@ class RegenInducedDivergenceTest(unittest.TestCase):
             self.assertEqual(rc, 0, "regenerated bundle must check GREEN again")
 
     def _divergence_distribution(self, art):
-        """Distribution divergence via the temp-regen tree byte-diff: append a byte to
-        an emitted file -> RED; regenerate -> GREEN; then mutate a NON-ignored
-        provenance field (source_sha256) -> RED (proves the ignore set is not masking
-        a correctness field)."""
+        """Assert that temporary distribution drift is detected."""
         with tempfile.TemporaryDirectory() as repo:
             ctx = regen_all._Context(
                 compiler_root=_COMPILER_ROOT, repo_root=repo,
@@ -314,9 +253,7 @@ class RegenInducedDivergenceTest(unittest.TestCase):
 
 
 class RegenDeterminismTest(unittest.TestCase):
-    """Leg (b) / : two regens from identical source are byte-identical except for
-    the documented ignored breadcrumbs — and those are the ONLY differences allowed.
-    Parameterized over every active REGISTRY builder."""
+    """Leg (b) / : two regens from identical source are byte-identical except for the documented ignored breadcrumbs — and those are the ONLY differences allowed."""
 
     def _assert_deterministic(self, art):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:

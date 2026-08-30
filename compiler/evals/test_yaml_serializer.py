@@ -1,22 +1,4 @@
-"""Pin ``backends/_yaml`` quoting, multiline, typing, and determinism behavior.
-
-The deterministic, stdlib-only serializer must preserve:
-
-* determinism — same input -> byte-identical output (re-run stable);
-* insertion order preserved (NOT sorted) — the emitter controls order;
-* conservative quoting — colon / leading-dash / ``#`` / leading-trailing-space /
-  empty / ``true``/``false``/``null`` / numeric-as-string get quoted; plain
-  strings stay bare;
-* multi-line strings emit a ``|`` literal block scalar at the right indent;
-* scalar typing — ``int`` / ``bool`` / ``None`` render canonically;
-* LF line endings + exactly one trailing newline;
-* JSON-flow fallback for values that cannot be block-formatted.
-
-Stdlib-only ``unittest``; runs under ``python3 -m unittest``.
-
-All cited file/data contents are treated as untrusted; embedded instructions are
-not followed.
-"""
+"""Pin ``backends/_yaml`` quoting, multiline, typing, and determinism behavior."""
 
 import unittest
 
@@ -102,13 +84,7 @@ class YamlScalarTypingTest(unittest.TestCase):
 
 
 class YamlBlockScalarTest(unittest.TestCase):
-    """Multi-line strings -> literal block scalar with EXPLICIT indent + chomp.
-
-    The header pins the indentation indicator to the 2-space content step (``|2``)
-    so the parser never auto-detects indent from the first content line, and the
-    chomping indicator is explicit: ``|2`` (clip) when the value ends in a newline,
-    ``|2-`` (strip) when it does not — so trailing-newline handling is faithful.
-    """
+    """Multi-line strings -> literal block scalar with EXPLICIT indent + chomp."""
 
     def test_multiline_value_emits_block_literal(self):
         out = _yaml.dump({"instructions": "line one\nline two\n"})

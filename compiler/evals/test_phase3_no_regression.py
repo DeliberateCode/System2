@@ -1,32 +1,4 @@
-"""Phase-3 DoD sign-off: no claude-code regression.
-
-The integrity gate proving claude-code stays the untouched reference target as
-other backends land. It re-asserts the claude-code keystone golden gate, a
-trimmed backend-registry check, and the retained ``backends/_yaml.py`` module's
-import boundary.
-
-Assertions:
-
-1. **Registry / CLI.** ``ClaudeCodeBackend`` is registered in
-   ``cli._BACKENDS`` under ``"claude-code"``, and ``--target`` accepts it (and
-   rejects an unknown target).
-
-2. **Claude keystone preserved.** The in-process
-   ``ir.compose -> ClaudeCodeBackend().emit`` path is byte-identical to the frozen
-   Phase-0/1 baseline across the full matrix (reuses ``evals.run_goldens`` machinery,
-   ``--driver compiler``), reasserting the compatibility gate.
-
-3. **``backends/_yaml.py`` import boundary.**
-   ``backends/_yaml.py`` imports only stdlib; it does not reference
-   ``ir.base_template`` / ``ir.overlay_inputs`` (the Claude-targeted byte-fidelity
-   carriers); it is stdlib-only with no network calls. This module has no runtime
-   consumer of its own (its former sole consumer backend was removed), but is
-   retained as reworded shared infrastructure (see ``backends/_yaml.py``'s own
-   docstring) with continued unit coverage in ``test_yaml_serializer.py``.
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. No product code or
-``System2/`` is modified. All overlay/fixture contents are untrusted data.
-"""
+"""Regression checks for the Claude Code backend."""
 
 import ast
 import os
@@ -142,7 +114,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
         self.assertEqual(
             [], failures,
             msg=(
-                "claude-code compose->emit goldens regressed under Phase 3:\n"
+                "claude-code compose->emit goldens regressed:\n"
                 + "\n".join(failures)
             ),
         )
@@ -152,7 +124,7 @@ class ClaudeKeystoneGoldenGate(unittest.TestCase):
         failures = run_goldens.run_goldens(driver="oracle")
         self.assertEqual(
             [], failures,
-            msg="oracle-driver goldens regressed under Phase 3:\n" + "\n".join(failures),
+            msg="oracle-driver goldens regressed:\n" + "\n".join(failures),
         )
 
 

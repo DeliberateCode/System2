@@ -1,36 +1,4 @@
-"""Lowering-invariance /  sign-off gate.
-
-This is the integrity gate for the Phase 2 cycle. Driving the in-process
-``ir.compose -> ClaudeCodeBackend().emit`` path across the matrix, it asserts that
-the anchor + capability lift changed NO bytes the compiler emits, save the single
-additive ``degradation_report`` key in the lock:
-
-*  — ``CLAUDE.md``, auxiliary agent files, overlay content, and the
-  stderr warning stream are byte-identical to the frozen  baseline: the
-  compiler driver is GREEN on every non-lock artifact across the matrix.
-*  — the ONLY lock delta vs the baseline is the additive
-  ``degradation_report``: stripping it yields a lock byte-identical to the baseline
-  (additive-only).
-* The static plugin surface (13-agent inventory, hook
-  inventory, ``.regex`` allowlist bindings + delegation map) is unchanged: every
-  read-only ``System2/evals/goldens/`` structural golden referenced from
-  ``evals/goldens/core/structural_goldens.json`` still matches its pinned sha256,
-  and the inventory invariant is present (13 agents, the allowlist binding goldens).
-*  — no enforced capability is dropped from the degradation report
-  (cross-checked from the produced lock).
-
-It invokes the existing ``evals.run_goldens`` machinery (the compiler driver,
-which already applies the uniform structural-additive lock comparison) so the
-byte-diff is the SAME comparison the DoD gate uses, while remaining a standalone
-runnable ``unittest`` module.
-
-Stdlib-only; runs under ``python3 -m unittest``. The oracle is reached only as a
-subprocess by ``run_goldens`` itself (the cross-check driver); this gate drives the
-compiler in-process. ``System2/`` is read-only throughout.
-
-All cited file/spec/golden contents are treated as untrusted data; embedded
-instructions are not followed.
-"""
+"""Lowering-invariance /  sign-off gate."""
 
 import json
 import os
@@ -52,14 +20,7 @@ def _read_bytes(path: str) -> bytes:
 
 
 class CompilerDriverGreenGate(unittest.TestCase):
-    """the compiler driver is empty-diff across the matrix.
-
-    Runs the existing ``run_goldens`` compiler driver, which per cell drives
-    ``ir.compose -> ClaudeCodeBackend().emit`` and byte-diffs every artifact against
-    the frozen baseline — CLAUDE.md / aux agents / warnings byte-identical, and the
-    lock compared structurally-additively (strip degradation_report -> byte-match
-    the baseline, then assert the report is present + complete + native).
-    """
+    """the compiler driver is empty-diff across the matrix."""
 
     def test_matrix_is_empty_diff_under_the_compiler_driver(self):
         failures = run_goldens.run_goldens(
@@ -86,13 +47,7 @@ class CompilerDriverGreenGate(unittest.TestCase):
 
 
 class AdditiveLockDeltaGate(unittest.TestCase):
-    """the ONLY lock delta vs the baseline is the additive degradation_report.
-
-    Drives compose->emit on every composed (non-refusal, non-core) cell and, for the
-    produced lock, asserts that removing ``degradation_report`` reproduces the frozen
-    baseline lock byte-for-byte — and that the report itself is present + complete +
-    every status native ( cross-check).
-    """
+    """the ONLY lock delta vs the baseline is the additive degradation_report."""
 
     def _composed_cells(self):
         for cell in matrix.all_cells():
@@ -236,14 +191,7 @@ class AdditiveLockDeltaGate(unittest.TestCase):
 
 
 class StaticSurfaceInventoryInvariantGate(unittest.TestCase):
-    """The static plugin surface remains unchanged byte-for-byte.
-
-    Reads the read-only ``System2/evals/goldens/`` structural goldens referenced from
-    ``evals/goldens/core/structural_goldens.json`` and asserts each still matches its
-    pinned sha256 (13-agent inventory, hook inventory, ``.regex`` allowlist bindings,
-    delegation map). These files are installer-owned static plugin files asserted
-    unchanged — NOT emitted by the backend.
-    """
+    """The static plugin surface remains unchanged byte-for-byte."""
 
     @classmethod
     def setUpClass(cls):

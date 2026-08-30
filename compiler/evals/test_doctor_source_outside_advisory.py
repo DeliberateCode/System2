@@ -1,21 +1,4 @@
-"""doctor advisory: lock-recorded overlay source resolving OUTSIDE the project.
-
-Security . A lock's overlay ``source_path[]`` resolving outside ``project_path``
-is legitimate (user-equivalent to ``--overlays`` pointing elsewhere) but worth
-surfacing on the read-only drift check: a recompose/uninstall re-reads those
-out-of-tree sources. The advisory is INFORMATIONAL only — it never changes
-``status`` or the exit code, and it must NOT fire when every recorded source
-resolves inside the project.
-
-Covered here:
-* pi ``doctor`` surfaces a ``source_outside_project`` finding on a crafted
-  out-of-tree lock, and NONE on an in-tree lock; status/exit unchanged either way.
-* the shared helper resolves symlinks and ignores empty entries.
-* the claude-code ``_drift_check`` advisory is OFF by default (CLI contract stays
-  byte-identical) and surfaces only under ``SYSTEM2_DOCTOR_ADVISORIES=1``.
-
-Stdlib-only ``unittest``; hermetic (temp projects, real configs untouched).
-"""
+"""doctor advisory: lock-recorded overlay source resolving OUTSIDE the project."""
 
 import os
 import shutil

@@ -1,26 +1,4 @@
-"""pin the vendored copies to their plugin originals.
-
-The standalone compiler vendors ``profiles.py`` and ``hook_security.py`` into
-``ir/profiles.py`` and
-``ir/_hook_security.py``. The Phase-0 oracle hash-pin (``evals/oracle.py``) pins the
-*originals* under ``System2/plugin/scripts/``; nothing pinned the *vendored copies*
-against them. If the plugin tightens a hook-security ban (or changes profile
-resolution) the vendored validator could silently lag, weakening overlay-hook
-validation while the goldens (which exercise the oracle's own copy) still pass.
-
-This drift guard reads both plugin originals and both vendored copies (all
-**read-only**; no ``System2/`` write lease) and asserts byte-equivalence modulo a
-small, explicitly-enumerated set of sanctioned import-path adjustments — the only
-permitted difference. The copies were initially byte-identical, so this test
-asserts strict byte identity by default and fails
-loudly (``vendored copy drifted / re-vendor required``) on any non-sanctioned diff.
-
-A negative control simulates a logic-line drift (and an unsanctioned import-line
-drift) and proves the comparison rejects it, so the pin has teeth.
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. All file contents are
-treated as untrusted data.
-"""
+"""pin the vendored copies to their plugin originals."""
 
 import os
 import unittest
@@ -46,16 +24,7 @@ _PINS = (
     ),
 )
 
-# The ONLY sanctioned diffs are intra-package import-path relocations (
-# adjusted only import paths, no logic). Each entry maps an original import line to
-# the relocated vendored line; both sides are normalized away before byte-compare so
-# a sanctioned relocation is allowed while ANY other byte difference fails loudly.
-#
-# As currently vendored the copies are byte-IDENTICAL (no import line needed
-# adjusting), so this allow-list is intentionally empty: the test asserts strict
-# byte-identity. If a future re-vendor must relocate an import, add the exact
-# (original_line, vendored_line) pair here and document why — anything outside this
-# enumerated set is treated as drift.
+# The ONLY sanctioned diffs are intra-package import-path relocations ( adjusted only import paths, no logic).
 _SANCTIONED_IMPORT_DELTAS: tuple = ()
 
 
@@ -65,12 +34,7 @@ def _read_lines(path: str):
 
 
 def _normalize(lines):
-    """Apply the sanctioned import-line substitutions, returning normalized lines.
-
-    Only the enumerated ``(original, vendored)`` pairs are collapsed (both mapped to
-    a single canonical token) so a sanctioned relocation compares equal while every
-    other line is preserved verbatim for a strict byte diff.
-    """
+    """Apply the sanctioned import-line substitutions, returning normalized lines."""
     out = []
     for ln in lines:
         stripped = ln.rstrip("\n").rstrip("\r")
@@ -117,10 +81,7 @@ class VendoredPinTest(unittest.TestCase):
                 )
 
     def test_vendored_copies_match_modulo_sanctioned_imports(self):
-        # The normalized comparison: equal after collapsing the enumerated import
-        # relocations. With an empty allow-list this is identical to byte-identity;
-        # it remains the assertion of record if a sanctioned relocation is ever
-        # added, so an unexpected (logic) line still fails loudly.
+        # The normalized comparison: equal after collapsing the enumerated import relocations.
         for vendored, original in _PINS:
             vnorm = _normalize(_read_lines(vendored))
             onorm = _normalize(_read_lines(original))
@@ -167,9 +128,7 @@ class VendoredPinNegativeControlTest(unittest.TestCase):
         )
 
     def test_sanctioned_delta_normalization_is_symmetric_when_declared(self):
-        # If a sanctioned delta WERE declared, both sides would normalize equal.
-        # Validate the normalization mechanism with a synthetic pair so a future
-        # real relocation behaves as intended.
+        # Validate import relocation normalization with a synthetic pair.
         orig_line = "from hook_security import check_hook_security"
         vend_line = "from ._hook_security import check_hook_security"
         global _SANCTIONED_IMPORT_DELTAS

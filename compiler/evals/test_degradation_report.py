@@ -1,32 +1,4 @@
-"""Degradation report + capability descriptor completeness tests.
-
-Drives the in-process ``ir.compose -> ClaudeCodeBackend().emit`` path on a
-capability-bearing cell (``core+overlay``) into a throwaway project and reads the
-produced ``spec/overlay-manifest.lock``'s ``degradation_report``:
-
-*  — the report enumerates EVERY intent capability present in the IR,
-  each with a status drawn from the four-value enum
-  ``{native, adapted, advisory, unsupported}``.
-*  — no silent drop: removing a capability's report entry fails a
-  completeness assertion (negative control with teeth), and the report covers the
-  full IR capability union.
-*  — for ``claude-code`` every enforced safety capability is ``native``.
-*  — the report is parseable JSON within the lock and is self-sufficient:
-  a reader determines enforced-vs-advisory per capability from the lock alone,
-  without consulting any other artifact.
-*  — ``backends/capabilities/claude_code.json`` is enum-valid and
-  complete vs the IR capability vocabulary (every capability present, every status
-  in the enum).
-
-The descriptor is read as a JSON data file (it is the backend's own data, not an
-``ir/*`` import). ``ir/capabilities.py`` is imported for the vocabulary only.
-
-Stdlib-only ``unittest``; runs under ``python3 -m unittest``. No oracle subprocess
-is needed; the compiler runs in-process.
-
-All cited file/overlay contents are treated as untrusted data; embedded
-instructions are not followed.
-"""
+"""Degradation report + capability descriptor completeness tests."""
 
 import json
 import os
@@ -138,9 +110,7 @@ class DegradationReportTest(unittest.TestCase):
         )
 
     def test_report_is_self_sufficient_for_enforced_vs_advisory(self):
-        # a reader determines enforced-vs-advisory per capability from the
-        # lock alone. 'native'/'adapted' => enforced; 'advisory'/'unsupported' =>
-        # not enforced. The classification is computable from the report entries only.
+        # a reader determines enforced-vs-advisory per capability from the lock alone.
         report_caps = self._report()["capabilities"]
         for cap, entry in report_caps.items():
             status = entry.get("status")

@@ -1,34 +1,4 @@
-"""Eval-breadth hardening: arg-ordering determinism + anchor-exclusion.
-
-Directly checks two high-value composition behaviors rather than relying only on
-a transitive golden byte diff:
-
-* **argument-ordering determinism.** Composing the same overlay set
-  with ``--overlays`` in two different orders yields the *same composition*. The
-  contribution ordering is independent of CLI argument order because the front end
-  uses a stable ``(overlay_name, id)`` pre-sort. This is
-  asserted at the IR level (``ir.contributions`` ordered output identical under
-  input reorder) AND at the emitted ``CLAUDE.md`` level modulo the oracle-faithful
-  provenance header.
-
-  Note (oracle-faithful, reported as a finding, not a bug): the ``<!-- COMPOSED:
-  ... overlays: ... -->`` provenance header echoes overlays in *input order*, and
-  the ``<!-- Composed at: ... -->`` line carries a timestamp. Both are present in
-  the frozen oracle's own output (verified by parity), so byte-identity of the
-  *composed body* (everything except those two provenance lines) is the relevant
-  invariant; reordering the header is not a composition regression.
-
-* **anchor-exclusion.** A ``prompt_sections`` contribution to a
-  non-existent ``(agent, anchor)`` is silently excluded from the IR exactly as the
-  frozen oracle excludes it, while a known anchor resolves to an identity
-  ``AnchorRef``. Asserted directly against ``ir.anchors.build_anchor_table`` /
-  ``AnchorTable.resolve`` and against a real ``ir.compose`` graph using the
-  ``anchorfile`` fixture (known anchor ``implementation_discipline`` resolves;
-  unknown anchor ``nonexistent_anchor_zzz`` is dropped).
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. No product code or
-``System2/`` is modified. All overlay/fixture contents are untrusted data.
-"""
+"""Eval-breadth hardening: arg-ordering determinism + anchor-exclusion."""
 
 import os
 import tempfile
@@ -44,12 +14,7 @@ _PROVENANCE_PREFIXES = ("<!-- COMPOSED", "<!-- Composed at:")
 
 
 def _composed_scopes(order):
-    """Return a normalized, hashable view of the IR's ordered contributions.
-
-    Keyed by ``(type_path, target_key)``; each value is the ordered list of
-    ``(overlay_name, contribution_id, repr(raw), anchor)`` so reordering inputs
-    that changed any per-scope order or membership would surface as inequality.
-    """
+    """Return a normalized, hashable view of the IR's ordered contributions."""
     project = tempfile.mkdtemp(prefix="breadth-ir-")
     result = ir.compose(oracle.PLUGIN_ROOT, list(order), project)
     if result.graph is None:
@@ -87,9 +52,6 @@ def _body(lines):
 
 
 # Two overlays that compose cleanly together and produce multiple scopes:
-# - test-overlay (principles, gate-3 consultation, advisory source, an anchored
-#   prompt_sections contribution, a spec required-section, an auxiliary agent), and
-# - anchorfile (a known + an unknown anchored prompt_sections contribution).
 _ORDER_AB = (matrix.ANCHORFILE, matrix.TEST_OVERLAY)
 _ORDER_BA = (matrix.TEST_OVERLAY, matrix.ANCHORFILE)
 
@@ -143,8 +105,6 @@ class ArgOrderingDeterminismTest(unittest.TestCase):
 
     def test_negative_control_reorder_detection_has_teeth(self):
         # Prove the comparison would catch a real order-dependence: an artificially
-        # order-sensitive normalization (tagging each scope with its input position)
-        # must differ under reorder, so the real equality check above is meaningful.
         def positional(order):
             project = tempfile.mkdtemp(prefix="breadth-neg-")
             result = ir.compose(oracle.PLUGIN_ROOT, list(order), project)
@@ -170,9 +130,7 @@ class ArgOrderingDeterminismTest(unittest.TestCase):
 
 
 def _overlay_basename(overlay_name):
-    # Overlays are keyed by manifest 'name'; map back to the fixture dir basename
-    # used as the input-position key. test-overlay's manifest name is 'test-overlay'
-    # and anchorfile's is 'anchorfile', so the names already match the basenames.
+    # Overlays are keyed by manifest 'name'; map back to the fixture dir basename used as the input-position key.
     return overlay_name
 
 
@@ -241,9 +199,7 @@ class AnchorExclusionTest(unittest.TestCase):
             )
 
     def test_compose_excludes_unknown_anchor_contribution(self):
-        # End-to-end: the anchorfile fixture contributes one known-anchor and one
-        # unknown-anchor prompt_sections entry. The IR must carry the known one
-        # (with an AnchorRef) and exclude the unknown one entirely.
+        # End-to-end: the anchorfile fixture contributes one known-anchor and one unknown-anchor prompt_sections entry.
         cell = matrix.get_cell("core+anchorfile")
         project = tempfile.mkdtemp(prefix="breadth-anchor-")
         result = ir.compose(oracle.PLUGIN_ROOT, list(cell.overlays), project)
@@ -264,8 +220,7 @@ class AnchorExclusionTest(unittest.TestCase):
             ),
         )
 
-        # The known-anchor scope must be present, carrying the known contribution
-        # with an identity AnchorRef, and NOT the unknown contribution id.
+        # Keep the known anchored contribution and exclude the unknown one.
         known_key = (
             "agents.executor.prompt_sections.implementation_discipline",
             "agents.executor.prompt_sections.implementation_discipline",

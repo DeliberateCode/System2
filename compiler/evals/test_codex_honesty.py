@@ -1,23 +1,4 @@
-"""Codex enforcement-honesty and utility-skill synchronization tests.
-
-The emitted manifest description, orchestrator preamble, and lock FIDELITY banner
-must carry the same trust statement verbatim. The orchestrator and lock must also
-carry the same coverage limitation. At rest, no capability may claim
-``enforced: true`` or ``native``; each safety gate is ``adapted`` and
-``gated: true``. Mutation tests prove that changing a surface or lock claim fails
-with the offending surface or capability named.
-
-The required strings come from ``backends.codex`` and are also pinned to their
-approved behavioral wording so retaining a symbol while weakening its message still
-fails. Tests validate a committed distribution, an explicit
-``CODEX_EMISSION_ROOT``, or a fresh staged emission without external binaries.
-
-The utility-skill synchronization guard compares load-bearing command, timeout,
-status, and quoting tokens between each merged source skill and its emitted Codex
-copy. This catches drift because the backend builds those skills from literals rather
-than reading ``plugin/skills`` at emission time. All overlay and IR content is treated
-as untrusted data.
-"""
+"""Codex enforcement-honesty and utility-skill synchronization tests."""
 
 import json
 import os
@@ -59,9 +40,7 @@ _SURFACE_LOCK_BANNER = "lock FIDELITY banner"
 # These three safety gates must be adapted and gated at rest.
 _SAFETY_GATES = ("enforce-lease", "block-dangerous", "protect-sensitive")
 
-# The modern Codex block schema the lock mechanism text must describe, and the two
-# obsoleted legacy forms that must be ABSENT . The advisory
-# sentence is orthogonal and stays verbatim — asserted separately.
+# The modern Codex block schema the lock mechanism text must describe, and the two obsoleted legacy forms that must be ABSENT .
 _MODERN_DENY_TOKENS = ("permissionDecision", "deny")
 _LEGACY_BLOCK_SCHEMA = '{"decision":"block"}'          # obsoleted stdout block form
 _LEGACY_BLOCK_SCHEMA_ESCAPED = '{\\"decision\\":\\"block\\"}'  # its JSON-file byte form
@@ -74,9 +53,7 @@ _LOCK_REL = "system2.codex.lock.json"
 _README_REL = "README.md"
 
 
-# ---------------------------------------------------------------------------
 # Emission-root resolution (path-parameterized) + surface readers
-# ---------------------------------------------------------------------------
 
 def _repo_root():
     # <repo>/compiler/evals/test_codex_honesty.py -> <repo>
@@ -84,12 +61,7 @@ def _repo_root():
 
 
 def _resolve_committed_root():
-    """Return a pre-existing Codex emission root to validate, or None to emit.
-
-    Order: an explicit ``CODEX_EMISSION_ROOT`` override (must exist), then the
-    committed ``distributions/codex/`` tree. When neither exists, returns None
-    and the caller emits to a staging directory.
-    """
+    """Return a pre-existing Codex emission root to validate, or None to emit."""
     override = os.environ.get("CODEX_EMISSION_ROOT")
     if override:
         if not os.path.isdir(override):
@@ -128,12 +100,7 @@ def _lock(root):
         return json.load(fh)
 
 
-# ---------------------------------------------------------------------------
-# The honesty predicates — pure functions of an emission root. Each returns a
-# list of (surface_or_capability, message) violations; [] means the invariant
-# holds. The real-emission tests assert []; the mutation self-tests assert the
-# returned violations NAME the tampered surface/capability.
-# ---------------------------------------------------------------------------
+# The honesty predicates — pure functions of an emission root.
 
 def advisory_surface_violations(root):
     """Trust one-liner must be a byte-substring of all three surfaces."""
@@ -193,12 +160,7 @@ def _surfaces(violations):
 
 
 def _lock_mechanism_text(root):
-    """The FIDELITY banner + every safety-gate ``mechanism`` string, concatenated.
-
-    This is the DELIVERY/MECHANISM narrative the amendment rewrote — distinct from the
-    verbatim advisory sentence (asserted elsewhere). The modern deny schema must be
-    described here and the two legacy forms must be absent.
-    """
+    """The FIDELITY banner + every safety-gate ``mechanism`` string, concatenated."""
     lock = _lock(root)
     caps = lock.get("capabilities", {})
     parts = [lock.get("FIDELITY", "")]
@@ -206,9 +168,7 @@ def _lock_mechanism_text(root):
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
 # Tests
-# ---------------------------------------------------------------------------
 
 class CodexHonestyTest(unittest.TestCase):
     """Check the three honesty surfaces and standing lock invariants."""
@@ -285,11 +245,7 @@ class CodexHonestyTest(unittest.TestCase):
         )
 
     def test_readme_surface_when_present(self):
-        # The README and orchestrator preamble share the same trust block. A staged
-        # emission may omit the optional committed README.
-        # Skip-count-0 discipline: NO skipTest. The orchestrator preamble is the
-        # always-present required equivalent (asserted unconditionally); the README is
-        # an ADDITIONAL surface validated only when it exists in the emission.
+        # The README and orchestrator preamble share the same trust block.
         orch = _orchestrator_preamble(self.root)
         self.assertIn(
             _TRUST_ONELINER, orch,
@@ -381,8 +337,6 @@ class CodexHonestyTest(unittest.TestCase):
     def test_lock_free_of_legacy_block_schema_and_delivery(self):
         text = _lock_mechanism_text(self.root)
         # GUARD: confirm we are actually reading the rewritten mechanism narrative
-        # (the modern token is present) BEFORE asserting the legacy forms are gone —
-        # so a renamed/emptied field can never let this test silently pass.
         self.assertIn(
             "permissionDecision", text,
             "guard failed: the lock mechanism/FIDELITY text does not describe the "
@@ -543,11 +497,7 @@ class CodexHonestyTest(unittest.TestCase):
         self.assertEqual(lock_invariant_violations(self.root), [])
 
 
-# ---------------------------------------------------------------------------
-# Drift control for the derived-literal utility-skill builders. The token list is
-# intentionally duplicated in test_pi_goldens.py so each backend's emitted copies are
-# independently checked against the merged source skills.
-# ---------------------------------------------------------------------------
+# Drift control for the derived-literal utility-skill builders.
 
 _SYNC_GUARD_TOKENS = {
     "codex": (
@@ -577,10 +527,7 @@ def _emitted_skill_path(root, name):
 
 
 class CodexSyncGuardTest(unittest.TestCase):
-    """Require every invariant token in both the merged source and emitted skill.
-
-    Shares the committed-or-staged emission resolution used by ``CodexHonestyTest``.
-    """
+    """Require every invariant token in both the merged source and emitted skill."""
 
     @classmethod
     def setUpClass(cls):
@@ -631,14 +578,6 @@ class CodexSyncGuardTest(unittest.TestCase):
 
 
 # _skill_frontmatter() (backends.codex) emits
-# `description: {description}` with zero YAML escaping, and nothing in this
-# suite previously validated the emitted VALUE -- an unquoted embedded ": "
-# (e.g. stateless-loop's "STATUS: CLEAN") shipped as invalid YAML with no red
-# check anywhere. This is a real (if narrow) spec-aware check, not a full
-# parser: a plain YAML scalar cannot contain an unquoted ": " or end in an
-# unquoted ":". Helpers duplicated from evals/test_pi_goldens.py's mirror leg
-# (accepted duplication, matching this suite's existing sync-guard-token
-# cross-reference convention above).
 def _parse_leading_frontmatter(text):
     if not text.startswith("---\n"):
         return None
@@ -667,10 +606,7 @@ def _yaml_unsafe_reason(value):
 
 
 class CodexSkillFrontmatterYamlSafetyTest(unittest.TestCase):
-    """every emitted skill's frontmatter must be safe
-    to parse as YAML -- checked for ALL emitted skills (not just the three
-    derived-literal utility skills), since ``_skill_frontmatter()`` is shared
-    by every skill this backend emits."""
+    """Check that emitted skill frontmatter is safe YAML."""
 
     @classmethod
     def setUpClass(cls):

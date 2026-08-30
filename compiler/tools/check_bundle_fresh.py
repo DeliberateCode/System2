@@ -1,25 +1,4 @@
-"""Drift guard: fail when the committed vendored bundle is stale or hand-edited.
-
-This machine-enforced cross-repo freshness check prevents a stale vendored bundle
-from merging. It regenerates the bundle from the CURRENT
-compiler source into a temp dir, recomputes the source hash, and compares it to a
-TARGET bundle's recorded + recomputed hashes:
-
-  * ``compiler_source_sha256`` recorded in the target's ``BUNDLE.json`` — catches
-    a STALE bundle (the committed copy predates the current compiler source).
-  * the hash recomputed over the target's OWN vendored subtree — catches a
-    HAND-EDITED / TAMPERED bundle (someone changed a vendored byte without
-    re-running the bundler, so the subtree no longer matches its recorded hash).
-
-On any mismatch it exits non-zero with the exact message
-``vendored bundle is stale: regenerate via tools/build_bundle.py``.
-
-Deterministic: the bundler is a pure copy and ``bundled_at`` is excluded from the
-hash, so a fresh bundle of unchanged source always matches.
-
-Stdlib-only. Reuses ``build_bundle`` so the regenerate path cannot drift from the
-generator.
-"""
+"""Drift guard: fail when the committed vendored bundle is stale or hand-edited."""
 
 import argparse
 import json
@@ -46,22 +25,12 @@ def _read_recorded_hash(bundle_dir: str) -> str:
 
 
 def _recompute_target_hash(bundle_dir: str) -> str:
-    """Recompute the source hash over the TARGET bundle's own vendored subtree.
-
-    The target's ``_system2_compiler/`` is itself a copy of ``ir/`` + ``backends/``
-    + the entry/adapter members, so ``build_bundle.compute_source_hash`` over it
-    yields the hash its bytes SHOULD record. A mismatch vs ``BUNDLE.json`` means a
-    vendored byte was hand-edited (tamper).
-    """
+    """Recompute the source hash over the TARGET bundle's own vendored subtree."""
     return build_bundle.compute_source_hash(bundle_dir)
 
 
 def check_bundle_fresh(compiler_root: str, target_bundle_dir: str) -> int:
-    """Return 0 when the target bundle is fresh + untampered, else non-zero.
-
-    *target_bundle_dir* is the directory CONTAINING ``_system2_compiler/`` (i.e.
-    the ``plugin/scripts/`` analogue), or the ``_system2_compiler/`` dir itself.
-    """
+    """Return 0 when the target bundle is fresh + untampered, else non-zero."""
     compiler_root = os.path.abspath(compiler_root)
     target_bundle_dir = os.path.abspath(target_bundle_dir)
     if os.path.basename(target_bundle_dir) != _BUNDLE_DIRNAME:

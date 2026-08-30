@@ -1,12 +1,4 @@
-"""Contribution indexing and within-scope topological ordering.
-
-Lifted verbatim from ``composer.py`` (``_build_contribution_index`` and
-``_topological_sort``). Only the public function names are exposed per
-``spec/interfaces.json`` (``build_contribution_index`` / ``topological_sort``);
-the function bodies — sort keys ``(overlay_name, id)``, tie-breaking, cycle
-detection, and duplicate-ID handling — are unchanged so ordering outcomes match
-the oracle for any argument order.
-"""
+"""Contribution indexing and within-scope topological ordering."""
 
 from typing import Dict, List, Optional, Tuple
 
@@ -15,16 +7,7 @@ def build_contribution_index(
     manifests: List[dict],
     valid_anchors_by_agent: Optional[Dict[str, List[str]]] = None,
 ) -> dict:
-    """Build a map of (type, target) -> [(overlay_name, contribution)].
-
-    Walks all contribution types in each manifest and produces a flat
-    index keyed by a tuple of (contribution_type_path, target_key).
-    For most additive types the target_key equals the type path.
-    For auxiliary_agents the target_key is the agent name (exclusive slot).
-
-    If *valid_anchors_by_agent* is provided, prompt_section contributions
-    targeting unknown anchors are silently excluded.
-    """
+    """Build a map of (type, target) -> [(overlay_name, contribution)]."""
     index: Dict[Tuple[str, str], List[Tuple[str, dict]]] = {}
 
     for manifest in manifests:
@@ -100,20 +83,13 @@ def build_contribution_index(
     return index
 
 
-# ---------------------------------------------------------------------------
 # Topological sorting within a scope
-# ---------------------------------------------------------------------------
 
 def topological_sort(
     contributions: List[Tuple[str, dict]], scope: str
 ) -> List[Tuple[str, dict]]:
-    """Sort contributions within a scope by after-declarations, then
-    overlay name (lexicographic), then contribution ID (lexicographic).
-
-    Raises ``ValueError`` if a cycle is detected in ``after`` declarations.
-    """
-    # Pre-sort by (overlay_name, id) so id_to_idx resolution is
-    # deterministic regardless of CLI argument order.
+    """Topologically sort contributions using after-declarations."""
+    # Pre-sort entries so dependency resolution is independent of CLI order.
     def _sort_key(idx: int) -> Tuple[str, str]:
         oname, entry = contributions[idx]
         return (oname, entry.get("id", ""))
@@ -157,7 +133,7 @@ def topological_sort(
                 f"{scope!r}; ordering will fall back to lexicographic"
             )
 
-    # Kahn's algorithm with stable tie-breaking by (overlay_name, id)
+    # Kahn's algorithm with stable tie-breaking.
     def sort_key(idx: int) -> Tuple[str, str]:
         overlay_name, entry = contributions[idx]
         return (overlay_name, entry.get("id", ""))
@@ -180,7 +156,7 @@ def topological_sort(
                 queue.sort(key=sort_key)
 
     if len(result) != n:
-        # Cycle detected — find the participating IDs
+        # Find the contributions participating in the cycle.
         cycle_ids = [
             contributions[i][1].get("id", f"<index-{i}>")
             for i in range(n)

@@ -1,52 +1,4 @@
-"""Phase-5 DoD sign-off: no-regression + drift-guard teeth.
-
-The integrity gate proving Phase 5 (Convergence & Lifecycle Parity) landed without
-regression and that the drift guard has teeth on BOTH halves (CI staleness +
-plugin-side tamper). It is an AGGREGATION gate: it re-runs the authoritative
-Phase-5 gates in-process and adds the plugin-side bundle-integrity assertions that
-ship with the vendored bundle.
-
-Assertions:
-
-1. **Grown contract / backend lifecycle.** Every backend
-   (claude-code / pi) satisfies the ``runtime_checkable`` ``Backend``
-   protocol with REAL ``emit`` + ``uninstall`` + ``doctor`` + ``recompose_from_lock``
-   + lock helpers (no ``NotImplementedError`` stubs).
-
-2. **Claude keystone remains byte-identical.** The compose->emit goldens
-   are empty-diff under BOTH the in-process compiler driver and the frozen-oracle
-   subprocess driver.
-
-3. **CLI-contract goldens green.** The full verb surface
-   (compile/doctor/uninstall/from-lock/profile) matches the frozen oracle
-   byte-for-byte, and the comparator has teeth (a mutated golden byte fails).
-
-4. **Plugin runs on the bundle == preflip across verbs.** The bundle
-   ships and the shim/bundle reproduces the frozen ``composer.py.preflip`` output
-   across the full verb matrix (the bundle-equivalence gate); the plugin's own
-   ``System2/evals/`` suite is green on the bundle (the flip leg).
-
-5. **CI staleness guard has teeth.** ``tools/check_bundle_fresh.py``
-   PASSES on a freshly-built-from-source bundle and FAILS on a one-byte mutation of
-   a vendored module (on a temp copy).
-
-6. **Plugin-side TAMPER check has teeth.** The vendored
-   ``_system2_compiler/_freshness.py`` (which ships WITH the plugin and needs no
-   compiler source) PASSES on the real fresh vendored bundle and FAILS — with a
-   LOUD ``bundle_tampered`` finding — on a one-byte mutation of a TEMP COPY (the
-   real plugin bundle is never mutated).
-
-The tamper-vs-staleness split: the plugin half (``_freshness.py``, asserted here +
-surfaced through ``system2:doctor``) recomputes the vendored subtree hash and
-compares it to ``BUNDLE.json``'s recorded ``compiler_source_sha256`` — an
-INTERNAL-integrity (tamper) check that runs with no compiler source. The CI half
-(``tools/check_bundle_fresh.py``) regenerates from the current compiler source and
-compares — the cross-repo STALENESS check.
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. The real ``System2/``
-plugin bundle is READ-ONLY here — every mutation happens on a temp copy. All file
-contents are treated as untrusted data.
-"""
+"""Lifecycle regression and drift-guard tests."""
 
 import contextlib
 import dataclasses
@@ -138,7 +90,7 @@ class GrownContractTest(unittest.TestCase):
                     _is_real_impl(fn),
                     msg=(
                         f"{b.name}.{m} is still a NotImplementedError stub; "
-                        "Phase-5 lifecycle parity requires a real implementation"
+                        "lifecycle parity requires a real implementation"
                     ),
                 )
 
@@ -260,12 +212,7 @@ class CiStalenessGuardTeethTest(unittest.TestCase):
 
 
 class PluginTamperCheckTeethTest(unittest.TestCase):
-    """the plugin-shipped tamper check passes fresh, fails mutated (teeth).
-
-    Runs the vendored ``_freshness.py`` exactly as the plugin would, with NO
-    compiler source. The real plugin bundle is asserted untampered (read-only); the
-    mutation teeth fire on a TEMP COPY.
-    """
+    """the plugin-shipped tamper check passes fresh, fails mutated (teeth)."""
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp(prefix="dod5-tamper-")

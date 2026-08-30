@@ -1,8 +1,4 @@
-"""Regression coverage for permanent files written through mkstemp + replace.
-
-``mkstemp`` creates 0600 files.  These writers must instead use normal
-umask-derived permissions for new outputs and preserve an existing output's mode.
-"""
+"""Regression coverage for permanent files written through mkstemp + replace."""
 
 import os
 import stat

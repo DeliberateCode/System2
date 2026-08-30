@@ -1,32 +1,4 @@
-"""Golden runner + byte-diff comparator (Phase 0 oracle driver + Phase 1 compiler driver).
-
-For each matrix cell, re-run the chosen driver into a throwaway project and byte-diff
-every produced artifact against its captured snapshot under ``evals/goldens/<cell>/``.
-
-- ``--driver oracle`` (default): re-runs the frozen ``composer.py`` as a subprocess
-  (the Phase 0 cross-check / rollout-backout path).
-- ``--driver compiler``: runs the in-process compiler (``ir.compose`` then
-  ``ClaudeCodeBackend().emit``) per cell. This is the seam-cut compatibility gate:
-  compose→emit path must be byte-identical to the frozen  baseline.
-
-Both drivers seed the prior golden lock first so ``composed_at`` is reused
-(idempotency), and both compare under the same per-artifact-class comparison policy
-(``byte-identical`` this cycle).
-
-A clean run vs the unmodified oracle yields an empty diff.
-
-The per-artifact-class comparison policy is loaded from ``comparison_policy.json``
-(``CLAUDE.md``, ``agents``, ``lock``, ``warnings``). The default mode is
-``byte-identical``; selecting ``semantic-equivalent`` for a class WITHOUT a non-empty
-``justification`` is rejected at load. This cycle ships every class
-``byte-identical``.
-
-A normal run NEVER rewrites snapshots. Only an explicit ``--rebaseline`` flag
-re-materializes the baseline (delegating to ``capture.capture_all``).
-
-The oracle is invoked ONLY as a subprocess via ``oracle.invoke_oracle``; this module never
-imports ``composer``/``profiles``/``hook_security``.
-"""
+"""Golden runner and byte-diff comparator for oracle and compiler output."""
 
 import argparse
 import json
@@ -42,11 +14,7 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GOLDENS_DIR = os.path.join(_THIS_DIR, "goldens")
 POLICY_PATH = os.path.join(_THIS_DIR, "comparison_policy.json")
 
-# The lock's overlay ``source_path`` is the ABSOLUTE on-disk fixture path, which varies
-# by checkout location (the frozen baseline baked the original author's path). Normalize
-# any ``…/evals/fixtures/<name>`` source path to a stable token on BOTH the produced lock
-# and the frozen baseline so the byte-comparison is checkout-independent. The content
-# hashes that actually pin overlay bytes are unaffected ( byte fidelity intact).
+# The lock's overlay ``source_path`` is the ABSOLUTE on-disk fixture path, which varies by checkout location (the frozen baseline baked the original author's path).
 _FIXTURE_PATH_RE = re.compile(rb'("source_path":\s*")[^"]*/evals/fixtures/')
 _FIXTURE_TOKEN = rb"\1<FIXTURES>/"
 
@@ -130,25 +98,7 @@ _DEGRADATION_STATUS_ENUM = ("native", "adapted", "advisory", "unsupported")
 def _compare_lock(
     label: str, expected: bytes, actual: bytes, *, require_report: bool
 ) -> list:
-    """Structural-additive lock comparison applied UNIFORMLY to both drivers.
-
-    Parse the produced lock, remove the additive ``degradation_report`` key if
-    present, re-serialize with the canonical ``json.dumps(stripped, indent=2) + "\\n"``
-    formatting, and byte-compare THAT to the frozen baseline lock. The frozen baseline
-    never carried the report, so:
-
-    - oracle driver: no ``degradation_report`` -> strip is a no-op -> exact byte match
-      against the immutable baseline (the comparator change does not break the oracle
-      path).
-    - compiler driver: the report is removed, and the remaining keys/values must be
-      byte-identical to the baseline -> the ONLY lock delta is the additive report
-      ( additive-only).
-
-    When *require_report* is True (compiler driver), additionally assert the
-    ``degradation_report`` IS present and complete (non-empty, every entry carries a
-    valid four-value ``status`` + a ``mechanism``); for claude-code every status is
-    ``native``.
-    """
+    """Structural-additive lock comparison applied UNIFORMLY to both drivers."""
     failures: list = []
     try:
         produced = json.loads(actual.decode("utf-8"))
@@ -236,9 +186,7 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
             expected = _read_bytes(snap_path)
             if mode == "byte-identical":
                 if cls == "lock":
-                    # Structural-additive lock comparison. The oracle lock
-                    # has no degradation_report, so the strip is a no-op and this is
-                    # an exact match against the immutable baseline.
+                    # The oracle lock has no additive degradation report.
                     failures.extend(
                         _compare_lock(
                             f"[{cell.name}] {rel}", expected, actual,
@@ -249,8 +197,7 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
                     msg = _compare_bytes(f"[{cell.name}] {rel}", expected, actual)
                     if msg:
                         failures.append(msg)
-            # semantic-equivalent is unused this cycle; reaching here would require a
-            # justified policy entry. Byte-identical is the only shipped mode.
+            # semantic-equivalent requires an explicit policy justification.
         oracle.cleanup_run(run)
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -259,19 +206,10 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
     return failures
 
 
-# ---------------------------------------------------------------------------
 # Compiler driver (in-process ir.compose -> ClaudeCodeBackend().emit)
-# ---------------------------------------------------------------------------
 
 def _compiler_compose_emit(cell: "matrix.Cell", cell_dir: str):
-    """Run the in-process compiler for a composed cell into a temp project.
-
-    Seeds the prior golden lock first (so a matching fingerprint reuses
-    ``composed_at``). For the profile cell, materializes a hermetic HOME store and
-    reloads ``ir.profiles`` so its store path resolves into that HOME (matching how
-    the oracle subprocess gets a hermetic HOME), then composes by profile name.
-    Returns (written_paths, project_dir, home_dir|None).
-    """
+    """Run the in-process compiler for a composed cell into a temp project."""
     import importlib
 
     project_dir = tempfile.mkdtemp(prefix=f"compiler-{cell.name}-")
@@ -321,9 +259,7 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
         for snap_path in _iter_snapshot_files(cell_dir):
             rel = os.path.relpath(snap_path, cell_dir)
             if rel == "warnings.txt":
-                # The compiler renders warnings via cli._emit_stderr_warnings; the
-                # frozen baseline warnings.txt is the oracle stderr. Compare the
-                # compiler-rendered stream captured in-process.
+                # Compare compiler warnings with the captured oracle stderr.
                 actual = _render_compiler_warnings(cell, cell_dir).encode("utf-8")
             else:
                 produced = os.path.join(project_dir, rel)
@@ -336,9 +272,7 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
             expected = _read_bytes(snap_path)
             if mode == "byte-identical":
                 if cls == "lock":
-                    # Structural-additive lock comparison: strip the
-                    # additive degradation_report, byte-match the remainder to the
-                    # immutable baseline, and assert the report is present+complete.
+                    # Compare the base lock separately from the additive report.
                     failures.extend(
                         _compare_lock(
                             f"[{cell.name}] {rel}", expected, actual,
@@ -361,19 +295,11 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
 
 
 def _extra_overlay_content(cell: "matrix.Cell", cell_dir: str, project_dir: str) -> list:
-    """Flag produced ``.system2/overlays/`` files absent from the frozen snapshot.
-
-    Snapshot-file iteration only catches missing/mismatched files; an EXTRA copied
-    file (e.g. an unknown-anchor content_file the backend wrongly collects) would slip
-    through. This reconciles the produced overlay-content tree against the golden so a
-    spurious copy is a hard failure (blocker ).
-    """
+    """Flag produced ``.system2/overlays/`` files absent from the frozen snapshot."""
     failures = []
     produced_root = os.path.join(project_dir, ".system2", "overlays")
     snapshot_root = os.path.join(cell_dir, ".system2", "overlays")
-    # Only reconcile cells whose frozen baseline actually pins the overlay-content
-    # tree. Pre-existing cells captured before overlay-content snapshotting carry no
-    # such tree and are left untouched (their byte-fidelity is gated by the lock).
+    # Only reconcile cells whose frozen baseline actually pins the overlay-content tree.
     if not os.path.isdir(produced_root) or not os.path.isdir(snapshot_root):
         return failures
     for root, _, names in os.walk(produced_root):
@@ -387,12 +313,7 @@ def _extra_overlay_content(cell: "matrix.Cell", cell_dir: str, project_dir: str)
 
 
 def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str) -> str:
-    """Render the neutral stderr warning stream the CLI would emit for *cell*.
-
-    Re-composes in-process (no emit) and feeds the report through the relocated
-    ``cli._emit_stderr_warnings`` via an in-memory stderr, producing the exact
-    bytes the CLI writes — the parity surface vs the oracle baseline.
-    """
+    """Render the neutral stderr warning stream the CLI would emit for *cell*."""
     import importlib
     import io
 
@@ -432,13 +353,7 @@ def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str) -> str:
 
 
 def _diff_refusal_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
-    """Compiler-driver refusal check: compose returns graph=None + errors.
-
-    Compares the compiler's refusal exit-code classification and refusal text to the
-    frozen oracle baseline. The oracle emits its refusal as a JSON report on
-    stdout; the CLI mirrors that JSON shape, so refusal.txt is compared against the
-    CLI's stdout JSON.
-    """
+    """Compiler-driver refusal check: compose returns graph=None + errors."""
     import io
 
     from system2_compiler import cli
@@ -551,12 +466,7 @@ def run_goldens(
     policy_path: str = POLICY_PATH,
     driver: str = "oracle",
 ) -> list:
-    """Run every cell and return the list of failure messages (empty == green).
-
-    ``driver`` selects ``oracle`` (subprocess cross-check) or ``compiler``
-    (in-process ``ir.compose`` -> ``ClaudeCodeBackend().emit``).
-    The ``core`` inventory-invariant cell is driver-independent.
-    """
+    """Run every cell and return the list of failure messages (empty == green)."""
     oracle.verify_pin()
     policy = load_policy(policy_path)
     matrix.assert_complete(goldens_dir)
@@ -579,7 +489,7 @@ def run_goldens(
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Run the Phase 0 golden byte-diff comparator.")
+    parser = argparse.ArgumentParser(description="Run the golden byte-diff comparator.")
     parser.add_argument(
         "--rebaseline",
         action="store_true",

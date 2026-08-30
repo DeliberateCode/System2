@@ -1,37 +1,4 @@
-"""Transform the Pi backend's canonical emission into the
-``@deliberatecode/pi-system2`` npm package layout.
-
-    build(staging_emission: str, dest: str, package_version: str = PACKAGE_VERSION) -> None
-
-*staging_emission* is a directory containing the Pi backend's canonical emission
-(``ir.compose`` + ``PiBackend.emit`` over the BASE plugin with empty overlays, so the
-tree is fully portable and carries no absolute paths). ``build`` transforms it into the
-npm package rooted at *dest*:
-
-* ``.pi/extensions/`` -> ``extensions/``   (pi package component type)
-* ``.pi/skills/``     -> ``skills/``       (pi package component type)
-* ``.pi/prompts/``    -> ``prompts/``      (pi package component type)
-* every OTHER emitted file (``AGENTS.md``, ``.pi/SYSTEM.md``, ``system2.pi.lock.json``)
-  -> ``payload/project/<relpath>`` (preserving its project-relative layout). These are
-  not package component types; they are materialized into a user's project by the
-  generated ``extensions/system2-init.ts`` command.
-
-The gate ``extensions/system2.ts`` is copied BYTE-FOR-BYTE from the backend's canonical
-``.pi/extensions/system2.ts`` (no re-derivation — the package and the backend cannot
-drift). ``package.json`` is stamped from ``templates/pi_package.json`` (name/keywords/pi
-manifest/files whitelist/MIT; no scripts, dependencies, or postinstall hook)
-with the version substituted. ``extensions/system2-init.ts`` is generated from
-``templates/system2_init_ts.template`` with the managed-file list (exactly the files
-placed under ``payload/project/``) embedded. ``README.md`` is generated from
-``templates/pi_readme.md.template`` (package name substituted); ``LICENSE`` is copied
-verbatim from the repo-root ``LICENSE`` (single source of truth — the package license
-cannot drift from the repo's). Both are entries in the ``package.json`` ``files``
-whitelist, so they are generated here and kept under the regen freshness guard rather
-than hand-committed.
-
-The Pi BACKEND is UNTOUCHED: this is pure tooling downstream of its emission.
-Stdlib-only; deterministic (identical emission -> byte-identical package).
-"""
+"""Build the npm package from the Pi backend's canonical output."""
 
 import json
 import os
@@ -44,14 +11,7 @@ _TEMPLATES_DIR = os.path.join(_TOOLS_DIR, "templates")
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 
 PACKAGE_NAME = "@deliberatecode/pi-system2"
-# hand-pinned, with no automated guard forcing a bump when
-# emitted content changes -- nothing today would stop a real behavior change from
-# shipping under an unchanged version number. Bump policy (manual, until guarded):
-# bump the PATCH digit for a bug fix that changes emitted bytes with no new
-# user-facing capability (e.g. this PR's fixes); bump MINOR for a new skill/
-# capability; bump MAJOR for a breaking change to the emitted surface (e.g. a
-# skill/capability removal). Mirrors _CODEX_PLUGIN_VERSION's policy in
-# compiler/system2_compiler/backends/codex.py.
+# Keep in sync with _CODEX_PLUGIN_VERSION; bump when user-visible output changes.
 PACKAGE_VERSION = "0.2.2"
 
 # The ``.pi/<X>/`` subtrees that ARE pi package component types: hoisted to ``<X>/``.
@@ -94,13 +54,7 @@ def _iter_files(root):
 
 
 def _classify(rel):
-    """Map an emitted relpath to ``(dest_relpath, managed_relpath_or_None)``.
-
-    A ``.pi/<component>/…`` file is a package component type and is hoisted to
-    ``<component>/…`` (``managed`` is None). Anything else is a project payload file and
-    goes to ``payload/project/<rel>`` (``managed`` is its project-relative path — what
-    ``system2-init`` later materializes back into a project).
-    """
+    """Map an emitted relpath to ``(dest_relpath, managed_relpath_or_None)``."""
     if rel.startswith(".pi/"):
         inner = rel[len(".pi/"):]
         top = inner.split("/", 1)[0]
@@ -111,9 +65,7 @@ def _classify(rel):
 
 def _write_package_json(dest, version):
     content = _read_template("pi_package.json").replace(_VERSION_PLACEHOLDER, version)
-    # Fail closed: the shipped manifest must never carry an install script or a
-    # dependency. A template edit that reintroduced one would otherwise publish
-    # silently to npm, so assert the policy here at build time.
+    # Reject install scripts and dependencies before publishing.
     obj = json.loads(content)
     for key in _FORBIDDEN_PACKAGE_KEYS:
         if key in obj:

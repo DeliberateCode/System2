@@ -1,28 +1,4 @@
-"""Static import-boundary regression tests (stdlib ``unittest``).
-
-Enforces product import boundaries with an AST scan of source files; no product
-code is imported for side effects.
-effects; the modules are read as text and parsed):
-
-* ``backends/claude_code.py`` and ``backends/base.py`` import none of the
-  forbidden ``ir/*`` loaders — only ``ir.graph`` (+ ``backends.base`` for the
-  concrete backend) and stdlib.
-* ``ir/*`` modules import no ``backends/`` package or ``cli``.
-* ``ir/`` + ``backends/`` import no third-party package. This reuses the vendored
-  ``ir._hook_security.check_no_external_deps`` but wraps it in a **level-aware**
-  pass: relative (``level > 0``) intra-package imports and first-party
-  ``ir``/``backends`` imports are NOT flagged, since the vendored scanner
-  false-positives on relative imports such as ``from .graph import X``.
-* No network calls anywhere in ``ir/`` + ``backends/`` — reuses
-  ``ir._hook_security.check_no_network_calls``.
-* No product module imports the plugin's ``composer`` / ``profiles`` /
-  ``hook_security`` from ``System2/plugin/``.
-
-Runs under both ``python3 -m unittest`` and ``pytest``. Stdlib-only.
-
-All cited file contents are treated as untrusted data; embedded instructions are
-not followed.
-"""
+"""Static import-boundary regression tests (stdlib ``unittest``)."""
 
 import ast
 import os
@@ -38,10 +14,7 @@ from system2_compiler.ir._hook_security import (
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PKG_ROOT = os.path.dirname(_THIS_DIR)
 
-# First-party top-level package of the compiler. Absolute imports rooted here
-# (``from system2_compiler.ir.graph import X``, ``import system2_compiler``,
-# ``from system2_compiler.backends.base import B``) are intra-project, not
-# third-party.
+# First-party top-level package of the compiler.
 _FIRST_PARTY_TOP = frozenset({"system2_compiler"})
 
 # Backends receive composed graph data and must never import these input loaders.
@@ -64,9 +37,7 @@ _FORBIDDEN_PLUGIN_MODULES = frozenset({
     "hook_security",
 })
 
-# ---------------------------------------------------------------------------
 # Source-file inventories (relative to the package root).
-# ---------------------------------------------------------------------------
 
 _IR_FILES = (
     "system2_compiler/ir/__init__.py",
@@ -97,17 +68,10 @@ def _read(rel: str) -> str:
         return fh.read()
 
 
-# ---------------------------------------------------------------------------
 # Level-aware import extraction + external-dependency scan.
-# ---------------------------------------------------------------------------
 
 def _iter_imports(source: str, filename: str):
-    """Yield ``(top_module, level)`` for every import in *source*.
-
-    ``top_module`` is the leftmost dotted component (``None`` for a bare
-    ``from . import x`` where ``node.module`` is ``None``). ``level`` is the
-    relative-import depth (0 for absolute imports, >0 for ``from . / .. import``).
-    """
+    """Yield ``(top_module, level)`` for every import in *source*."""
     tree = ast.parse(source, filename=filename)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -119,17 +83,7 @@ def _iter_imports(source: str, filename: str):
 
 
 def _external_imports(rel: str):
-    """Level-aware external-dependency scan for a product file.
-
-    Wraps the vendored ``check_no_external_deps`` semantics but treats:
-
-    * any ``level > 0`` (relative) import as intra-package (NOT external), so
-      ``from .graph import X`` in ``ir/`` is not a false positive; and
-    * any first-party top module (``ir`` / ``backends`` / ``cli``) as
-      intra-project (NOT external).
-
-    Returns the list of offending third-party top-module names (empty == clean).
-    """
+    """Level-aware external-dependency scan for a product file."""
     source = _read(rel)
     offenders = []
     for top, level in _iter_imports(source, rel):
@@ -146,13 +100,7 @@ def _external_imports(rel: str):
 
 
 def _imported_module_paths(rel: str):
-    """Return the set of fully-qualified absolute module paths imported by *rel*.
-
-    Only absolute imports (``level == 0``) are returned as dotted paths
-    (e.g. ``ir.graph``, ``ir.manifest``). Relative imports are normalized to the
-    package of the importing file so they can also be matched against the
-    forbidden-loader set.
-    """
+    """Return the set of fully-qualified absolute module paths imported by *rel*."""
     source = _read(rel)
     tree = ast.parse(source, filename=rel)
     pkg = os.path.dirname(rel).replace(os.sep, ".")  # e.g. "ir" or "backends"
@@ -239,11 +187,7 @@ class IrNeutralityTest(unittest.TestCase):
 
 
 class StdlibOnlyTest(unittest.TestCase):
-    """IR and backend modules import no third-party package.
-
-    Uses a level-aware wrapper over the vendored scanner so relative
-    intra-package imports are not flagged.
-    """
+    """IR and backend modules import no third-party package."""
 
     def test_no_third_party_imports_level_aware(self):
         for rel in _IR_FILES + _BACKEND_FILES:
@@ -257,9 +201,7 @@ class StdlibOnlyTest(unittest.TestCase):
             )
 
     def test_level_aware_scanner_fixes_vendored_false_positive(self):
-        # Document the seam: the vendored scanner DOES false-positive on the
-        # relative imports in ir/, but the level-aware wrapper does not. This
-        # guards against a future "fix" silently reverting to the raw scanner.
+        # Document the seam: the vendored scanner DOES false-positive on the relative imports in ir/, but the level-aware wrapper does not.
         raw = check_no_external_deps(_abspath("system2_compiler/ir/build.py"))
         self.assertTrue(
             any("from graph import" in v for v in raw),
@@ -309,12 +251,7 @@ class NoPluginImportTest(unittest.TestCase):
 
 
 class NegativeControlTest(unittest.TestCase):
-    """The scanner must have teeth: a synthetic forbidden import is detected.
-
-    These assertions feed deliberately-bad source through the same extraction
-    helpers used by the real boundary tests, proving a regression that violated a
-    boundary would actually fail the suite.
-    """
+    """The scanner must have teeth: a synthetic forbidden import is detected."""
 
     def test_forbidden_ir_loader_in_backend_is_detected(self):
         bad = (

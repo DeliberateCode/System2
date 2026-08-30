@@ -1,9 +1,4 @@
-"""User-level overlay-profile store and resolution module.
-
-Owns ``~/.system2/profiles.json``: load, structural validation, and atomic save.
-Python stdlib only. Must NOT import ``composer.py`` (one-directional
-``composer -> profiles`` edge only).
-"""
+"""User-level overlay-profile store and resolution module."""
 
 import argparse
 import datetime
@@ -76,13 +71,7 @@ def _validate_store(store: dict) -> None:
 
 
 def load_store(store_path: str = DEFAULT_STORE_PATH) -> dict:
-    """Load and validate the profile store.
-
-    Missing file returns an empty store. A corrupt or structurally invalid file
-    raises ProfileError (exit 1) with no stack trace surfaced to the caller. A
-    present-but-unreadable store (read I/O / permission failure) raises
-    ProfileError (exit 3) as a single line, never a traceback.
-    """
+    """Load and validate the profile store."""
     if not os.path.exists(store_path):
         return {"schema_version": SCHEMA_VERSION, "profiles": {}}
     try:
@@ -103,11 +92,7 @@ def load_store(store_path: str = DEFAULT_STORE_PATH) -> dict:
 
 
 def save_store_atomic(store: dict, store_path: str = DEFAULT_STORE_PATH) -> None:
-    """Atomically write the store: mkdirs, temp file, os.replace.
-
-    On any pre-replace failure the temp file is unlinked and ProfileError
-    (exit 3) is raised, leaving any prior store file intact.
-    """
+    """Atomically write the store: mkdirs, temp file, os.replace."""
     store_dir = os.path.dirname(store_path)
     tmp_path: Optional[str] = None
     try:
@@ -131,11 +116,7 @@ def save_store_atomic(store: dict, store_path: str = DEFAULT_STORE_PATH) -> None
 
 
 def normalize_path(raw: str, base_cwd: str) -> str:
-    """Expand ``~``, resolve a relative path against ``base_cwd``, and normalize.
-
-    Returns an absolute normalized path. Performs no filesystem access; a path
-    may legitimately not yet exist, so existence is a resolution-time concern.
-    """
+    """Expand ``~``, resolve a relative path against ``base_cwd``, and normalize."""
     expanded = os.path.expanduser(raw)
     if not os.path.isabs(expanded):
         expanded = os.path.join(base_cwd, expanded)
@@ -158,13 +139,7 @@ ResolveResult = namedtuple("ResolveResult", ["ordered_paths", "stale", "unknown"
 
 
 def _read_overlay_name(path: str) -> Optional[str]:
-    """Return the validated overlay name from a path's ``system2.overlay.json``.
-
-    Returns None on any failure: missing directory, missing file, unreadable
-    content, malformed JSON, or a ``name`` that is absent or fails
-    ``_PROFILE_NAME_RE``. Content is parsed as untrusted data only; it is never
-    executed, so no ``eval`` or dynamic import is performed.
-    """
+    """Return the validated overlay name from a path's ``system2.overlay.json``."""
     manifest_file = os.path.join(path, "system2.overlay.json")
     try:
         with open(manifest_file, "r", encoding="utf-8") as fh:
@@ -188,12 +163,7 @@ def available_profiles(store: dict) -> List[str]:
 
 
 def _unknown_profile_error(name: str, available: List[str]) -> dict:
-    """Build the unknown-profile error in both text and JSON forms.
-
-    Returns a dict carrying the exit code, the stderr ``text`` line, and the
-    stdout ``json`` payload, reused by the read-only CLI and by composer.py via
-    the ``--resolve`` path.
-    """
+    """Build the unknown-profile error in both text and JSON forms."""
     if available:
         text = (
             f"ERROR: No such profile '{name}'. "
@@ -215,12 +185,7 @@ def _unknown_profile_error(name: str, available: List[str]) -> dict:
 def unknown_profile_message(
     name: str, store_path: str = DEFAULT_STORE_PATH
 ) -> str:
-    """Return the plain unknown-profile message for *name* (no "ERROR: " prefix).
-
-    Loads the store, lists available profiles, and formats the same text as the
-    read-only CLI's stderr line, minus the leading "ERROR: " so callers that add
-    their own prefix (composer/main via ``_emit_error``) get identical output.
-    """
+    """Return the plain unknown-profile message for *name* (no "ERROR: " prefix)."""
     text = _unknown_profile_error(name, list_profiles(store_path))["text"]
     prefix = "ERROR: "
     return text[len(prefix):] if text.startswith(prefix) else text
@@ -231,16 +196,7 @@ def resolve_profile(
     store_path: str = DEFAULT_STORE_PATH,
     stale_policy: str = "hard_fail",
 ) -> ResolveResult:
-    """Resolve a profile name to ordered absolute source paths.
-
-    This is the single replaceable "name -> ordered paths" boundary.
-    Unknown name -> ``ResolveResult([], [], unknown=True)``. Otherwise the
-    profile's ``overlays[].path`` entries are returned in definition order, and
-    any path that is missing or lacks a valid ``system2.overlay.json`` is
-    recorded as a ``StaleEntry``. Resolution is pure: ``stale_policy`` is
-    plumbed for callers but resolution never raises on stale entries — the
-    caller (``_activate_profile``) enforces hard-fail.
-    """
+    """Resolve a profile name to ordered absolute source paths."""
     store = load_store(store_path)
     profiles = store.get("profiles", {})
     entry = profiles.get(name)
@@ -264,23 +220,12 @@ def resolve_profile(
 
 
 def list_profiles(store_path: str = DEFAULT_STORE_PATH) -> List[str]:
-    """Return all defined profile names in definition order (empty store -> []).
-
-    Read-only: loads the store but never writes.
-    """
+    """Return all defined profile names in definition order (empty store -> [])."""
     return available_profiles(load_store(store_path))
 
 
 def inspect_profile(name: str, store_path: str = DEFAULT_STORE_PATH) -> dict:
-    """Return a read-only inspection of *name*: one record per source path.
-
-    Unknown name -> ProfileError (exit 1). Otherwise each overlay entry
-    yields ``{path, cached_name, cached_version, resolved_name, resolved_version,
-    stale, annotation}``. ``resolved_*`` come from the live manifest; a path that
-    is missing or lacks a valid manifest is annotated and marked ``stale`` rather
-    than failing the whole listing (skip-and-annotate). Advisory ``cached_*``
-    fields default to ``None`` when absent. No disk write.
-    """
+    """Return a read-only inspection of *name*: one record per source path."""
     store = load_store(store_path)
     profiles = store.get("profiles", {})
     entry = profiles.get(name)
@@ -328,15 +273,7 @@ def inspect_profile(name: str, store_path: str = DEFAULT_STORE_PATH) -> dict:
 
 
 def _lock_source_paths(project_path: str) -> Set[str]:
-    """Return the set of ``source_path`` values in a project's composition lock.
-
-    Reads ``<project_path>/spec/overlay-manifest.lock`` only. A missing or
-    unparseable lock yields the empty set, treated as "no lock". Lock content is
-    parsed as untrusted data (``json.load`` only); missing or non-list
-    ``overlays`` and entries without a string ``source_path`` are tolerated. This
-    never writes the lock and never reads the project's installed-overlays
-    manifest (independence).
-    """
+    """Return the set of ``source_path`` values in a project's composition lock."""
     lock_file = os.path.join(project_path, "spec", "overlay-manifest.lock")
     try:
         with open(lock_file, "r", encoding="utf-8") as fh:
@@ -360,16 +297,7 @@ def active_profile_for_lock(
     name: str,
     store_path: str = DEFAULT_STORE_PATH,
 ) -> bool:
-    """Return True iff *name* is the active profile for the project's lock.
-
-    "Active" means order-insensitive **set equality** between the profile's
-    resolved source paths and the lock's ``source_path`` values. An unknown
-    profile, an absent/unparseable lock, or an empty lock set all yield False
-    (no-lock -> False). A profile with any stale path also yields False: it
-    cannot activate (activation hard-fails on stale paths), so it is not
-    meaningfully "active". The lock is read-only and the per-project
-    installed-overlays config is never accessed.
-    """
+    """Return True iff *name* is the active profile for the project's lock."""
     resolved = resolve_profile(name, store_path)
     if resolved.unknown:
         return False
@@ -391,11 +319,7 @@ def _now_iso() -> str:
 
 
 def _read_overlay_version(path: str) -> Optional[str]:
-    """Return the live overlay ``version`` string at *path*, or None.
-
-    Reads the same untrusted ``system2.overlay.json`` as ``_read_overlay_name``;
-    returns None on any failure or non-string version (never executes content).
-    """
+    """Return the live overlay ``version`` string at *path*, or None."""
     try:
         with open(
             os.path.join(path, "system2.overlay.json"), "r", encoding="utf-8"
@@ -414,13 +338,7 @@ def _overlay_entry(
     cached_name: Optional[str] = None,
     cached_version: Optional[str] = None,
 ) -> dict:
-    """Build a stored overlay entry with an advisory name/version cache.
-
-    The live manifest at *path* is authoritative; ``cached_name`` /
-    ``cached_version`` are used only as a fallback when the live manifest is
-    unreadable (e.g. capturing from a lock entry whose source path is stale).
-    Either field is stored as ``None`` when unresolvable.
-    """
+    """Build a stored overlay entry with an advisory name/version cache."""
     name = _read_overlay_name(path)
     if name is None:
         name = cached_name
@@ -431,11 +349,7 @@ def _overlay_entry(
 
 
 def _summary(name: str, entry: dict, store_path: str) -> dict:
-    """Build the mutation summary for a stored profile *entry*.
-
-    Lists each overlay path with its resolved name (live manifest preferred,
-    advisory cache as fallback) and the storage location.
-    """
+    """Build the mutation summary for a stored profile *entry*."""
     overlays = []
     for overlay in entry.get("overlays", []):
         if not isinstance(overlay, dict):
@@ -455,14 +369,7 @@ def create_profile(
     force: bool = False,
     store_path: str = DEFAULT_STORE_PATH,
 ) -> dict:
-    """Create a new profile from *raw_paths*. Composes nothing.
-
-    Validates *name* against ``_PROFILE_NAME_RE``; zero paths is a usage error.
-    Paths are normalized against *base_cwd* and order-preservingly deduped. If
-    *name* already exists and *force* is false the operation refuses to
-    overwrite. Advisory name/version are captured per path from the live
-    manifest. The store is written atomically (created on first mutation).
-    """
+    """Create a new profile from *raw_paths*. Composes nothing."""
     if not isinstance(name, str) or not _PROFILE_NAME_RE.match(name):
         raise ProfileError(
             f"Invalid profile name '{name}': must be kebab-case "
@@ -501,17 +408,7 @@ def edit_profile(
     base_cwd: str,
     store_path: str = DEFAULT_STORE_PATH,
 ) -> dict:
-    """Add and/or remove overlays on an existing profile in one call.
-
-    Unknown profile -> ``ProfileError``. *adds* are normalized against
-    *base_cwd* and appended if not already present, then the overlay set is
-    deduped. *removes* match by overlay NAME, preferring the live manifest
-    (authoritative) and falling back to the advisory cached name. A requested
-    remove-name absent from the profile -> ``ProfileError`` "not found in
-    profile" (not silent). If a stale path blocks confirming a requested name,
-    ``ProfileError`` names the offending path. The store is written atomically;
-    ``updated_at`` is refreshed.
-    """
+    """Add and/or remove overlays on an existing profile in one call."""
     store = load_store(store_path)
     entry = store.get("profiles", {}).get(name)
     if entry is None:
@@ -525,9 +422,7 @@ def edit_profile(
     overlays = [dict(o) for o in entry.get("overlays", []) if isinstance(o, dict)]
 
     if removes:
-        # Effective name per entry: live manifest authoritative, cached fallback.
-        # An entry whose name cannot be determined (stale path with no cached
-        # name) is an unresolvable blocker.
+        # Prefer live names; use the cache only for stale paths.
         effective_names = []
         blockers = []
         for overlay in overlays:
@@ -590,10 +485,7 @@ def delete_profile(
     name: str,
     store_path: str = DEFAULT_STORE_PATH,
 ) -> dict:
-    """Delete a profile entry and atomically save. Touches no project artifact.
-
-    Unknown profile -> ``ProfileError``. Only ``profiles.json`` is modified.
-    """
+    """Delete a profile entry and atomically save. Touches no project artifact."""
     store = load_store(store_path)
     profiles = store.get("profiles", {})
     entry = profiles.get(name)
@@ -616,18 +508,7 @@ def save_profile_from_lock(
     force: bool = False,
     store_path: str = DEFAULT_STORE_PATH,
 ) -> dict:
-    """Capture a project's current composition (from its lock) as a profile.
-
-    Reads ``<project_path>/spec/overlay-manifest.lock`` ``source_path`` values in
-    lock order; a missing/unparseable/empty lock -> ``ProfileError`` "no current
-    composition to capture". Relative ``source_path`` values resolve against the
-    current working directory (matching ``--from-lock``, which consumes them
-    verbatim and resolves relatives cwd-relative); absolute paths (the normal
-    case) are stored unchanged. Paths are deduped. Overwrite of an existing name
-    requires *force*. Advisory name/version are captured from the lock entries
-    (live manifest preferred at store time). Never reads or writes the
-    project's installed-overlays manifest.
-    """
+    """Capture a project's current composition (from its lock) as a profile."""
     if not isinstance(name, str) or not _PROFILE_NAME_RE.match(name):
         raise ProfileError(
             f"Invalid profile name '{name}': must be kebab-case "
@@ -696,14 +577,7 @@ def save_profile_from_lock(
 
 
 def main() -> None:
-    """Read-only CLI entry point: ``--list`` / ``--inspect`` / ``--resolve``.
-
-    There is intentionally NO ``--create``/``--edit``/``--delete``/``--save``
-    verb: this CLI is structurally read-only. Exit 0 on success,
-    the carried ``ProfileError.exit_code`` (1 unknown/corrupt, 3 read I/O) on
-    failure; a ``ProfileError`` is printed to stderr as a single line and never
-    surfaces a Python stack trace.
-    """
+    """Read-only CLI entry point: ``--list`` / ``--inspect`` / ``--resolve``."""
     parser = argparse.ArgumentParser(
         prog="profiles.py",
         description="Read-only overlay-profile inspection (no mutation verbs).",

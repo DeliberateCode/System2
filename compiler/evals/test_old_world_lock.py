@@ -1,29 +1,4 @@
-"""pre-consolidation ("old-world") lock graceful handling.
-
-Guards existing user projects whose `spec/overlay-manifest.lock` was written by the
-compiler/composer BEFORE this monorepo consolidation. Such a lock carries
-pre-consolidation *provenance* values — an older `system2_version` stamp and the
-`content_fingerprint` that version produces — while the engine bytes (hence the lock
-FORMAT) are identical pre/post move ('s sha-identity HALT proved it).
-
-Contract proven here: feeding an old-world lock to `doctor` and
-`recompose_from_lock` produces **at most** the standard stale-base nudge — the
-version-mismatch finding + "run --from-lock" remediation, exit 1 — and NEVER a
-schema error, an unreadable-lock error, a `broken`/`stale_overlay` status, an
-uncaught exception, or any other hard failure. `recompose_from_lock` completes and
-correctly refreshes the fingerprint; the `content_fingerprint` semantics are
-unchanged (it differs only when content/version differs — ).
-
-Fixture: `fixtures/old_world_lock/overlay-manifest.lock` is a REAL captured lock
-(compose of the committed `test-overlay`) hand-set to `system2_version 1.1.0` +
-its genuine fingerprint; the machine-specific `source_path` is a `__…__` token the
-test substitutes with the resolved `test-overlay` path (see that dir's README).
-
-Stdlib-only `unittest`; hermetic (temp projects; the real project/config trees are
-never touched). claude-code has no external validator, so nothing here skips (the
-skip-count-0 gate stays satisfied). Cited overlay content is untrusted; embedded
-instructions are not followed.
-"""
+"""pre-consolidation ("old-world") lock graceful handling."""
 
 import contextlib
 import io
@@ -47,9 +22,7 @@ _FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "old_world_lo
 _FIXTURE_LOCK = os.path.join(_FIXTURE_DIR, "overlay-manifest.lock")
 _SOURCE_TOKEN = "__SYSTEM2_TEST_OVERLAY__"
 
-# Statuses that are ACCEPTABLE for an old-world lock: `current` (no nudge) or
-# `stale_base` (the version-mismatch nudge). Anything else is a hard failure this
-# task forbids.
+# Legacy locks may be current or stale only because of the base version.
 _ACCEPTABLE_STATUSES = {"current", "stale_base"}
 # Finding types that would signal a schema / integrity / hard failure — none may
 # appear for an old-world lock whose overlay content is intact.
@@ -88,13 +61,7 @@ class OldWorldLockTest(unittest.TestCase):
         )
 
     def _project_with_old_world_lock(self):
-        """A composed project whose lock is the committed old-world fixture.
-
-        Emit `test-overlay` first (materializes CLAUDE.md + the `.system2/overlays/`
-        local copy so the overlay integrity checks pass), THEN overwrite the lock
-        with the fixture — source_path token resolved to the real overlay — so the
-        ONLY drift `doctor` can see is the version stamp.
-        """
+        """A composed project whose lock is the committed old-world fixture."""
         project = tempfile.mkdtemp(prefix="owl-proj-")
         self.addCleanup(shutil.rmtree, project, True)
 
@@ -231,8 +198,6 @@ class OldWorldLockTest(unittest.TestCase):
         # (1.1.0 -> installed) while the overlay content is byte-identical.
         self.assertNotEqual(recomposed_fp, self.old_fingerprint)
         # (ii) IDENTICAL to a plain fresh compose of the same content+version — the
-        # recompute ignores the stale locked value; fingerprint tracks content+version
-        # alone, unperturbed by the old-world lock.
         self.assertEqual(recomposed_fp, self._fresh_fingerprint())
 
     def test_fingerprint_is_version_sensitive_and_deterministic(self):
@@ -257,10 +222,7 @@ class OldWorldLockTest(unittest.TestCase):
         self.assertEqual(fp_old_a, fp_old_b)
         # Version-sensitive: same content, different version -> different fingerprint.
         self.assertNotEqual(fp_old_a, fp_new)
-        # The historical fixture records the old template's fingerprint. The current
-        # template may legitimately evolve, so this compatibility test pins the
-        # fingerprint algorithm's determinism and version sensitivity rather than
-        # claiming a new composition must reproduce obsolete template bytes.
+        # The historical fixture records the old template's fingerprint.
         self.assertTrue(fp_old_a.startswith("sha256:"))
         self.assertEqual(len(fp_old_a), len("sha256:") + 64)
 

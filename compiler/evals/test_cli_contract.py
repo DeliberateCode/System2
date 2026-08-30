@@ -1,23 +1,4 @@
-"""CLI-contract goldens: the compiler ``system2`` CLI vs the FROZEN oracle.
-
-The post-flip plugin runs the compiler's claude-code lifecycle (via the shim), so
-the compiler CLI's stdout / stderr / exit-code MUST reproduce the frozen
-``composer.py`` oracle's for the full verb surface. This module captures the
-oracle's output for a representative matrix (compose, doctor on
-composed/clean/stale, uninstall remove-one/remove-last/not-installed/no-lock/
-dry-run, from-lock recompose + missing/empty refusals, a profile op, and
-error/refusal cases) into ``evals/cli_contract/<cell>/`` and byte-diffs the
-compiler CLI against them.
-
-Both engines are deterministic given the pinned oracle; the comparison normalizes
-only the volatile temp-project / temp-HOME path prefixes (a structural-equivalence
-allowance over otherwise byte-identical contracts). A self-teeth test mutates one
-golden byte and asserts the diff fails ( no-auto-rebaseline discipline).
-
-Everything runs under a hermetic temp HOME so the real ``~/.system2`` is untouched.
-The oracle is invoked ONLY as a subprocess (this module never imports
-``composer``/``profiles``).
-"""
+"""CLI-contract goldens: the compiler ``system2`` CLI vs the FROZEN oracle."""
 
 import json
 import os
@@ -28,18 +9,10 @@ import sys
 import tempfile
 import unittest
 
-# The dry-run preview embeds a live UTC ``<!-- Composed at: … -->`` timestamp
-# (no prior lock exists to reuse it), the one genuinely non-deterministic byte in
-# the CLI contract. It is normalized to a stable token in BOTH engines' output —
-# the rest of the preview (and every non-dry-run cell, where ``composed_at`` is
-# reused from the seeded lock) stays byte-exact.
+# The dry-run preview embeds a live UTC ``<!-- Composed at: … -->`` timestamp (no prior lock exists to reuse it), the one genuinely non-deterministic byte in the CLI contract.
 _COMPOSED_AT_RE = re.compile(r"<!-- Composed at: [0-9TZ:-]+ -->")
 
-# The reused ``test-overlay`` source path is an absolute fixture path that varies by
-# checkout location (the frozen golden baked the original author's path). Normalize
-# any ``…/evals/fixtures/test-overlay`` occurrence to a stable token on BOTH the
-# produced output and the frozen golden, so the contract is checkout-independent
-# regardless of the repository directory name (author path, CI runner, or clone).
+# The reused ``test-overlay`` source path is an absolute fixture path that varies by checkout location (the frozen golden baked the original author's path).
 _OVERLAY_PATH_RE = re.compile(r"[^\s\"]*/evals/fixtures/test-overlay")
 _OVERLAY_TOKEN = "<OVERLAY>"
 
@@ -82,15 +55,7 @@ def _normalize(text, project_dir, home_dir):
 
 
 class _Cell:
-    """A single CLI-contract matrix cell.
-
-    ``setup`` is a list of (engine, argv) pairs run (output discarded) to put the
-    project/store into the right state before the measured invocation. ``oracle``
-    and ``compiler`` are the measured argv (with ``@PROJECT@``/``@HOME@``
-    placeholders). ``engine`` for setup is ``"oracle"`` (composer.py) or
-    ``"profiles"`` (profiles.py) — the compiler CLI mirror is built from the same
-    state, so setup runs on BOTH engines' projects independently.
-    """
+    """A single CLI-contract matrix cell."""
 
     def __init__(self, name, oracle_argv, compiler_argv, setup=None, kind="compose"):
         self.name = name
@@ -275,9 +240,7 @@ def _capture_compiler(cell):
     project = tempfile.mkdtemp(prefix="clic-cproj-")
     env = _hermetic_env(home)
     try:
-        # Reproduce the same project state via the oracle (the contract is the
-        # claude artifact tree, which both engines produce byte-identically — the
-        # compose goldens prove it).
+        # Seed the project with the oracle before invoking the compiler CLI.
         for step in cell.setup:
             _run_oracle_setup(step, project, env)
         argv = [project if a == _PROJ else (home if a == _HOME else a) for a in cell.compiler_argv]

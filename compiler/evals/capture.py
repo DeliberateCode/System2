@@ -1,29 +1,4 @@
-"""Per-cell golden artifact capture.
-
-For each matrix cell, run the frozen oracle (subprocess, hermetic HOME) and
-snapshot the artifact classes it actually writes into ``evals/goldens/<cell>/``:
-
-- composed cells (``core+overlay``, ``core+overlay+profile``, ``core+tension``):
-  ``CLAUDE.md``; every produced ``.claude/agents/<aux>.md``; ``spec/overlay-manifest.lock``;
-  and the stderr warning stream (``warnings.txt``).
-- refusal cells (``core+conflict``): ``refusal.txt`` (the error stream) + ``exit_code.txt``
-  + ``warnings.txt`` instead of files.
-- the ``core`` cell (static inventory invariant, design ): NOT a zero-overlay oracle run
-  (the oracle refuses empty overlay sets). Instead snapshot the base CLAUDE.md template the
-  composer starts from (``base_template.md``) and a ``structural_goldens.json`` reference
-  (relative path + sha256) to the plugin's read-only structural goldens locking the
-  13-agent/6-gate inventory + hook/allowlist bindings.
-
-Determinism: the lock carries ``composed_at`` (a timestamp) and ``content_fingerprint``.
-The oracle reuses ``composed_at`` from a prior lock in the project dir when the fingerprint
-matches. To make back-to-back captures byte-stable, capture seeds the temp project's
-``spec/overlay-manifest.lock`` from the previously-captured golden lock (when one exists)
-before invoking the oracle, so a matching fingerprint reuses the frozen ``composed_at``.
-No lock fields are stripped.
-
-Baselines are materialized by *running* this module (``python3 -m evals.capture``); the
-files under ``goldens/`` are written by this subprocess-driven capture, not hand-authored.
-"""
+"""Per-cell golden artifact capture."""
 
 import hashlib
 import json
@@ -36,10 +11,6 @@ from evals import matrix, oracle
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # The anchor the `core` cell's structural-golden references are stored RELATIVE to:
-# the plugin repo root (the dir that holds the read-only ``evals/goldens/`` tree).
-# Derived from the portable plugin-root resolution so it tracks a sibling layout or a
-# ``SYSTEM2_PLUGIN_ROOT`` override; the stored paths are repo-relative
-# (``evals/goldens/…``) and resolve to ``<repo-root>/<path>``.
 _WORKSPACE_ROOT = oracle.PLUGIN_REPO_ROOT
 
 DEFAULT_GOLDENS_DIR = os.path.join(_THIS_DIR, "goldens")
@@ -77,11 +48,7 @@ def _sha256_file(path: str) -> str:
 
 
 def _read_base_template() -> str:
-    """Resolve the base CLAUDE.md template exactly as composer._read_base_template does.
-
-    Tries the init skill's ``---BEGIN/END TEMPLATE---`` block first; falls back to the
-    repo CLAUDE.md. Read-only: never imports or mutates the plugin.
-    """
+    """Resolve the base CLAUDE.md template exactly as composer._read_base_template does."""
     if os.path.isfile(_INIT_SKILL_PATH):
         with open(_INIT_SKILL_PATH, "r", encoding="utf-8") as fh:
             skill_content = fh.read()
@@ -130,9 +97,7 @@ def _copy_artifacts(project_dir: str, cell_dir: str) -> None:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copyfile(os.path.join(agents_src, name), dst)
 
-    # Overlay content copies (.system2/overlays/<name>/...): the anchor-filtered
-    # set the oracle actually copies. Snapshotting these pins the content-file
-    # selection (blocker ): unknown-anchor content files must NOT appear here.
+    # Overlay content copies (.system2/overlays/<name>/...): the anchor-filtered set the oracle actually copies.
     overlays_src = os.path.join(project_dir, ".system2", "overlays")
     if os.path.isdir(overlays_src):
         for root, _, names in os.walk(overlays_src):
@@ -145,11 +110,7 @@ def _copy_artifacts(project_dir: str, cell_dir: str) -> None:
 
 
 def _seed_prior_lock(project_dir: str, cell_dir: str) -> None:
-    """Seed the temp project with the previously-captured golden lock (if any).
-
-    The oracle reuses ``composed_at`` when the project already holds a lock whose
-    ``content_fingerprint`` matches the recomputed one — making capture idempotent.
-    """
+    """Seed the temp project with the previously-captured golden lock (if any)."""
     prior = os.path.join(cell_dir, "spec", "overlay-manifest.lock")
     if os.path.isfile(prior):
         dst = os.path.join(project_dir, "spec", "overlay-manifest.lock")
@@ -158,11 +119,7 @@ def _seed_prior_lock(project_dir: str, cell_dir: str) -> None:
 
 
 def _materialize_profile_home(cell: "matrix.Cell") -> str:
-    """Create a hermetic HOME containing ``.system2/profiles.json`` from the store fixture.
-
-    The store's ``overlays[].path`` is rewritten to the resolved absolute ``TEST_OVERLAY``
-    so the baseline is root-correct ( portability note).
-    """
+    """Create a hermetic HOME containing ``.system2/profiles.json`` from the store fixture."""
     home = tempfile.mkdtemp(prefix="capture-home-")
     os.makedirs(os.path.join(home, ".system2"), exist_ok=True)
     with open(cell.profile_store, "r", encoding="utf-8") as fh:
@@ -232,12 +189,7 @@ def _capture_refusal(cell: "matrix.Cell", cell_dir: str) -> None:
 
 
 def _capture_core(cell_dir: str) -> None:
-    """Capture the static inventory invariant for the ``core`` cell (design ).
-
-    Snapshots the base CLAUDE.md template + a reference (relative path + sha256) to the
-    plugin's read-only structural goldens. The oracle is NOT invoked (it refuses empty
-    overlay sets).
-    """
+    """Capture the static inventory invariant for the ``core`` cell (design )."""
     _reset_dir(cell_dir)
     base_template = _read_base_template()
     _write_text(os.path.join(cell_dir, "base_template.md"), base_template)
@@ -279,14 +231,7 @@ def capture_all(
     rebaseline: bool = False,
     only: "str | None" = None,
 ) -> None:
-    """Capture declared matrix cells into ``goldens_dir``.
-
-    ``rebaseline`` is accepted for symmetry with the runner; capture always (re)writes the
-    snapshot tree from the oracle, which is the baseline-materialization step.
-    ``only`` restricts capture to a single named cell (the rest of the frozen baseline is
-    left byte-for-byte untouched); ``assert_complete`` is then skipped so a partial capture
-    does not fail on the unbuilt cells.
-    """
+    """Capture declared matrix cells into ``goldens_dir``."""
     oracle.verify_pin()
     os.makedirs(goldens_dir, exist_ok=True)
     if only is not None:

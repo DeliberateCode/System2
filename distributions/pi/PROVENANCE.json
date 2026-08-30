@@ -1,8 +1,8 @@
 {
-  "source_sha256": "9ab374bfa2dbd5109a4a13d2baf467e3e1d83340a27bd14aec93d2a457c64ce9",
-  "generated_from": "System2@5212e2c",
+  "source_sha256": "cb89106499f9678f1e28b304ee0a3f8c0e06bc29ae2410e5f1616ed6dcf908e7",
+  "generated_from": "System2@4aaea09",
   "generator": "compiler/tools/regen_all.py",
   "channel_version": "0.2.2",
   "compiler_version": "0.1.0",
-  "generated_at": "2026-08-29T23:19:56.319307+00:00"
+  "generated_at": "2026-08-29T23:54:10.749277+00:00"
 }

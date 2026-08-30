@@ -1,8 +1,4 @@
-"""Tests for overlay uninstall feature.
-
-Covers: _read_base_template, _compute_stale_artifacts, _uninstall_last_overlay,
-_uninstall (argument validation, multi-overlay, last-overlay, output format).
-"""
+"""Tests for overlay uninstall feature."""
 
 import json
 import os
@@ -24,15 +20,10 @@ _FIXTURE_DIR = os.path.join(_REPO_ROOT, "evals", "fixtures", "test-overlay")
 _BASE_PATH = os.path.join(_REPO_ROOT, "plugin")
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def _compose_and_write(project_dir, overlay_paths, base_path=_BASE_PATH):
-    """Compose overlays and write outputs to *project_dir*.
-
-    Returns the compose result dict.
-    """
+    """Compose overlays and write outputs to *project_dir*."""
     result = composer.compose(base_path, overlay_paths, project_dir)
     assert result["errors"] == [], f"compose() returned errors: {result['errors']}"
     composer._write_outputs(
@@ -48,10 +39,7 @@ def _compose_and_write(project_dir, overlay_paths, base_path=_BASE_PATH):
 
 
 def _create_minimal_overlay(parent_dir, name, version="1.0.0"):
-    """Create a minimal valid overlay in *parent_dir*/<name>.
-
-    Returns the overlay directory path.
-    """
+    """Create a minimal valid overlay in *parent_dir*/<name>."""
     overlay_dir = os.path.join(parent_dir, name)
     os.makedirs(overlay_dir, exist_ok=True)
 
@@ -111,9 +99,7 @@ def _snapshot_project(project_dir):
     return snapshot
 
 
-# ---------------------------------------------------------------------------
 # TestReadBaseTemplate
-# ---------------------------------------------------------------------------
 
 class TestReadBaseTemplate(unittest.TestCase):
     """Unit tests for _read_base_template()."""
@@ -144,9 +130,7 @@ class TestReadBaseTemplate(unittest.TestCase):
         self.assertEqual(result, "")
 
 
-# ---------------------------------------------------------------------------
 # TestComputeStaleArtifacts
-# ---------------------------------------------------------------------------
 
 class TestComputeStaleArtifacts(unittest.TestCase):
     """Unit tests for _compute_stale_artifacts()."""
@@ -202,9 +186,7 @@ class TestComputeStaleArtifacts(unittest.TestCase):
         self.assertEqual(result2, [])
 
 
-# ---------------------------------------------------------------------------
 # TestUninstallArgValidation
-# ---------------------------------------------------------------------------
 
 class TestUninstallArgValidation(unittest.TestCase):
     """Unit tests for _uninstall() input validation."""
@@ -290,9 +272,7 @@ class TestUninstallArgValidation(unittest.TestCase):
         self.assertIn("invalid overlay name", result["errors"][0].lower())
 
 
-# ---------------------------------------------------------------------------
 # TestUninstallMultiOverlay
-# ---------------------------------------------------------------------------
 
 class TestUninstallMultiOverlay(unittest.TestCase):
     """Integration tests for multi-overlay uninstall."""
@@ -387,10 +367,7 @@ class TestUninstallMultiOverlay(unittest.TestCase):
         self.assertTrue(os.path.isdir(test_overlay_cache))
 
     def test_multi_overlay_uninstall_byte_identity(self):
-        """Uninstalling A from A+B matches fresh compose of B only.
-
-        Compares CLAUDE.md text content; lock metadata timestamps may differ.
-        """
+        """Uninstalling A from A+B matches fresh compose of B only."""
         # Uninstall overlay-b to leave test-overlay.
         result_uninstall = composer._uninstall(
             _BASE_PATH, self.project_dir, "overlay-b", dry_run=False
@@ -436,9 +413,7 @@ class TestUninstallMultiOverlay(unittest.TestCase):
         """Missing source_path causes error, files unchanged."""
         before = _snapshot_project(self.project_dir)
 
-        # Manually corrupt the lock file to point overlay-b's remaining peer
-        # (test-overlay) to a nonexistent source path. We uninstall overlay-b
-        # so test-overlay is the "remaining" overlay whose source_path is needed.
+        # Manually corrupt the lock file to point overlay-b's remaining peer (test-overlay) to a nonexistent source path.
         lock_path = os.path.join(
             self.project_dir, "spec", "overlay-manifest.lock"
         )
@@ -463,9 +438,7 @@ class TestUninstallMultiOverlay(unittest.TestCase):
         self.assertEqual(before, after)
 
 
-# ---------------------------------------------------------------------------
 # TestUninstallLastOverlay
-# ---------------------------------------------------------------------------
 
 class TestUninstallLastOverlay(unittest.TestCase):
     """Integration tests for last-overlay uninstall."""
@@ -586,9 +559,7 @@ class TestUninstallLastOverlay(unittest.TestCase):
         self.assertEqual(template, compose_template)
 
 
-# ---------------------------------------------------------------------------
 # TestUninstallOutputFormat
-# ---------------------------------------------------------------------------
 
 class TestUninstallOutputFormat(unittest.TestCase):
     """Tests for uninstall result format compliance."""
@@ -633,18 +604,10 @@ class TestUninstallOutputFormat(unittest.TestCase):
         self.assertEqual(result["files_to_write"], [])
 
 
-# ---------------------------------------------------------------------------
 # TestEndToEndUninstallWorkflow
-# ---------------------------------------------------------------------------
 
 class TestEndToEndUninstallWorkflow(unittest.TestCase):
-    """Full compose-two, uninstall-one, uninstall-last workflow.
-
-    Category: missing coverage.
-    This test exercises the complete lifecycle:
-    compose two overlays, dry-run uninstall, write uninstall first,
-    verify intermediate state, uninstall last, verify base state.
-    """
+    """Full compose-two, uninstall-one, uninstall-last workflow."""
 
     def setUp(self):
         self.project_dir = tempfile.mkdtemp(prefix="s2test_e2e_")
@@ -666,7 +629,7 @@ class TestEndToEndUninstallWorkflow(unittest.TestCase):
         claude_path = os.path.join(project, "CLAUDE.md")
         lock_path = os.path.join(project, "spec", "overlay-manifest.lock")
 
-        # -- Phase 1: Compose both overlays --
+        # Compose both overlays.
         _compose_and_write(project, [self.alpha_dir, self.beta_dir])
 
         with open(claude_path) as fh:
@@ -688,7 +651,7 @@ class TestEndToEndUninstallWorkflow(unittest.TestCase):
         self.assertTrue(os.path.isdir(alpha_cache))
         self.assertTrue(os.path.isdir(beta_cache))
 
-        # -- Phase 2: Dry-run uninstall overlay-alpha --
+        # Preview removal of overlay-alpha.
         before = _snapshot_project(project)
         dryrun = composer._uninstall(
             _BASE_PATH, project, "overlay-alpha", dry_run=True
@@ -708,7 +671,7 @@ class TestEndToEndUninstallWorkflow(unittest.TestCase):
             "overlay-beta",
         )
 
-        # -- Phase 3: Write-mode uninstall overlay-alpha --
+        # Remove overlay-alpha.
         result_a = composer._uninstall(
             _BASE_PATH, project, "overlay-alpha", dry_run=False
         )
@@ -736,7 +699,7 @@ class TestEndToEndUninstallWorkflow(unittest.TestCase):
         self.assertFalse(os.path.isdir(alpha_cache))
         self.assertTrue(os.path.isdir(beta_cache))
 
-        # -- Phase 4: Uninstall overlay-beta (last overlay) --
+        # Remove the final overlay.
         result_b = composer._uninstall(
             _BASE_PATH, project, "overlay-beta", dry_run=False
         )
@@ -753,15 +716,10 @@ class TestEndToEndUninstallWorkflow(unittest.TestCase):
         ))
 
 
-# ---------------------------------------------------------------------------
 # TestUninstallCoverageGaps
-# ---------------------------------------------------------------------------
 
 class TestUninstallCoverageGaps(unittest.TestCase):
-    """Tests covering requirements gaps identified during verification.
-
-    Category: missing coverage.
-    """
+    """Tests covering requirements gaps identified during verification."""
 
     def setUp(self):
         self.project_dir = tempfile.mkdtemp(prefix="s2test_gaps_")
@@ -774,11 +732,7 @@ class TestUninstallCoverageGaps(unittest.TestCase):
     # -- Last-overlay rollback on I/O failure --
 
     def test_last_overlay_rollback_on_write_failure(self):
-        """I/O error during last-overlay write triggers rollback.
-
-        Simulates a write failure by making CLAUDE.md's parent directory
-        read-only after backup, then verifies all files are restored.
-        """
+        """I/O error during last-overlay write triggers rollback."""
         _compose_and_write(self.project_dir, [_FIXTURE_DIR])
         before = _snapshot_project(self.project_dir)
 

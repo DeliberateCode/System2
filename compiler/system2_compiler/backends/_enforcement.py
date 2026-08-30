@@ -1,51 +1,4 @@
-"""Shared enforcement-matcher generation (extraction, NOT net-new logic).
-
-The proven System2 enforcement primitives — the flag-permutation dangerous-command
-regex set, the sensitive-path regex set, and the path-normalizing / fail-closed
-lease-gate algorithm — ported VERBATIM from the Claude reference hooks and first
-proven in the Pi backend. Factored out here so a second native-enforcement backend
-(Codex) reuses the *identical* proven semantics rather than re-implementing them.
-
-Extraction discipline: ``pi.py`` serializes ``build_dangerous_command_patterns()``
-and ``build_sensitive_path_patterns()`` into its ``.pi/extensions/system2.ts`` the
-same way it serialized the module-level constants before, so the Pi goldens have
-ZERO churn — the byte-identity of those goldens is this extraction's proof
-obligation. The constants below are byte-for-byte the same tuples pi.py owned.
-
-Imported ONLY from within ``backends/`` (no backend imports another backend; this is
-a shared sibling, not a backend). Stdlib-only.
-
-CANARY sentinel (``system2-hook-canary``): a defense-in-depth marker the Codex
-doctor skill uses to prove hook liveness. It is added to the dangerous-command set
-ONLY via ``build_dangerous_command_patterns(include_canary=True)`` — a codex-only
-path. Pi calls the default (``include_canary=False``) so its emitted bytes cannot
-change.
-
-------------------------------------------------------------------------------
- ReDoS (catastrophic-backtracking) review — constants NOT altered
-------------------------------------------------------------------------------
-Every dangerous/sensitive regex source below was inspected for catastrophic
-backtracking (the exponential shapes ``(X+)+`` / ``(X|X)*`` / ``.*.*`` over
-overlapping classes). Findings:
-
-* No pattern contains a quantified GROUP wrapping an ambiguous quantifier — there is
-  no ``(...)*`` / ``(...)+`` over an inner ``*``/``+``. ``_RM_RF_FLAGS`` is one
-  non-quantified group; its inner ``[a-zA-Z]*``/``[^|;&]*`` runs are each fenced by
-  MANDATORY literals (``r``, ``f``, ``-f``, ``--force``), which localizes
-  backtracking. No exponential blowup is reachable.
-* A few patterns place TWO unbounded runs over the same negated class in sequence,
-  separated by a required literal — e.g. the ``git push`` force variants
-  (``[^;|&]*--force...[^;|&]*\b(main|master)\b``). On adversarial input that omits
-  the required literals this is worst-case POLYNOMIAL (quadratic), never
-  exponential.
-* The sensitive-path sources are anchored (``^``/``$``/``(^|/)``) with single
-  bounded runs — linear.
-
-Per policy the proven constants are LEFT UNCHANGED here. The mitigation for the
-quadratic worst case is an input-length cap + a match timeout that resolves to BLOCK
-(fail closed) in the CONSUMER — the Codex Node hooks, NOT a constant edit
-in this module. The Pi extension already runs these under Pi's own tool_call seam.
-"""
+"""Shared enforcement matcher generation."""
 
 import json
 from typing import Dict, List, Tuple
@@ -56,19 +9,8 @@ __all__ = [
     "build_sensitive_path_patterns",
 ]
 
-# Each entry is (js_regex_source, js_flags, reason). Order is FIXED (deterministic,
-# NOT sorted — regex evaluation order is semantic). Serialized by the consuming
-# backend into `new RegExp(source, flags)`; the sources are backend constants.
-#
-#   * _DANGEROUS_REGEXES mirrors dangerous-command-blocker.py: the flag-permutation
-#     `_RM_RF_FLAGS` helper + DANGER_PATTERNS (rm -rf at /,.,..; sudo rm -rf; chmod
-#     777; git reset --hard; git push --force/-f to main/master; DROP TABLE; DELETE
-#     FROM without WHERE), plus word-boundaried mkfs/dd-of=/shutdown/curl|sh and
-#     rm -rf ~ from the prior policy set (anchored, FP-resistant — no bare "dd").
-#   * _SENSITIVE_REGEXES mirrors sensitive-file-protector.py: segment/basename-anchored
-#     (.env, .env.*, .ssh/, .git/, .aws/, .gnupg/, id_rsa/ed25519/ecdsa, *.pem, *.key,
-#     .netrc/.npmrc/.pypirc) plus the reference's case-insensitive credentials/secrets
-#     markers.
+# Fixed order is semantic because consumers report the first matching reason.
+# These patterns mirror the Claude dangerous-command and sensitive-path hooks.
 _RM_RF_FLAGS = (
     r"(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*"
     r"|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*"
@@ -170,10 +112,7 @@ _DANGEROUS_REGEXES = (
     ),
 )
 
-# Defense-in-depth marker. Codex registers this per-hook so its doctor skill can
-# prove hook liveness: a canary command carrying the sentinel is BLOCKED, and the
-# block reason lets the doctor parse back the nonce (`system2-canary-blocked:<nonce>`
-# the consumer appends the nonce). Codex-only; never in Pi's default set.
+# Codex-only canary used to verify hook liveness.
 _CANARY_SENTINEL = "system2-hook-canary"
 _CANARY_ENTRY = (
     _CANARY_SENTINEL,
@@ -204,13 +143,7 @@ _SENSITIVE_REGEXES = (
 def build_dangerous_command_patterns(
     include_canary: bool = False,
 ) -> List[Tuple[str, str, str]]:
-    """The proven dangerous-command matcher set as ``(source, flags, reason)`` tuples.
-
-    Fixed order (regex evaluation order is semantic). Language-neutral: the consuming
-    backend serializes each tuple into its runtime's regex literal. ``include_canary``
-    (codex-only, default off) appends the ``system2-hook-canary`` sentinel entry LAST
-    so it never perturbs Pi's emission, which calls the default.
-    """
+    """The proven dangerous-command matcher set as ``(source, flags, reason)`` tuples."""
     patterns = list(_DANGEROUS_REGEXES)
     if include_canary:
         patterns.append(_CANARY_ENTRY)
@@ -218,28 +151,12 @@ def build_dangerous_command_patterns(
 
 
 def build_sensitive_path_patterns() -> List[Tuple[str, str, str]]:
-    """The proven sensitive-path matcher set as ``(source, flags, reason)`` tuples.
-
-    Segment/basename-anchored, fixed order. Language-neutral; the consuming backend
-    serializes each tuple into its runtime's regex literal.
-    """
+    """The proven sensitive-path matcher set as ``(source, flags, reason)`` tuples."""
     return list(_SENSITIVE_REGEXES)
 
 
 def build_lease_gate_source(write_scopes: Dict[str, List[str]]) -> str:
-    """Emit the proven, runtime-neutral lease-gate matcher source (JavaScript).
-
-    Encodes the SAME algorithm the Pi backend proved inline: project-relative path
-    normalization that FAILS CLOSED on any escape (leading ``~``, absolute path, or a
-    ``..`` that leaves the root), per-role scopes OR-joined from the role allowlist,
-    start-anchored ``^(?:scope)`` matching, and empty-scope / unknown-role fail-closed
-    (an unscoped role cannot write). ``write_scopes`` maps role name -> allowlist
-    regex-source list; a role present with an empty list, or absent entirely, blocks
-    every write.
-
-    Consumed by the Codex Node hooks; Pi keeps its own inline emission
-    (interwoven with Pi's ExtensionAPI event shape) so Pi's TS bytes cannot drift.
-    """
+    """Emit the proven, runtime-neutral lease-gate matcher source (JavaScript)."""
     scope_items = ",\n  ".join(
         f"[{json.dumps(role)}, {json.dumps('|'.join(patterns))}]"
         for role, patterns in write_scopes.items()
@@ -247,19 +164,14 @@ def build_lease_gate_source(write_scopes: Dict[str, List[str]]) -> str:
     writeable = ", ".join(json.dumps(role) for role in sorted(write_scopes))
 
     lines: List[str] = []
-    lines.append("// Per-role write scope (OR-joined allowlist regex source).")
-    lines.append("// A role absent from this map, or present with an empty scope,")
-    lines.append("// writes nothing (fail-closed, see WRITEABLE_ROLES).")
+    lines.append("// Per-role write scopes; absent or empty scopes deny writes.")
     lines.append("const ROLE_WRITE_SCOPES = new Map([")
     if scope_items:
         lines.append(f"  {scope_items},")
     lines.append("]);")
     lines.append(f"const WRITEABLE_ROLES = new Set([{writeable}]);")
     lines.append("")
-    lines.append("// normalize_path equivalent: project-relativize a path and FAIL")
-    lines.append("// CLOSED on any escape (leading `..`, absolute, or `~` home path)")
-    lines.append("// so the lease blocks it regardless of suffix. `.` / `./` collapse;")
-    lines.append("// interior `..` resolves and blocks only if it escapes the root.")
+    lines.append("// Normalize project-relative paths and return null on any escape.")
     lines.append("function normalizeProjectPath(p) {")
     lines.append('  if (typeof p !== "string" || p.length === 0) return null;')
     lines.append('  if (p === "~" || p.startsWith("~/")) return null; // home dir: outside project')
@@ -278,9 +190,7 @@ def build_lease_gate_source(write_scopes: Dict[str, List[str]]) -> str:
     lines.append('  return segs.join("/");')
     lines.append("}")
     lines.append("")
-    lines.append("// Return the first path that violates the active role's lease, else")
-    lines.append("// undefined. Fail closed: a write by a role with no scope (read-only")
-    lines.append("// or empty allowlist) or an uncompilable scope is blocked.")
+    lines.append("// Return the first lease violation; invalid scopes fail closed.")
     lines.append("function leaseViolation(activeRole, paths) {")
     lines.append("  if (!paths || paths.length === 0) return undefined;")
     lines.append("  const scope = ROLE_WRITE_SCOPES.get(activeRole);")

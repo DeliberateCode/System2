@@ -1,35 +1,4 @@
-"""Prove Pi blocking behavior with synthetic ``tool_call`` events and no LLM.
-
-The strongest native-fidelity evidence for Pi. A node harness (generated into a
-tempdir) loads the SHIPPED ``system2.ts`` gate — path-parameterized like the codex
-proven-blocking test: the committed ``distributions/pi/extensions/system2.ts`` when
-present (the published bytes), else the in-process emission (pre-commit fallback) —
-through Pi's own ``discoverAndLoadExtensions``, captures the registered
-``on("tool_call")`` handler and the ``/delegate`` command, and fires SYNTHETIC
-events at them directly with no LLM in the loop. It asserts:
-
-* **Blocks (the gates have teeth):**
-  - an off-``write_scope`` write (``/etc/passwd``, outside the executor role's
-    scope) → ``{ block: true }`` with an ``enforce-lease`` reason;
-  - a dangerous bash (``rm -rf /``) → ``{ block: true }`` (``block-dangerous``);
-  - a sensitive read (``.env``) → ``{ block: true }`` (``protect-sensitive``).
-* **Negative control (NOT a block-everything stub):** an in-scope ``src/...`` write,
-  a benign ``ls -la``, and an ordinary ``README.md`` read are each **not** blocked
-  (handler returns no ``block``). If the gate blocked everything these would fail —
-  so the allowed cases ARE the negative control proving the gate discriminates.
-* **/delegate dispatcher:** accepts a valid role; rejects an unknown role (an
-  ``error`` notification, no role switch). Bounded over the 13 roles.
-* **Isolation honesty:** the report's ``subagent_isolation`` value matches the
-  observed runtime behavior — ``/delegate`` is an in-session role-switch (it
-  mutates ``activeRole``), so the honest value is ``adapted``, and the report says
-  so (no silently-claimed native isolation). The ``before_agent_start`` injection
-  seam is exercised and confirmed to survive.
-
-node/pi present → MUST run and pass; absent → LOUD SKIP (never a silent pass).
-Hermetic temp HOME + hermetic ``.pi`` for the whole test; the real ``~/.pi`` is
-asserted untouched. Stdlib-only ``unittest``; no product code / ``System2/`` edits;
-all overlay/IR contents are untrusted data.
-"""
+"""Prove Pi blocking behavior with synthetic ``tool_call`` events and no LLM."""
 
 import json
 import os
@@ -53,13 +22,7 @@ _PI_PKG_REL = os.path.join(
 
 
 def _resolve_pi_pkg_entry():
-    """Resolve the Pi package's dist entry portably (no hard-coded $HOME path).
-
-    Tries, in order: ``PI_PKG_ENTRY`` env override; the global npm root
-    (``npm root -g``); the directory of the ``pi`` binary's resolved
-    ``node_modules``. Returns the entry path if it exists on disk, else None
-    (the caller LOUD-skips — never a silent pass).
-    """
+    """Resolve the Pi package's dist entry portably (no hard-coded $HOME path)."""
     override = os.environ.get("PI_PKG_ENTRY")
     if override and os.path.isfile(override):
         return override
@@ -93,13 +56,7 @@ _PI_PKG_ENTRY = _resolve_pi_pkg_entry()
 _REAL_PI = os.path.join(os.path.expanduser("~"), ".pi")
 _EXTENSION = os.path.join(".pi", "extensions", "system2.ts")
 
-# The synthetic event scenarios fired at the real handler. Each is a (toolName, input)
-# pair plus whether we expect a block. The default active role is `executor`, whose
-# write_scope matches `.*\.py$` (so src/main.py is in-scope) but not `/etc/passwd`.
-#
-# The bypass corpus (the regression-closing evidence): obfuscated dangerous commands
-# the OLD substring matcher let through, and traversal/empty-scope writes the OLD
-# unanchored/un-normalized lease let through. All must BLOCK now.
+# The synthetic event scenarios fired at the real handler.
 _BLOCK_CASES = (
     ("off_scope_write", "write", {"path": "/etc/passwd", "content": "x"}, "enforce-lease"),
     ("dangerous_bash", "bash", {"command": "rm -rf /"}, "block-dangerous"),
@@ -123,9 +80,7 @@ _ALLOW_CASES = (
     ("benign_rm_file", "bash", {"command": "rm file.txt"}),
 )
 
-# Role-switched cases: /delegate to a role, then fire a write. The harness flips
-# activeRole via the real /delegate handler before firing each case.
-# (role, name, toolName, input, expect_block)
+# Role-switched cases: /delegate to a role, then fire a write.
 _ROLE_CASES = (
     ("design-architect", "da_in_scope", "write", {"path": "spec/design.md", "content": "x"}, False),
     ("design-architect", "da_off_scope", "write", {"path": "src/x.py", "content": "x"}, True),
@@ -159,9 +114,7 @@ def _dir_fingerprint(path):
     return tuple(entries)
 
 
-# The synthetic-event harness. It loads the emitted extension through Pi's own
-# loader, captures the tool_call handler + /delegate command, and fires the cases.
-# Output is a single JSON object on stdout. No LLM anywhere.
+# The synthetic-event harness.
 _BLOCK_HARNESS = r"""
 const PKG = process.argv[2];
 const projectRoot = process.argv[3];
@@ -270,9 +223,6 @@ class PiProvenBlockingTest(unittest.TestCase):
         cls.project = tempfile.mkdtemp(prefix="pi-block-")
         cls.home = tempfile.mkdtemp(prefix="pi-block-home-")
         # Drive the corpus through the SHIPPED gate: reconstruct the project from the
-        # committed distributions/pi package (extension + payload) when present, else the
-        # in-process emission (pre-commit fallback). Path-parameterized like the codex
-        # proven-blocking test so the published bytes are what block.
         cls.project_source = materialize_pi_project(cls.project)
 
         block_arg = json.dumps([
@@ -361,9 +311,7 @@ class PiProvenBlockingTest(unittest.TestCase):
             )
 
     def test_gate_discriminates_block_vs_allow(self):
-        # Cross-cut: every block case blocked AND every allow case allowed. This is
-        # the single assertion that the gate is neither pass-everything nor
-        # block-everything.
+        # Ensure the gate discriminates between blocked and allowed cases.
         all_blocked = all(
             self.result["blocks"][n]["block"] for (n, *_r) in _BLOCK_CASES
         )
@@ -457,9 +405,7 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertIn(".pi/SYSTEM.md", augmented, "the seam did not inject System2 context")
 
     def test_subagent_isolation_reported_honestly(self):
-        # /delegate is an in-session role switch, not an isolated sub-session,
-        # so the honest report value is `adapted`. Assert the emitted report agrees
-        # (no silently-claimed native isolation).
+        # /delegate is an in-session role switch, not an isolated sub-session, so the honest report value is `adapted`.
         with open(
             os.path.join(self.project, "system2.pi.lock.json"), encoding="utf-8"
         ) as fh:

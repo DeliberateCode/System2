@@ -1,17 +1,4 @@
-"""Direct unit tests for the shared degradation helper.
-
-The shared, descriptor-driven degradation helper is the single source of truth for
-the per-capability report-record assembly + the status->flags rule. These tests
-drive it directly (no backend, no IR object) and include the **backend-parameterized
-mixed-status fixture** — a synthetic descriptor carrying all four statuses
-(native + adapted + advisory + unsupported) through ``build_capability_records`` —
-which is what unblocks the Pi backend's MIXED report.
-
-Negative controls (with teeth): an IR-present capability absent from the descriptor
-(no silent drop) and the ``allow_native=False`` guard (Codex's nothing-native rule).
-
-Stdlib-only ``unittest``. All descriptor text here is synthetic test data.
-"""
+"""Direct unit tests for the shared degradation helper."""
 
 import unittest
 

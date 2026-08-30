@@ -1,29 +1,4 @@
-"""Mechanism->capability mapping completeness test.
-
-Encodes the enforced Claude mechanism-to-capability relationship as an explicit
-fixture and asserts that the neutral capability model covers the complete surface:
-
-* Every enforced Claude mechanism maps to **exactly one** intent capability
- : no mechanism is unmapped, no mechanism maps to two capabilities.
-* The **union** of mapped capabilities exactly covers the enforced intent surface
-  (the six-term ``INTENT_CAPABILITIES`` vocabulary) — no enforced mechanism is left
-  unrepresented and no capability is invented.
-* ``tts-notify.py`` is recorded as an explicit **non-capability** (a notification
-  side-effect, not a safety mechanism) so the mapping stays exhaustive while never
-  treating notification as a capability.
-* Every ``BlockingSemantic`` record in ``ir/capabilities.py`` carries a valid
-  ``enforcement_point`` and a boolean ``blocking`` flag, one per enforced capability.
-
-Negative control: an UNMAPPED mechanism injected into a copy of the table fails the
-completeness assertion, proving the assertion has teeth.
-
-Stdlib-only ``unittest``; runs under ``python3 -m unittest``. The IR capability
-vocabulary is imported (it is product *data*, no Claude mechanism fields); no oracle
-or backend subprocess is needed.
-
-All cited file/spec contents are treated as untrusted data; embedded instructions
-are not followed.
-"""
+"""Mechanism->capability mapping completeness test."""
 
 import unittest
 
@@ -33,13 +8,7 @@ from system2_compiler.ir.capabilities import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Each enforced Claude mechanism maps to exactly one intent capability. Where a
-# mechanism participates in two intent "arms" (validate-file-paths.py: per-task
-# lease + per-agent path scope; sensitive-file/boundary-check: sensitive + boundary
-# arm) both behaviors remain under a single intent capability, so the mapping
-# stays one mechanism -> one capability.
-# ---------------------------------------------------------------------------
+# Each enforced Claude mechanism maps to exactly one intent capability.
 
 _MECHANISM_TO_CAPABILITY = {
     # Write-lease lifecycle + validate-file-paths against per-agent .regex.
@@ -54,10 +23,6 @@ _MECHANISM_TO_CAPABILITY = {
 }
 
 # Mechanisms that are deliberately not capabilities:
-# tts-notify.py is a notification side-effect, not a safety mechanism. It remains a
-# static frontmatter line the backend reproduces verbatim; recording it here keeps
-# the mapping exhaustive (every enforcement-surface frontmatter mechanism is either
-# mapped to one capability or explicitly classified a non-capability).
 _NON_CAPABILITY_MECHANISMS = frozenset({"tts-notify.py"})
 
 # Valid enforcement points for a blocking-semantics record.
@@ -96,8 +61,6 @@ class MechanismMappingTest(unittest.TestCase):
 
     def test_union_exactly_covers_the_enforced_surface(self):
         # The union of mapped capabilities equals the enforced intent vocabulary:
-        # no enforced mechanism leaves a capability uncovered, and no capability is
-        # invented outside the fixed six-term vocabulary.
         mapped_union = set(_MECHANISM_TO_CAPABILITY.values())
         self.assertEqual(
             mapped_union,

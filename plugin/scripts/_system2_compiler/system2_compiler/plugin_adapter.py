@@ -1,37 +1,4 @@
-"""The vendored plugin entry: the ``composer.py`` flag-CLI contract, encoded once.
-
-Phase 5 flips the plugin's ``scripts/composer.py`` to a thin shim that delegates
-to the vendored bundle's :func:`main_composer_contract`. This module is that
-delegate — the ONE place the ``composer.py`` flag surface (``--doctor`` /
-``--uninstall`` / ``--from-lock`` / ``--profile`` / ``--save-profile`` /
-``--profile-op`` / ``--profile-*`` / ``--base`` / ``--overlays`` / ``--project`` /
-``--dry-run`` / ``--format`` / ``--allow-injection`` / ``--allow-newer-schema`` /
-``--force``) is mapped onto the compiler's claude-code lifecycle + profile API,
-reproducing exit codes and stdout/stderr BYTE-FOR-BYTE.
-
-``--target`` is NOT a flag here; it is hard-pinned to ``claude-code`` (the plugin
-is Claude-only — ).
-
-**Anti-drift.** The contract-faithful dispatch already lives in :mod:`cli` (its
-``_do_compose`` / ``_do_uninstall`` / ``_do_doctor`` / ``_do_profile`` are pinned
-byte-for-byte against the frozen ``composer.py`` oracle by the CLI-contract
-goldens, ). This adapter does NOT re-implement any of it: it parses the
-flat composer flag surface, applies composer's exact mutual-exclusion /
-sub-flag-rejection refusals, then translates the request into the ``system2``
-verb argv (``compile`` / ``uninstall`` / ``doctor`` / ``from-lock`` / ``profile``,
-``--target claude-code``) and delegates to :func:`cli.main`. The adapter and
-``cli.py`` therefore cannot drift — there is a single dispatch implementation.
-
-Because the adapter delegates to ``cli`` for that single implementation, the
-bundler (``tools/build_bundle.py``) vendors ``cli.py`` alongside ``ir/`` +
-``backends/`` as the adapter's PRIVATE dependency. ``cli.py`` is not the bundle's
-entry (the adapter is, with ``--target`` pinned); it ships purely so the one
-dispatch body is shared, not copied. It is stdlib-only, so the bundle stays
-zero-dependency.
-
-Stdlib-only: this module imports only stdlib + the vendored
-compiler product modules (``cli`` → ``ir`` + ``backends``).
-"""
+"""The vendored plugin entry: the ``composer.py`` flag-CLI contract, encoded once."""
 
 import argparse
 import sys
@@ -46,11 +13,7 @@ _TARGET = "claude-code"
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Reproduce ``composer.main()``'s flat flag parser verbatim (same flags/metavars).
-
-    The flags, defaults, ``metavar``s, and ``choices`` mirror ``composer.py``'s
-    ``argparse`` exactly so usage/error text matches the frozen oracle.
-    """
+    """Reproduce ``composer.main()``'s flat flag parser verbatim (same flags/metavars)."""
     parser = argparse.ArgumentParser(
         description="System2 overlay composition engine",
     )
@@ -123,11 +86,7 @@ def _compile_argv(args) -> List[str]:
 
 def _profile_mutation_argv(args, op: str, name: str) -> List[str]:
     argv = ["profile", op, name]
-    # ``--profile-name`` is the mutation target for create/edit/delete (carried as
-    # the NAME positional here) but an INAPPLICABLE offender for ``save`` (whose
-    # target is ``--save-profile``). Relay the raw ``--profile-name`` flag only for
-    # ``save`` so cli's sub-flag matrix rejects ``--save-profile X --profile-name Y``
-    # while leaving a bare ``save NAME`` valid (composer's exact rule).
+    # For save, relay --profile-name only so the CLI can reject that invalid pairing.
     if op == "save" and args.profile_name:
         argv += ["--profile-name", args.profile_name]
     if args.profile_paths:
@@ -145,14 +104,7 @@ def _profile_mutation_argv(args, op: str, name: str) -> List[str]:
 
 
 def main_composer_contract(argv: Optional[List[str]] = None) -> int:
-    """Run the ``composer.py`` flag CLI; return its exit code.
-
-    Parses the flat composer flag surface, applies composer's exact
-    mutual-exclusion / sub-flag refusals, then delegates the request to the
-    contract-proven :func:`cli.main` verb dispatch (``--target`` pinned to
-    ``claude-code``). The return value is the process exit code; the shim wraps it
-    in ``SystemExit``.
-    """
+    """Run the ``composer.py`` flag CLI; return its exit code."""
     if argv is None:
         argv = sys.argv[1:]
 
@@ -222,13 +174,7 @@ def main_composer_contract(argv: Optional[List[str]] = None) -> int:
 
 
 def _reject_activation_subflags(args, fmt: str) -> Optional[int]:
-    """Reject sub-flags inapplicable to ``--profile`` activation (composer's rule).
-
-    Ports ``composer._reject_inapplicable_subflags(args, "--profile activation",
-    [...])``: any of ``--profile-name`` / ``--profile-paths`` / ``--profile-add`` /
-    ``--profile-remove`` / ``--force`` present with ``--profile`` is exit 1 with the
-    oracle's exact text.
-    """
+    """Reject sub-flags inapplicable to ``--profile`` activation (composer's rule)."""
     present = {
         "--profile-name": bool(args.profile_name),
         "--profile-paths": bool(args.profile_paths),

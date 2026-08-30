@@ -1,31 +1,4 @@
-"""Write consistent ``PROVENANCE.json`` files for regenerated distributions.
-
-Each committed distribution (``distributions/{codex,pi}/``) carries a
-``PROVENANCE.json`` recording the fingerprint of the generator's INPUTS plus the
-consolidated repo rev, the generator, the versions, and a timestamp:
-
-    {
-      "source_sha256":     <sha256 over sorted (relpath, bytes) of generator inputs>,
-      "generated_from":    "System2@<short-rev>",
-      "generator":         "compiler/tools/regen_all.py",
-      "channel_version":   <per-artifact version>,
-      "compiler_version":  <compiler/pyproject.toml project.version>,
-      "generated_at":      <ISO-8601 UTC — the ONLY field that varies between regens>
-    }
-
-``generated_at`` is timestamp-like: it is the single field that differs between two
-regens of identical source, so ``regen_all --check`` compares provenance files
-field-wise with it excluded (see ``regen_all.IGNORED_PROVENANCE_FIELDS``). Every
-other byte of every other emitted file is stable.
-
-The bundle artifact does NOT get a ``PROVENANCE.json``: its own ``BUNDLE.json``
-(written by ``build_bundle.py``) is its provenance and retains
-``compiler_source_sha256`` as the drift anchor. This module serves the distribution
-artifacts only.
-
-Stdlib-only. The rev/version helpers are reused verbatim from ``build_bundle`` so a
-distribution's ``generated_from``/``compiler_version`` cannot drift from the bundle's.
-"""
+"""Write consistent ``PROVENANCE.json`` files for regenerated distributions."""
 
 import datetime
 import hashlib
@@ -38,11 +11,7 @@ __all__ = ["source_sha256", "write_provenance", "PROVENANCE_FILENAME"]
 
 PROVENANCE_FILENAME = "PROVENANCE.json"
 
-# Directory names never hashed into a distribution's input fingerprint. The cache
-# dirs are build/test detritus; ``_system2_compiler`` is the vendored (derived)
-# bundle subtree under ``plugin/scripts/`` — it is generated output, never a
-# composition INPUT to any distribution, so hashing it would falsely couple a
-# distribution's ``source_sha256`` to a bundle regen.
+# Exclude caches and generated bundle output from distribution input hashes.
 _EXCLUDE_DIRS = frozenset(
     {"__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".git",
      "_system2_compiler"}
@@ -50,13 +19,7 @@ _EXCLUDE_DIRS = frozenset(
 
 
 def _iter_input_files(roots):
-    """Yield ``(relpath, abspath)`` over every input file, sorted by relpath.
-
-    *roots* is an iterable of ``(label, path)``; *label* namespaces each root so two
-    distinct input roots cannot collide in the digest. A *path* may be a file (hashed
-    under its bare label) or a directory (walked). Mirrors the digest shape of
-    ``build_bundle.compute_source_hash``.
-    """
+    """Yield ``(relpath, abspath)`` over every input file, sorted by relpath."""
     out = []
     for label, path in roots:
         path = os.path.abspath(path)
@@ -76,12 +39,7 @@ def _iter_input_files(roots):
 
 
 def source_sha256(roots) -> str:
-    """Return the sha256 over the sorted ``(relpath, bytes)`` of the generator inputs.
-
-    Identical inputs -> identical hash, independent of filesystem ordering. The
-    relpath (with its namespacing label) is folded into the digest so a moved/renamed
-    input changes the hash even when its bytes are unchanged.
-    """
+    """Return the sha256 over the sorted ``(relpath, bytes)`` of the generator inputs."""
     digest = hashlib.sha256()
     for rel, abspath in _iter_input_files(roots):
         digest.update(rel.encode("utf-8"))
@@ -95,10 +53,7 @@ def source_sha256(roots) -> str:
 def write_provenance(
     dest_dir: str, *, inputs, generator: str, channel_version: str, compiler_root: str
 ) -> dict:
-    """Write ``<dest_dir>/PROVENANCE.json`` and return the provenance dict.
-
-    *inputs* is the ``(label, path)`` iterable fed to :func:`source_sha256`.
-    """
+    """Write ``<dest_dir>/PROVENANCE.json`` and return the provenance dict."""
     provenance = {
         "source_sha256": source_sha256(inputs),
         "generated_from": f"System2@{build_bundle._git_rev(compiler_root)}",

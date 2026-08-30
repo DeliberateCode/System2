@@ -1,19 +1,4 @@
-"""Validate the Codex plugin structure, lock, skills, and uninstall behavior.
-
-A fresh staged emission and any committed ``distributions/codex`` tree are checked.
-The manifest must contain non-empty required fields, a kebab-case name, an in-root
-``./`` skills pointer, and no inert plugin-level hooks pointer. Marketplace pointers
-receive the same containment checks. The lock must expose the standard capability
-record fields, overlay sources, and a loud FIDELITY banner; every status must match
-the descriptor and no Codex capability may claim native enforcement.
-
-Tampered copies prove the checks reject missing fields, traversal or absolute
-pointers, invalid names, native over-claims, missing capability fields, and flag/status
-mismatches without mutating the real emission. The skill directory must contain the
-exact 18 expected names with non-empty ``SKILL.md`` files and consistent versions.
-Removing the last overlay must sweep the complete skill inventory so no old or new
-skill remains orphaned. All manifest, IR, and overlay content is untrusted data.
-"""
+"""Validate the Codex plugin structure, lock, skills, and uninstall behavior."""
 
 import copy
 import json
@@ -52,11 +37,7 @@ _MANIFEST_POINTERS = ("skills",)
 # The pinned 0.2.2 version, imported from the backend (never re-typed).
 _CODEX_PLUGIN_VERSION = codex_backend._CODEX_PLUGIN_VERSION
 
-# exact-name 18-skill inventory (orchestrator + system2-doctor + 13 role
-# skills + the 3 adapted utility skills). An independent enumeration, not
-# derived from the IR/role list, so a lost skill cannot silently shrink both
-# sides of the comparison (the same discipline as 's static
-# skill_inventory.json).
+# exact-name 18-skill inventory (orchestrator + system2-doctor + 13 role skills + the 3 adapted utility skills).
 _EXPECTED_SKILL_NAMES = frozenset({
     "system2",
     "system2-doctor",
@@ -99,9 +80,7 @@ _FLAG_BY_STATUS = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Emit harness (mirrors test_pi_goldens / test_pi_degradation)
-# ---------------------------------------------------------------------------
 
 def _emit_codex(project_dir):
     """Compose the core+overlay cell and emit the Codex plugin under *project_dir*."""
@@ -119,9 +98,7 @@ def _read_json(root, rel):
         return json.load(fh)
 
 
-# ---------------------------------------------------------------------------
 # Pure validators (raise on violation; the negative tests assert the teeth)
-# ---------------------------------------------------------------------------
 
 class ManifestValidationError(ValueError):
     """A Codex manifest / pointer-hygiene contract violation."""
@@ -132,13 +109,7 @@ class LockValidationError(ValueError):
 
 
 def _iter_path_pointers(node, path="$"):
-    """Yield ``(jsonpath, value)`` for every ANCHORED path-ish string in *node*.
-
-    A string is a filesystem pointer only when it is ANCHORED at a path prefix
-    (``./``, ``../`` or ``/``) and is not a URL (no ``://``). This deliberately does
-    NOT flag free-text fields that merely mention a slash mid-sentence (e.g. the
-    manifest ``description`` mentioning ``/hooks``), so only real pointers are gated.
-    """
+    """Yield ``(jsonpath, value)`` for every ANCHORED path-ish string in *node*."""
     if isinstance(node, dict):
         for key, value in node.items():
             yield from _iter_path_pointers(value, f"{path}.{key}")
@@ -209,15 +180,7 @@ def validate_marketplace(doc):
 
 
 def validate_lock(lock, descriptor=None):
-    """Validate a ``system2.codex.lock.json`` against the shared envelope + Codex guard.
-
-    Raises LockValidationError on: a missing envelope key, a missing/empty FIDELITY
-    banner, a non-list ``overlay_sources``, a missing/empty ``capabilities`` map, a
-    per-capability field drop, an out-of-enum status, a ``native`` status (Codex
-    standing guard — nothing may be native), or an ``enforced``/``gated`` pair that
-    does not follow the status rule. When *descriptor* is given, each reported status
-    must equal the descriptor status.
-    """
+    """Validate a ``system2.codex.lock.json`` against the shared envelope + Codex guard."""
     errors = []
     if not isinstance(lock, dict):
         raise LockValidationError("lock is not a JSON object")
@@ -284,10 +247,7 @@ def _codex_descriptor():
         return json.load(fh)
 
 
-# ---------------------------------------------------------------------------
-# Path-parameterized source discovery: always the staging emission; plus the
-# committed distributions/codex tree once  lands (auto-discovered).
-# ---------------------------------------------------------------------------
+# Path-parameterized source discovery: always the staging emission; plus the committed distributions/codex tree once  lands (auto-discovered).
 
 def _build_sources():
     """Return [(label, root_dir, is_temp)] — staging always; committed dist if present."""
@@ -315,9 +275,7 @@ class _CodexEmissionBase(unittest.TestCase):
                 shutil.rmtree(root, ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------
 # Positive: manifest structure + pointer hygiene
-# ---------------------------------------------------------------------------
 
 class CodexManifestStructureTest(_CodexEmissionBase):
     """The emitted manifest satisfies the structural +  pointer contract."""
@@ -375,9 +333,7 @@ class CodexManifestStructureTest(_CodexEmissionBase):
                 )
 
 
-# ---------------------------------------------------------------------------
 # Positive: lock schema (shared envelope + per-cap fields + Codex guard)
-# ---------------------------------------------------------------------------
 
 class CodexLockSchemaTest(_CodexEmissionBase):
     """The emitted lock matches the shared ``system2.<target>.lock.json`` shape."""
@@ -451,9 +407,7 @@ class CodexLockSchemaTest(_CodexEmissionBase):
                 self.assertIsInstance(lock["overlay_sources"], list)
 
 
-# ---------------------------------------------------------------------------
 # repo-scoped marketplace pointer hygiene (synthetic always; real if present)
-# ---------------------------------------------------------------------------
 
 class CodexMarketplacePointerHygieneTest(unittest.TestCase):
     """The  pointer rule applies to the marketplace doc (synthetic + real-if-present)."""
@@ -488,9 +442,7 @@ class CodexMarketplacePointerHygieneTest(unittest.TestCase):
         validate_marketplace(doc)
 
 
-# ---------------------------------------------------------------------------
 # Negative: the manifest validator has teeth (tamper a DEEP COPY, never the real one)
-# ---------------------------------------------------------------------------
 
 class CodexManifestNegativeControlsTest(_CodexEmissionBase):
     """Tampered manifest copies must each fail validation (assertRaises)."""
@@ -536,9 +488,7 @@ class CodexManifestNegativeControlsTest(_CodexEmissionBase):
         self.assertEqual(on_disk["name"], "system2")
 
 
-# ---------------------------------------------------------------------------
 # Negative: the lock validator has teeth
-# ---------------------------------------------------------------------------
 
 class CodexLockNegativeControlsTest(_CodexEmissionBase):
     """Tampered lock copies must each fail validation (assertRaises)."""
@@ -597,10 +547,7 @@ class CodexLockNegativeControlsTest(_CodexEmissionBase):
         self.assertEqual(on_disk["backend"], "codex")
 
 
-# ---------------------------------------------------------------------------
-# Exact-name 18-skill inventory and the 0.2.2 version pin. This direct count check
-# prevents extra or missing skills from escaping broader manifest validation.
-# ---------------------------------------------------------------------------
+# Exact-name 18-skill inventory and the 0.2.2 version pin.
 
 class CodexSkillInventoryTest(_CodexEmissionBase):
     """The emitted ``skills/`` directory carries exactly the pinned 18 names,
@@ -629,11 +576,6 @@ class CodexSkillInventoryTest(_CodexEmissionBase):
 
     def test_manifest_and_lock_pin_the_0_2_2_version(self):
         # The emitted-byte cleanup in this change is the "bug fix that changes
-        # emitted bytes with no new user-facing capability" case described by
-        # _CODEX_PLUGIN_VERSION's policy, requiring a PATCH bump (0.2.1 -> 0.2.2).
-        # This pin is a literal, not derived from the constant, so a future version
-        # bump must consciously update it too (the same discipline as any other
-        # golden pin in this suite).
         self.assertEqual(
             "0.2.2", _CODEX_PLUGIN_VERSION,
             "backends.codex._CODEX_PLUGIN_VERSION drifted off the bundled 0.2.2 pin",
@@ -646,14 +588,7 @@ class CodexSkillInventoryTest(_CodexEmissionBase):
                 self.assertEqual(lock["codex_plugin_version"], "0.2.2")
 
 
-# ---------------------------------------------------------------------------
-# uninstall-path leg (Decision 's compensating test). 's
-# intent (uninstall removes added skills; prune doesn't strand them) is met by
-# the EXISTING generic ``skills/*/SKILL.md`` sweep — ``_CODEX_FIXED_ARTIFACTS``
-# is deliberately left unextended (ratified at Gate 3). This exercises
-# that sweep against the full 18-skill inventory, including the 3 new
-# utility skills and ``system2-doctor`` (none of which is in the fixed tuple).
-# ---------------------------------------------------------------------------
+# uninstall-path leg (Decision 's compensating test).
 
 class CodexUninstallSweepTest(unittest.TestCase):
     """Removing the last overlay sweeps every ``skills/*/SKILL.md`` generically."""

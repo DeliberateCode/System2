@@ -1,14 +1,4 @@
-"""Conflict detection and ConflictReport.
-
-Lifted verbatim from ``composer.py``: ``ConflictReport``, ``detect_conflicts``,
-and the high-leverage/pipeline tables. Neutral structural / additive /
-semantic-tension outcomes are unchanged.
-
-``detect_conflicts`` consumes the contribution index and topological sort lifted
-into ``ir/contributions.py``; those are imported here under their original
-``composer.py`` internal names so this module's bodies remain byte-identical to
-the oracle.
-"""
+"""Conflict detection and ConflictReport."""
 
 from typing import Dict, List
 
@@ -17,13 +7,7 @@ from .contributions import topological_sort as _topological_sort
 
 
 class ConflictReport:
-    """Container for conflict detection outcomes.
-
-    Attributes:
-        structural_conflicts: list of dicts — composition must be blocked.
-        additive_overlaps: list of dicts — compose with deterministic order.
-        semantic_tensions: list of dicts — warning, do not block.
-    """
+    """Container for conflict detection outcomes."""
 
     __slots__ = ("structural_conflicts", "additive_overlaps", "semantic_tensions")
 
@@ -37,9 +21,7 @@ class ConflictReport:
         return len(self.structural_conflicts) > 0
 
 
-# ---------------------------------------------------------------------------
 # Conflict detection
-# ---------------------------------------------------------------------------
 
 # High-leverage surfaces that trigger semantic tension warnings when
 # multiple overlays contribute to them.
@@ -69,15 +51,7 @@ _PIPELINE_AGENTS = {
 def detect_conflicts(
     manifests: List[dict], anchor_map: dict
 ) -> ConflictReport:
-    """Detect structural conflicts, additive overlaps, and semantic tensions.
-
-    Args:
-        manifests: List of parsed, validated overlay manifest dicts.
-        anchor_map: Parsed anchor-map.json.
-
-    Returns:
-        A ``ConflictReport`` with all three categories populated.
-    """
+    """Detect structural conflicts, additive overlaps, and semantic tensions."""
     report = ConflictReport()
     anchors_by_agent = {
         name: list(info.get("anchors", {}).keys())
@@ -147,7 +121,7 @@ def detect_conflicts(
         # Determine contributing overlay set
         contributing_overlays = list({e[0] for e in entries})
 
-        # Attempt topological sort — cycles and duplicate IDs become structural conflicts
+        # Cycles and duplicate contribution keys become structural conflicts.
         try:
             ordered, sort_warnings = _topological_sort(entries, f"{contrib_type}")
             for sw in sort_warnings:

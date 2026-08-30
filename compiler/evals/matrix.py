@@ -1,11 +1,4 @@
-"""Declarative golden-suite input matrix.
-
-Each :class:`Cell` records the overlay source paths, the optional profile name,
-the expected artifact classes, and whether the cell is a refusal cell. Cells whose
-fixtures land in later tasks are declared now and marked
-``pending=True``; ``assert_complete`` still requires a snapshot dir for every
-declared cell so an incomplete baseline fails loudly.
-"""
+"""Declarative golden-suite input matrix."""
 
 import os
 from dataclasses import dataclass, field
@@ -34,10 +27,7 @@ CONFLICT_B = os.path.join(_COMPILER_FIXTURES, "conflict-b")
 TENSION_A = os.path.join(_COMPILER_FIXTURES, "tension-a")
 TENSION_B = os.path.join(_COMPILER_FIXTURES, "tension-b")
 
-# Anchor-file cell: a prompt_sections contribution to an UNKNOWN anchor that
-# carries a content_file. Exercises the anchor-aware content-file selection the
-# backend was skipping (blocker ) — known.md is copied/fingerprinted, extra.md
-# (the unknown-anchor file) is excluded exactly as the frozen oracle excludes it.
+# Anchor-file cell: a prompt_sections contribution to an UNKNOWN anchor that carries a content_file.
 ANCHORFILE = os.path.join(_COMPILER_FIXTURES, "anchorfile")
 
 # Artifact classes captured per non-refusal cell.

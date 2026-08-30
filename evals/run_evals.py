@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""
-System2 Eval Harness
-
-Deterministic structural assertions verifying the plugin conversion.
-Uses only Python 3.8+ standard library. No external dependencies.
-
-Usage:
-    python3 evals/run_evals.py
-
-Exit codes:
-    0 - All evals pass
-    1 - One or more evals fail
-"""
+"""System2 evaluation harness."""
 
 import ast
 import difflib
@@ -33,9 +21,7 @@ if _PLUGIN_SCRIPTS not in sys.path:
 
 from hook_security import check_no_external_deps, check_no_network_calls
 
-# ---------------------------------------------------------------------------
 # Configuration
-# ---------------------------------------------------------------------------
 
 # Resolve repo root relative to this script's location
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -45,9 +31,7 @@ FIXTURES_DIR = SCRIPT_DIR / "fixtures"
 PLUGIN_DIR = "plugin"
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def load_golden(name: str) -> dict:
     """Load a golden JSON file from evals/goldens/."""
@@ -137,14 +121,6 @@ def extract_frontmatter(content: str) -> Optional[str]:
 
 
 # The former frontmatter check only regexed for a 'name:' field
-# and never validated any frontmatter VALUE, so an unquoted embedded ": " (an
-# actual regression: stateless-loop's "STATUS: CLEAN" description) shipped as
-# invalid YAML with zero red checks anywhere in the suite. This is a real (if
-# narrow) spec-aware check, not a full parser: a plain YAML scalar cannot
-# contain an unquoted ": " or end in an unquoted ":". Duplicated (with this
-# cross-reference comment) in compiler/evals/test_pi_goldens.py and
-# compiler/evals/test_codex_honesty.py -- kept stdlib-only per this file's own
-# no-external-dependencies posture (module docstring above).
 def yaml_unsafe_reason(value: str) -> Optional[str]:
     if not isinstance(value, str) or not value:
         return None
@@ -169,9 +145,7 @@ def frontmatter_fields(fm: str) -> dict:
     return fields
 
 
-# ---------------------------------------------------------------------------
 # Result tracking
-# ---------------------------------------------------------------------------
 
 class EvalResult:
     def __init__(self, check_name: str, description: str, passed: bool, message: str = ""):
@@ -195,9 +169,7 @@ def record(check_name: str, description: str, passed: bool, message: str = ""):
     results.append(EvalResult(check_name, description, passed, message))
 
 
-# ---------------------------------------------------------------------------
 # Eval implementations
-# ---------------------------------------------------------------------------
 
 def check_claude_project_dir_occurrences_in_agents():
     """Zero CLAUDE_PROJECT_DIR occurrences in agents/"""
@@ -740,13 +712,7 @@ def _matches(pattern: str, is_regex: bool, text: str) -> bool:
 
 
 def _resolve_doc_set(golden: dict) -> Tuple[List[str], List[str]]:
-    """Resolve the golden's doc_set to (rel_paths, errors).
-
-    The set is the user-facing documentation surface: README.md plus the pages it
-    delegates to. A declared glob that resolves to nothing is an ERROR, not an empty
-    scan -- otherwise relocating docs/ would silently shrink the must_not_contain net
-    to zero files and the eval would pass vacuously.
-    """
+    """Resolve the golden's doc_set to (rel_paths, errors)."""
     spec = golden.get("doc_set", {"always": ["README.md"], "globs": []})
     errors: List[str] = []
     paths: List[str] = []
@@ -1017,9 +983,7 @@ def check_rollback_cleans_up_parent_directories_created_by_composition():
     )
 
 
-# ---------------------------------------------------------------------------
 # Maintenance eval helpers
-# ---------------------------------------------------------------------------
 
 def _load_fixture_snapshots() -> List[str]:
     """Return the ordered list of snapshot names from the anti-slop-sequence fixture metadata."""
@@ -1038,11 +1002,7 @@ def _read_fixture_file(snapshot: str, filename: str) -> str:
 
 
 def _compute_diff_lines(snapshot_a: str, snapshot_b: str) -> int:
-    """Count the total number of changed lines between two fixture snapshots.
-
-    Compares all files present in either snapshot and sums the number of
-    added/removed lines across all files.
-    """
+    """Count the total number of changed lines between two fixture snapshots."""
     dir_a = FIXTURES_DIR / "anti-slop-sequence" / snapshot_a
     dir_b = FIXTURES_DIR / "anti-slop-sequence" / snapshot_b
     all_files: set = set()
@@ -1065,11 +1025,7 @@ def _compute_diff_lines(snapshot_a: str, snapshot_b: str) -> int:
 
 
 def _extract_public_exports(content: str) -> List[str]:
-    """Extract public function and class names from Python source content.
-
-    Public exports are top-level ``def`` or ``class`` definitions whose name
-    does not start with an underscore.
-    """
+    """Extract public function and class names from Python source content."""
     exports = []
     pattern = re.compile(r"^(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)")
     for line in content.splitlines():
@@ -1090,9 +1046,7 @@ def _extract_test_functions(content: str) -> List[str]:
     return funcs
 
 
-# ---------------------------------------------------------------------------
 # Maintenance eval implementations
-# ---------------------------------------------------------------------------
 
 def check_diff_size_growth_ratio_within_threshold():
     """Diff-size growth ratio within threshold"""
@@ -1223,9 +1177,7 @@ def check_test_preservation_rate_above_threshold():
     )
 
 
-# ---------------------------------------------------------------------------
 # Overlay eval implementations
-# ---------------------------------------------------------------------------
 
 def check_overlay_schema_json_exists_valid_json_and_covers_all_contribution_types():
     """overlay.schema.json exists, valid JSON, and covers all contribution types"""
@@ -1915,15 +1867,10 @@ def check_semantic_tension_warnings_for_shared_review_tags():
     )
 
 
-# ---------------------------------------------------------------------------
 # Doctor / drift-check evals
-# ---------------------------------------------------------------------------
 
 def _compose_fixture_overlay(tmp_dir):
-    """Helper: compose the test-overlay fixture into a temp project dir.
-
-    Returns (project_path, overlay_path, lock_data).
-    """
+    """Helper: compose the test-overlay fixture into a temp project dir."""
     from composer import compose, _write_outputs
 
     project_path = os.path.join(tmp_dir, "project")
@@ -2293,9 +2240,7 @@ def check_drift_check_detects_mutated_project_local_overlay_copy():
     )
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 ALL_EVALS = [
     # Path migration

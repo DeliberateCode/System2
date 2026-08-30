@@ -1,17 +1,4 @@
-"""Front-end assembly: build a ``System2Graph`` from validated inputs.
-
-Lifts the front-end half of ``composer.compose()`` (load / validate / conflict /
-index / topological sort / base-template read / version read) and the resolution
-half of ``_activate_profile`` (profile name -> ordered overlay paths). Produces the
-neutral graph **without invoking any backend**: this module
-imports no ``backends/`` package and no ``cli``.
-
-The structured inventory fields (``roles``, ``gate_graph``, ``delegation_contract``,
-``post_execution``, ``maintenance_loop``, ``spec_artifacts``) are derived inventories
-for structural assertions and future backends. The byte-output path for the Claude
-backend in this cycle is ``base_template`` (opaque base CLAUDE.md text + located
-section offsets) plus the ordered ``contributions`` — NOT these structured fields.
-"""
+"""Front-end assembly: build a ``System2Graph`` from validated inputs."""
 
 import json
 import os
@@ -43,8 +30,7 @@ from .graph import (
 
 SCHEMA_VERSION = "system2-graph/1.0.0"
 
-# Suffixes whose contributions are deferred (rendered by the backend, not
-# enumerated as applied IDs). Mirrors composer._DEFERRED_SUFFIXES.
+# Deferred contribution types are rendered but not listed as applied.
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
 _SECTION_RE = re.compile(r"^## (.+)$")
@@ -52,17 +38,10 @@ _GATE_CHECKLIST_RE = re.compile(r"^- Gate (\d+) \(([^)]+)\): (.+)$")
 _DELEGATION_RE = re.compile(r"^\d+\) (?:system2:)?([a-z0-9-]+):")
 
 
-# ---------------------------------------------------------------------------
 # Base template + version (lifted verbatim from composer.compose / version read)
-# ---------------------------------------------------------------------------
 
 def _load_base_template(base_path: str) -> str:
-    """Read the base CLAUDE.md template text.
-
-    Tries the init skill template first (works in an installed plugin), then
-    falls back to the sibling CLAUDE.md (works in a repo checkout). Returns the
-    empty string when neither is available.
-    """
+    """Read the base CLAUDE.md template text."""
     base_claude_md = ""
     init_skill_path = os.path.join(base_path, "skills", "init", "SKILL.md")
     repo_claude_path = os.path.join(os.path.dirname(base_path), "CLAUDE.md")
@@ -111,11 +90,7 @@ def _read_system2_version(base_path: str) -> str:
 
 
 def _section_offsets(text: str) -> Dict[str, int]:
-    """Locate each ``## <Section>`` heading's line index in the base template.
-
-    These are the located offsets the Claude backend uses for insertion; the IR
-    carries them but never renders them (that is the backend's job, ).
-    """
+    """Locate each ``## <Section>`` heading's line index in the base template."""
     offsets: Dict[str, int] = {}
     for idx, line in enumerate(text.splitlines()):
         m = _SECTION_RE.match(line)
@@ -145,9 +120,7 @@ def _section_text(text: str, heading: str) -> str:
     return "".join(lines[start:end])
 
 
-# ---------------------------------------------------------------------------
 # Ordered contributions (lifted index + topological sort)
-# ---------------------------------------------------------------------------
 
 _ANCHOR_SCOPE_RE = re.compile(r"^agents\.([^.]+)\.prompt_sections\.(.+)$")
 
@@ -157,17 +130,7 @@ def _build_ordered_contributions(
     overlay_path_map: Dict[str, str],
     anchor_table: AnchorTable,
 ) -> Tuple[OrderedContributions, List[str]]:
-    """Build the per-scope, topologically-sorted ``OrderedContributions``.
-
-    Mirrors the index + topo-sort the oracle performs in ``compose``: unknown
-    anchors are filtered by the identity-keyed ``anchor_table`` (so a contribution
-    to a non-existent anchor is silently excluded exactly as the oracle excludes
-    it); ordering cycles surface as a skipped scope (the structural-conflict
-    refusal already fired upstream). Contributions in an ``agents.<agent>.
-    prompt_sections.<anchor>`` scope carry the resolved ``(agent, anchor)``
-    ``AnchorRef`` identity. Returns the ordered contributions plus any
-    unresolved-after sort warnings.
-    """
+    """Build the per-scope, topologically-sorted ``OrderedContributions``."""
     index = _contributions.build_contribution_index(
         validated_manifests, anchor_table.anchors_by_agent()
     )
@@ -202,18 +165,9 @@ def _build_ordered_contributions(
     return OrderedContributions(scopes=scopes), sort_warnings
 
 
-# ---------------------------------------------------------------------------
 # Structured inventory derivation
-# ---------------------------------------------------------------------------
 
-# Explicit role -> allowlist-filename map. Agent names are NOT 1:1 with allowlist
-# filenames, so the mapping is encoded rather than naive-filename-matched. A role
-# absent from this map has no dedicated path allowlist and is read-only: its
-# write_scope stays empty (no broad fallback that would over-permit). The source
-# files live read-only under ``<base_path>/allowlists/*.regex``; ``write_scope``
-# is a SINGLE-line path-allow regex (multi-line allowlists are OR-joined exactly as
-# the reference ``_hook_utils.load_patterns`` does) the Pi lease check compiles into
-# its per-path block.
+# Agent and allowlist names differ, so map them explicitly. Unmapped roles are read-only.
 _ROLE_ALLOWLISTS = {
     "repo-governor": "repo-governor.regex",
     "spec-coordinator": "spec-context.regex",
@@ -231,17 +185,7 @@ _ROLE_ALLOWLISTS = {
 
 
 def _load_write_scope(name: str, base_path: str) -> str:
-    """Return the path-allow regex for *name* from its mapped allowlist file.
-
-    Read-only source under ``<base_path>/allowlists/``. Returns the empty string
-    for a role with no dedicated allowlist (read-only role) or a missing file —
-    never a broad fallback. Mirrors the reference ``_hook_utils.load_patterns``:
-    blank lines and ``#``-comment lines are dropped, a single remaining pattern is
-    returned verbatim, and multiple patterns are OR-joined into one valid regex as
-    ``(?:p1)|(?:p2)|...``. So a multi-line allowlist (e.g. design-architect's three
-    spec paths) becomes ONE alternation the Pi lease can compile, not a ``\\n``-joined
-    string that ``new RegExp`` would brick into a deny-all.
-    """
+    """Return the path-allow regex for *name* from its mapped allowlist file."""
     filename = _ROLE_ALLOWLISTS.get(name)
     if not filename:
         return ""
@@ -266,15 +210,7 @@ def _load_write_scope(name: str, base_path: str) -> str:
 def _derive_roles(
     anchor_map: dict, capabilities: CapabilitySet, base_path: str
 ) -> List[Role]:
-    """Derive the 13-agent role inventory from ``anchor-map.json``.
-
-    Roles are an intent inventory: name + the per-agent intent ``capabilities``
-    (Phase 2, from ``capabilities.by_agent``) + ``write_scope`` sourced read-only
-    from the mapped Claude per-agent ``.regex`` path allowlist so Pi's
-    ``enforce-lease`` becomes a genuinely-scoped native lease. ``gate_role`` /
-    ``model_hint`` stay neutral; no Claude mechanism fields appear.
-    The claude backend never reads ``write_scope``, so its bytes are unchanged.
-    """
+    """Derive the 13-agent role inventory from ``anchor-map.json``."""
     names = sorted(anchor_map.get("agents", {}).keys())
     return [
         Role(
@@ -321,9 +257,7 @@ def _derive_gate_graph(
 def _derive_delegation_contract(
     base_text: str, ordered: OrderedContributions
 ) -> DelegationContract:
-    """Derive the delegation contract: required fields (from the 'Delegation
-    contract' section), the preferred 13-agent order (from the delegation map),
-    and overlay-contributed advisory sources."""
+    """Derive delegation requirements, role order, and advisory sources."""
     required_fields: List[str] = []
     section = _section_text(base_text, "Delegation contract")
     for line in section.splitlines():
@@ -350,11 +284,7 @@ def _derive_delegation_contract(
 
 
 def _derive_post_execution(base_text: str) -> PostExecution:
-    """Derive the post-execution policy as neutral structure + opaque section text.
-
-    The opaque_text is the verbatim '## Post-Execution Workflow' section the
-    Claude backend reproduces via base_template; the structured fields exist for
-    structural assertions and future backends (design rationale)."""
+    """Derive the post-execution policy as neutral structure + opaque section text."""
     opaque = _section_text(base_text, "Post-Execution Workflow")
     boomerang_cap = 3
     cap_m = re.search(r"boomerang count[^\n]*reaches (\d+)", base_text)
@@ -431,30 +361,14 @@ def _derive_maintenance_loop(base_text: str) -> MaintenanceLoop:
 
 
 def _derive_capabilities(anchor_table: AnchorTable) -> CapabilitySet:
-    """Derive the per-agent intent-capability set.
-
-    Every enforced intent capability in ``INTENT_CAPABILITIES`` is native on the
-    fully-faithful (Claude) target per the design's mechanism->capability table:
-    the enforcement hooks (dangerous-command, sensitive-file/boundary, path/lease
-    validation, formatter, type-checker, change-budget) are registered globally
-    and apply to every pipeline agent's tool use — the composed surface does not
-    differentiate them per agent. The per-agent set is therefore the full enforced
-    vocabulary for each pipeline agent. This is IR-internal: the backend does not
-    read it this cycle, so it changes no emitted bytes.
-    """
+    """Derive the per-agent intent-capability set."""
     caps = list(_capabilities.INTENT_CAPABILITIES)
     by_agent = {agent: list(caps) for agent in anchor_table.by_agent}
     return CapabilitySet(by_agent=by_agent)
 
 
 def _collect_declared_capabilities(validated_manifests: List[dict]) -> List[str]:
-    """Collect intent capabilities an overlay explicitly declares, if any.
-
-    Overlays may declare capabilities under a top-level ``capabilities`` list or a
-    ``contributions.capabilities`` list; both are scanned so an unknown declared
-    capability surfaces a validation warning. Absent in today's overlays;
-    deterministic ordering by manifest order then declaration order.
-    """
+    """Collect intent capabilities an overlay explicitly declares, if any."""
     declared: List[str] = []
     for man in validated_manifests:
         for cap in man.get("capabilities", []) or []:
@@ -482,9 +396,7 @@ def _derive_spec_artifacts(
     return artifacts
 
 
-# ---------------------------------------------------------------------------
 # Graph assembly
-# ---------------------------------------------------------------------------
 
 def build_graph(
     base_path: str,
@@ -496,15 +408,7 @@ def build_graph(
     profile: Optional[ProfileRef],
     warnings: Warnings,
 ) -> System2Graph:
-    """Assemble a ``System2Graph`` from validated inputs.
-
-    Builds the ordered contributions, the base template (text + located section
-    offsets), the version, and all structured inventory fields, and (Phase 2)
-    the identity-keyed ``anchors`` table, the per-agent ``capabilities`` set, and
-    the ``blocking_semantics`` records. Anchored contributions carry their
-    ``(agent, anchor)`` ``AnchorRef`` identity. Invokes no backend; these Phase-2
-    fields are IR-internal and change no emitted bytes this cycle.
-    """
+    """Assemble a ``System2Graph`` from validated inputs."""
     anchor_table = _anchors.build_anchor_table(anchor_map)
     ordered, sort_warnings = _build_ordered_contributions(
         validated_manifests, overlay_path_map, anchor_table

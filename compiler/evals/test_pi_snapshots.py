@@ -1,32 +1,4 @@
-"""Committed per-target golden snapshots for Pi.
-
-The existing Pi golden harness emits twice into two temp projects and
-byte-diffs the two trees against each other (a determinism check). That catches
-NON-determinism but NOT a *render regression*: if the emitter changes shape but
-still emits the same bytes on both runs (and ``discoverAndLoadExtensions`` still
-passes), the emit-twice gate stays green while the artifacts silently drifted.
-
-This module closes that gap with COMMITTED snapshots. The emitted ``core+overlay``
-tree (reusing ``test-overlay``) is captured once under
-``evals/goldens_pi/<cell>/``; the regression test re-emits a fresh tree and
-byte-diffs every file against the committed snapshot. Any render drift is a hard
-failure.
-
-Normalization: the ONLY genuinely-volatile byte in the emitted trees is the overlay
-``source_path`` baked into ``overlay_sources[]`` of the per-target lock
-(``system2.pi.lock.json``) — an absolute fixture path that varies by checkout
-location. It is normalized to the stable token ``<OVERLAY_SRC>`` on BOTH the
-freshly-emitted tree and the committed snapshot before diffing. Nothing else is
-volatile (the emitters carry no timestamps). The relpath listing itself is also
-asserted (no missing / extra files).
-
-Capture mode: run with ``SYSTEM2_CAPTURE_SNAPSHOTS=1`` to (re)write the committed
-snapshots from a fresh emit. Capture is deliberate and out-of-band — the regression
-test never auto-rebaselines.
-
-Stdlib-only ``unittest``; hermetic (temp projects; the real ``~/.pi`` is never
-touched by ``emit``).
-"""
+"""Committed per-target golden snapshots for Pi."""
 
 import os
 import shutil

@@ -1,13 +1,4 @@
-"""``system2 codex init`` — single global user-scope enforcement install.
-
-Every case targets a TEMP codex home (``--codex-home`` / the module seam) so the
-real ``~/.codex`` is NEVER written. Covers: a fresh install renders ``hooks.json``
-with an ABSOLUTE command + copies the guard JS; re-run is idempotent; a
-pre-existing non-System2 ``hooks.json`` triggers a backup + LOUD warning and is
-NEVER clobbered without ``--force``; uninstall removes only System2
-artifacts and restores the backup. The committed ``distributions/codex/user-hooks/``
-reference is READ, never modified.
-"""
+"""``system2 codex init`` — single global user-scope enforcement install."""
 
 import io
 import json
@@ -299,9 +290,7 @@ class CodexInitEscapeSafe(unittest.TestCase):
 
 
 class CodexInitRecovery(unittest.TestCase):
-    """S-Recovery: a partial/state-corrupted System2 install must be recognized by
-    CONTENT signature, never misclassified as a foreign file (which would invert
-     under --force)."""
+    """Test recovery from incomplete or corrupted installs."""
 
     def _bak_files(self, home):
         return [f for f in os.listdir(home)
@@ -419,11 +408,6 @@ class CodexUninstallHardening(unittest.TestCase):
             with open(evil_backup, "w") as fh:
                 fh.write('{"evil":"payload"}\n')
             # codex_uninstall now content-signature-checks
-            # hooks.json before deleting it (never delete a file that doesn't
-            # actually carry System2's signature) -- this fixture's content must
-            # carry a real signature marker (a guard basename) so this test still
-            # exercises its actual subject (the out-of-home backup-path refusal),
-            # not the (correctly, separately tested) signature guard.
             with open(os.path.join(home, "hooks.json"), "w") as fh:
                 fh.write('{"hooks":{"PreToolUse":[{"hooks":[{"command":'
                           '"node /home/.codex/system2/hooks/system2-shell-guard.js"}]}]}}\n')

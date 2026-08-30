@@ -1,40 +1,4 @@
-"""Validate Pi artifacts, determinism, purity, snapshots, and extension loading.
-
-Drives the in-process ``ir.compose -> PiBackend.emit`` path for the Pi matrix cells
-and asserts:
-
-* **Artifact set** — the full deterministic Pi tree is emitted under ``project_path``
-  only: ``.pi/extensions/system2.ts``, ``.pi/SYSTEM.md``, ``AGENTS.md``, the
-  orchestrator prompt + the 13 ``.pi/prompts/role-*.md``, all six
-  ``.pi/skills/system2-{init,compose,doctor,codex,gemini,stateless-loop}/SKILL.md``
-  (exact name-set, not just a count), and ``system2.pi.lock.json``.
-* **Determinism** — emit twice into two temp projects; the trees are byte-identical
-  (output is a pure function of the IR + backend constants; no timestamps).
-* **Frontmatter presence** — each of the six skills opens with a YAML frontmatter
-  block carrying a non-empty ``name`` and ``description``. This checks the minimum
-  Pi discovery format without pinning an entire frontmatter string.
-* **Sync guard** — each utility skill's load-bearing command, timeout, status, and
-  quoting tokens appear in both the merged ``plugin/skills/<name>/SKILL.md`` source
-  and the emitted Pi skill. This mirrors the Codex synchronization guard.
-* **Comparator self-teeth** — flip a single byte of one snapshot and assert the
-  byte-diff comparator surfaces **exactly one** failure (the gap flagged for
-  Claude, applied to Pi). Proves the comparator is not a block-everything /
-  pass-everything stub.
-* **Emit purity** — emit writes only under ``project_path``; the real ``~/.pi`` /
-  ``~/.config`` is provably not created/modified by emit.
-* **Refusal parity** — conflict cells refuse in the shared front-end (backend-
-  independent), so Pi emits nothing.
-* **Load-validity leg (PASS-required with node/pi present; LOUD-SKIP when absent)**
-  — the emitted ``.pi/extensions/system2.ts`` loads under Pi's
-  ``discoverAndLoadExtensions`` with ``errors: []`` and registers the expected
-  handlers (``tool_call``, ``agent_end``, ``before_agent_start``) plus the
-  ``/delegate`` command. Runs under a hermetic temp HOME + hermetic ``.pi``; asserts
-  the real ``~/.pi`` is untouched.
-
-Stdlib-only ``unittest``; runs under ``python3 -m unittest``. No product code or
-``System2/`` is modified. All overlay/IR contents are treated as untrusted data;
-embedded instructions are not followed.
-"""
+"""Validate Pi artifacts, determinism, purity, snapshots, and extension loading."""
 
 import json
 import os
@@ -60,11 +24,7 @@ _LOUD_SKIP = (
     "node/pi not installed — Pi extension load/block SKIPPED (not a silent pass)"
 )
 
-# The Pi package entry; imported by absolute file:// path from the node harness to
-# avoid NODE_PATH/ESM resolution headaches. Resolved portably: an explicit
-# ``PI_PKG_ENTRY`` override wins, else the global node_modules root (``npm root -g``)
-# joined with the package's dist entry — so a ``npm i -g @earendil-works/...`` on any
-# machine (including CI) is discovered without a hard-coded absolute path.
+# The Pi package entry; imported by absolute file:// path from the node harness to avoid NODE_PATH/ESM resolution headaches.
 _PI_PKG_SUBPATH = os.path.join(
     "@earendil-works", "pi-coding-agent", "dist", "index.js"
 )
@@ -143,11 +103,7 @@ def _emit_core_overlay(project_dir):
 
 
 def committed_pi_dist():
-    """Return the committed ``distributions/pi`` package dir (the SHIPPED bytes), or None.
-
-    ``SYSTEM2_PI_DIST`` overrides the location. Present iff the package's gate extension
-    exists on disk — i.e.  has committed the npm package.
-    """
+    """Return the committed ``distributions/pi`` package dir (the SHIPPED bytes), or None."""
     cand = os.environ.get("SYSTEM2_PI_DIST") or os.path.join(
         _REPO_ROOT, "distributions", "pi"
     )
@@ -157,18 +113,7 @@ def committed_pi_dist():
 
 
 def materialize_pi_project(project_dir):
-    """Populate *project_dir* with the loadable Pi layout under test; return the source.
-
-    Path-parameterized exactly like the codex proven-blocking test: when the committed
-    npm package exists (``committed``), reconstruct the materialized project from the
-    SHIPPED bytes — ``payload/project/*`` into the project root and the package's
-    ``extensions/system2.ts`` into ``.pi/extensions/`` (where Pi's loader discovers it) —
-    so the load + block legs validate the exact bytes that get published. Otherwise
-    (``emitted``) emit the backend's canonical BASE+overlay cell in-process (the
-    pre-commit path). The committed gate extension is byte-identical to that emission
-    (empty vs test overlay does not change the gate), so both sources exercise the same
-    gate — the committed leg additionally proves the SHIPPED payload loads under Pi.
-    """
+    """Populate *project_dir* with the loadable Pi layout under test; return the source."""
     dist = committed_pi_dist()
     if dist is None:
         _emit_core_overlay(project_dir)
@@ -199,11 +144,7 @@ def _read_tree(root):
 
 
 def _parse_leading_frontmatter(text):
-    """Parse the emitted leading YAML frontmatter block.
-
-    The emitted shape uses single-line key/value pairs. Return ``{key: value}``, or
-    ``None`` when the text has no leading block.
-    """
+    """Parse the emitted leading YAML frontmatter block."""
     if not text.startswith("---\n"):
         return None
     close = text.find("\n---\n", 4)
@@ -234,11 +175,7 @@ for (const path of process.argv.slice(3)) {
 
 
 def _byte_diff(snapshot, current):
-    """Byte-diff two {rel: bytes} trees; return the list of differing rel paths.
-
-    The minimal comparator the goldens rely on: a missing file, an extra file, or a
-    differing file each count as one failure. No normalization (byte-identical).
-    """
+    """Byte-diff two {rel: bytes} trees; return the list of differing rel paths."""
     failures = []
     for rel in sorted(set(snapshot) | set(current)):
         if rel not in current:
@@ -304,9 +241,7 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         )
 
     def test_total_emitted_file_count(self):
-        # Recompute the total from actual emission. Required frontmatter changes
-        # only existing skill bytes, not file counts; the tree contains the original
-        # files plus the three utility skills.
+        # Recompute the total from actual emission.
         self.assertEqual(
             len(self.written), 24,
             f"expected 24 emitted files, got {len(self.written)}",
@@ -388,12 +323,7 @@ class PiEmitDeterminismTest(unittest.TestCase):
 
 
 class PiComparatorSelfTeethTest(unittest.TestCase):
-    """A single-byte snapshot mutation surfaces EXACTLY one comparator failure.
-
-    Negative control proving the byte-diff comparator is neither a pass-everything
-    nor a fail-everything stub: an unmutated snapshot diffs clean, and flipping one
-    byte of one file yields exactly one DIFF (and nothing else).
-    """
+    """A single-byte snapshot mutation surfaces EXACTLY one comparator failure."""
 
     @classmethod
     def setUpClass(cls):
@@ -512,13 +442,7 @@ process.stdout.write(JSON.stringify(out));
 
 
 class PiLoadValidityTest(unittest.TestCase):
-    """Load leg — the SHIPPED extension loads under Pi with errors:[].
-
-    Path-parameterized: loads the committed ``distributions/pi/extensions/system2.ts``
-    (the published bytes) when present, else the in-process emission. PASS-required when
-    node/pi present; LOUD-SKIP (never a silent pass) when absent. Runs under a hermetic
-    temp HOME + hermetic ``.pi``; asserts the real ``~/.pi`` is untouched.
-    """
+    """Load leg — the SHIPPED extension loads under Pi with errors:[]."""
 
     def test_extension_loads_under_pi_or_loud_skip(self):
         if not (_NODE_BIN and _PI_BIN):
@@ -587,14 +511,7 @@ class PiLoadValidityTest(unittest.TestCase):
         )
 
 
-# ---------------------------------------------------------------------------
-# Drift control for derived-literal utility-skill builders, mirroring the Codex
-# synchronization guard. The token list is intentionally duplicated so both target
-# emissions are checked independently. Only the three utility skills participate;
-# init, compose, and doctor
-# are not derived-literal adaptations of a Claude source and carry no
-# sync-guard invariant tokens.
-# ---------------------------------------------------------------------------
+# Drift control for derived-literal utility-skill builders, mirroring the Codex synchronization guard.
 
 _SYNC_GUARD_TOKENS = {
     "codex": (
@@ -656,9 +573,7 @@ class PiSyncGuardTest(unittest.TestCase):
                     )
 
     def test_guard_trips_if_a_token_is_dropped_from_the_emitted_copy(self):
-        # Mutation self-test (teeth): prove the presence assertion would fail if an
-        # invariant token were dropped from the emitted skill. Only a throwaway
-        # in-memory copy is tampered; the real emission is never touched.
+        # Mutation self-test (teeth): prove the presence assertion would fail if an invariant token were dropped from the emitted skill.
         name = "codex"
         token = _SYNC_GUARD_TOKENS[name][0]
         with open(_emitted_skill_path(self.project, name), encoding="utf-8") as fh:

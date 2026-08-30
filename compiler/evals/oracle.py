@@ -1,21 +1,4 @@
-"""Locate, hash-pin, and invoke the frozen System2 oracle (``composer.py.preflip``).
-
-The pre-flip ``composer.py.preflip`` is the IMMUTABLE read-only oracle the golden
-suite freezes against (Phase 5): it is the byte-for-byte snapshot of the plugin's
-pre-flip ``composer.py`` engine, retained as the post-flip equivalence target and
-the one-commit backout source. After the flip the live ``composer.py`` is a thin
-shim delegating to the vendored bundle; the oracle deliberately resolves the frozen
-``*.preflip`` baseline so the safety net is never weakened by the change it guards.
-
-This module treats the oracle as *data*: it never imports
-``composer``/``profiles``/``hook_security`` — it resolves their paths, hashes
-them, and runs ``composer.py`` as a subprocess.
-
-Hermetic HOME: ``invoke_oracle`` launches the subprocess with ``HOME`` pointed at
-a per-run temp dir so ``profiles.resolve_profile``'s default store
-(``~/.system2/profiles.json``) resolves into that temp dir and never the user's
-real store.
-"""
+"""Locate, hash-pin, and invoke the frozen System2 oracle (``composer.py.preflip``)."""
 
 import hashlib
 import json
@@ -32,12 +15,7 @@ _COMPILER_ROOT = os.path.dirname(_THIS_DIR)
 
 
 def _resolve_plugin_root() -> str:
-    """Resolve the System2 plugin root portably (CI-/machine-independent).
-
-    Honors ``SYSTEM2_PLUGIN_ROOT`` when set; otherwise defaults to the in-repo
-    layout ``<compiler>/../plugin`` (the compiler and the plugin are siblings
-    inside the consolidated System2 repo). Always normalized to an absolute path.
-    """
+    """Resolve the System2 plugin root portably (CI-/machine-independent)."""
     override = os.environ.get("SYSTEM2_PLUGIN_ROOT")
     if override:
         return os.path.abspath(override)
@@ -80,12 +58,7 @@ def _sha256(path: str) -> str:
 
 
 def compute_lock() -> dict:
-    """Compute the OracleLock record from the current on-disk oracle sources.
-
-    ``path`` is stored RELATIVE to ``PLUGIN_ROOT`` so the pin is portable across
-    checkouts / CI runners; the resolved oracle is always
-    ``<PLUGIN_ROOT>/<path>``. The sha256 pins remain the immutable drift gate.
-    """
+    """Compute the OracleLock record from the current on-disk oracle sources."""
     for path in (COMPOSER_PATH, PROFILES_PATH, HOOK_SECURITY_PATH):
         if not os.path.isfile(path):
             raise FileNotFoundError(f"oracle source not found: {path}")
@@ -112,11 +85,7 @@ def load_lock(lock_path: str = LOCK_PATH) -> dict:
 
 
 def verify_pin(lock_path: str = LOCK_PATH) -> dict:
-    """Recompute hashes and compare to the pinned lock.
-
-    Raises ``RuntimeError(DRIFT_MESSAGE)`` on any mismatch. Never regenerates the
-    lock automatically.
-    """
+    """Recompute hashes and compare to the pinned lock."""
     pinned = load_lock(lock_path)
     current = compute_lock()
     for key in ("sha256", "profiles_sha256", "hook_security_sha256"):
@@ -145,22 +114,7 @@ def invoke_oracle(
     env=None,
     home=None,
 ) -> CapturedRun:
-    """Run the frozen ``composer.py`` as a subprocess and capture its outputs.
-
-    ``base``      : plugin root passed to ``--base`` (defaults to PLUGIN_ROOT when None).
-    ``overlays``  : list of overlay source paths (joined with commas for ``--overlays``).
-    ``project``   : target ``--project`` dir; created if missing.
-    ``profile``   : when set, passed as ``--profile NAME``.
-    ``dry_run``   : when True, adds ``--dry-run``.
-    ``env``       : explicit subprocess environment. Its ``HOME`` is forced to the
-                    per-run hermetic HOME so profile resolution never touches the
-                    user's real ``~/.system2/``. When None, a minimal environment is
-                    constructed.
-    ``home``      : explicit hermetic HOME dir. When provided, the caller has already
-                    materialized ``<home>/.system2/profiles.json`` into it (used by the
-                    ``--profile`` cell). When None, a fresh per-run temp HOME is created
-                    so resolution still resolves into a throwaway dir, never real ``$HOME``.
-    """
+    """Run the frozen ``composer.py`` as a subprocess and capture its outputs."""
     base_path = base if base is not None else PLUGIN_ROOT
     project_path = project if project is not None else tempfile.mkdtemp(prefix="oracle-project-")
     os.makedirs(project_path, exist_ok=True)

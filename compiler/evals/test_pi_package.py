@@ -1,42 +1,4 @@
-"""Pi package supply-chain policy + init-materializer semantics.
-
-Two machine-enforced postures over the ``@deliberatecode/pi-system2`` package that
-``build_pi_package.py`` produces (built fresh into a temp dir here exactly the way
-``regen_all.py --only pi`` builds it: ``ir.compose`` over the BASE plugin with EMPTY
-overlays -> ``PiBackend.emit`` -> ``build_pi_package.build``). The Pi backend and the
-builder are read-only here; this file only observes their output.
-
-Supply-chain posture (no Node required; always runs):
-  * ``package.json`` declares NO ``scripts`` (hence no ``postinstall``), NO
-    ``dependencies``, NO ``devDependencies``; it DOES carry the ``pi`` manifest, the
-    ``pi-package`` keyword, the ``files`` whitelist, and a ``license``.
-  * The generated extension sources (``extensions/system2.ts`` AND
-    ``extensions/system2-init.ts``) import NOTHING external: only the pi type package
-    ``@earendil-works/pi-coding-agent`` and ``node:`` builtins (+ relative paths). Any
-    other bare specifier — via static ``from``, side-effect ``import``, dynamic
-    ``import()``, or ``require()`` — is a FAIL.
-  The policy CHECKERS are additionally proven against hostile fixtures (injected
-  ``postinstall``, injected ``dependencies``, an external npm import) so a green result
-  means the checker has teeth, not that it is vacuous.
-
-Init-materializer semantics (Node required; loud skip if absent):
-  The generated ``extensions/system2-init.ts`` is driven through ``node`` (v22 native
-  TS type-stripping) by a small ``.mjs`` harness that imports the module, feeds it a
-  mock ``ExtensionAPI`` to capture the ``/system2-init`` command, and invokes the
-  handler against real temp project dirs. Cases: files materialized; second run is a
-  zero-diff no-op (idempotent skip-if-identical); a user-modified managed file is left
-  untouched without ``--force`` (reported); with ``--force`` it is overwritten and the
-  "replacing user-modified <rel>" message is printed BEFORE the write; an out-of-root /
-  absolute managed target is rejected fail-closed (exercises ``resolveWithinRoot`` via
-  an injected hostile ``MANAGED_FILES``); unmanaged files are never touched.
-
-node handling (skip-count-0 discipline, mirrors ``test_pi_proven_blocking`` /
-``test_codex_proven_blocking``): node is REQUIRED. If genuinely absent, the Node-dependent legs loud-skip via ``skipTest`` — and the CI skip-guard (``.github/workflows/ci.yml``: skip
-count MUST be 0) escalates that skip to a job FAILURE, so a missing node can never
-silently pass. node present but the harness subprocess failing is a HARD failure, never
-a skip. Stdlib-only ``unittest``; no product code / ``System2/`` edits; all package
-contents are treated as untrusted data.
-"""
+"""Pi package supply-chain policy + init-materializer semantics."""
 
 import json
 import os
@@ -70,9 +32,7 @@ _LOUD_SKIP = (
 _PI_TYPE_PACKAGE = "@earendil-works/pi-coding-agent"
 _FORBIDDEN_PACKAGE_KEYS = ("scripts", "dependencies", "devDependencies")
 
-# ---------------------------------------------------------------------------
 # Package builder — mirrors regen_all._build_pi exactly (BASE plugin, EMPTY overlays).
-# ---------------------------------------------------------------------------
 
 
 def _build_package(dest):
@@ -85,9 +45,7 @@ def _build_package(dest):
         build_pi_package.build(staging, dest, build_pi_package.PACKAGE_VERSION)
 
 
-# ---------------------------------------------------------------------------
 # Supply-chain policy checkers, tested in isolation against hostile fixtures.
-# ---------------------------------------------------------------------------
 
 # Import-specifier extractors covering every surface a dependency could sneak in on.
 _IMPORT_PATTERNS = (
@@ -106,11 +64,7 @@ def _all_import_specifiers(ts_source):
 
 
 def _external_imports(ts_source):
-    """Return the sorted set of bare npm specifiers that are NOT the pi type package.
-
-    Relative (``.``/``..``/``/``) and ``node:`` builtins are permitted; the pi type
-    package is permitted; anything else is an external dependency = a policy violation.
-    """
+    """Return the sorted set of bare npm specifiers that are NOT the pi type package."""
     external = set()
     for spec in _all_import_specifiers(ts_source):
         if spec.startswith((".", "/")):
@@ -137,16 +91,9 @@ def _package_policy_violations(pkg):
     return violations
 
 
-# ---------------------------------------------------------------------------
 # Node harness that drives the generated system2-init.ts command handler.
-# ---------------------------------------------------------------------------
 
 # Imports the built (or hostile-variant) system2-init.ts, hands it a mock ExtensionAPI to
-# capture the /system2-init command, then invokes the handler against a real project dir
-# (process.cwd == projectRoot). Captures every ctx.ui.notify call. For a "--force
-# replacing user-modified <rel>" message it snapshots the target's ON-DISK content AT
-# NOTIFY TIME: if the notify fires BEFORE the write (as required) that snapshot still
-# holds the user's bytes, not the payload's. Emits one JSON object on stdout.
 _INIT_HARNESS = r"""
 import { pathToFileURL } from "node:url";
 import * as fs from "node:fs";
@@ -254,9 +201,7 @@ def _rejected_from_notes(notes):
     return set()
 
 
-# ===========================================================================
 # supply-chain policy (no node; always runs).
-# ===========================================================================
 
 
 class PiPackagePolicyTest(unittest.TestCase):
@@ -374,9 +319,7 @@ class PiPackagePolicyTest(unittest.TestCase):
         )
 
 
-# ===========================================================================
 # init-materializer semantics (node REQUIRED; LOUD-skip if absent).
-# ===========================================================================
 
 
 class PiInitMaterializerTest(unittest.TestCase):
@@ -507,8 +450,6 @@ class PiInitMaterializerTest(unittest.TestCase):
 
     def test_out_of_root_managed_paths_rejected_fail_closed(self):
         # MANAGED_FILES is fixed/in-root in the real package, so exercise resolveWithinRoot
-        # by building a HOSTILE variant of the module whose MANAGED_FILES injects a
-        # ../-escaping path and an absolute path alongside one legitimate in-root file.
         variant_root = tempfile.mkdtemp(prefix="pi-hostile-")
         self.addCleanup(shutil.rmtree, variant_root, ignore_errors=True)
         # Copy the payload so the legitimate entry can still be written.

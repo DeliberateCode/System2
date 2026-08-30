@@ -1,23 +1,4 @@
-"""BUNDLE-EQUIVALENCE GATE (Phase 5 keystone, HARD).
-
-Prove the flipped plugin's shim ``composer.py`` running the VENDORED BUNDLE
-(``SYSTEM2_USE_BUNDLE=1``) produces stdout, stderr, and exit code byte-identical to
-the frozen ``composer.py.preflip`` engine, across compose (text+json), the
-conflict/missing refusals, doctor (composed/clean/stale), uninstall
-(last/one-of-N/not-installed/no-lock/dry-run), from-lock (recompose + missing), and
-a profile op — the full ``composer.py`` flag-CLI verb surface.
-
-The verb matrix, placeholder substitution, and the volatile-path / dry-run
-``Composed at:`` normalization are reused verbatim from :mod:`evals.test_cli_contract`
-so this gate measures EXACTLY the established CLI-contract surface, just driven
-through the live shim instead of the in-process compiler CLI.
-
-Both engines are run as subprocesses under a hermetic temp HOME (the real
-``~/.system2`` is never touched). Setup state is established with the frozen
-preflip engine on each engine's own temp project independently, so the measured
-invocation observes identical inputs. A non-empty diff FAILS the gate — there is no
-auto-rebaseline. A self-teeth test asserts a one-byte divergence is caught.
-"""
+"""Bundle-equivalence regression tests."""
 
 import os
 import shutil
@@ -29,9 +10,7 @@ import unittest
 from evals import oracle
 from evals import test_cli_contract as clic
 
-# The flipped plugin shim and the immutable preflip engine live side-by-side in the
-# plugin scripts dir. ``oracle.COMPOSER_PATH`` is re-pointed at the
-# preflip baseline; the shim is its ``composer.py`` sibling.
+# The flipped plugin shim and the immutable preflip engine live side-by-side in the plugin scripts dir.
 PREFLIP_PATH = oracle.COMPOSER_PATH
 SCRIPTS_DIR = os.path.dirname(PREFLIP_PATH)
 SHIM_PATH = os.path.join(SCRIPTS_DIR, "composer.py")
@@ -52,11 +31,7 @@ def _run_setup(cell, project, env):
 
 
 def _capture(engine_path, cell, env_extra):
-    """Run *cell*'s measured composer-flag argv against *engine_path*.
-
-    Returns normalized ``(stdout, stderr, exit_code)``. ``env_extra`` carries the
-    ``SYSTEM2_USE_BUNDLE`` switch for the shim/bundle leg.
-    """
+    """Run *cell*'s measured composer-flag argv against *engine_path*."""
     home = tempfile.mkdtemp(prefix="bundle-eq-home-")
     project = tempfile.mkdtemp(prefix="bundle-eq-proj-")
     env = clic._hermetic_env(home)

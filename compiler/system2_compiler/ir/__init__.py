@@ -1,12 +1,4 @@
-"""Public front-end entry point for the System2 compiler.
-
-Re-exports ``compose()`` and the ``System2Graph`` schema. Harness-neutral: this
-package imports no backend. ``compose`` orchestrates
-load -> validate -> conflict -> index -> sort -> assemble and returns a
-``CompileResult``; on any refusal (validation error, known conflict, ordering
-cycle, ``project_path`` inside/equal to base) ``graph`` is ``None``, ``errors`` is
-non-empty, and no backend is invoked.
-"""
+"""Public front-end entry point for the System2 compiler."""
 
 import json
 import os
@@ -54,9 +46,7 @@ def _refusal(errors: List[str], report: dict) -> CompileResult:
 def _resolve_overlays(
     profile: str, overlay_paths: List[str]
 ) -> Tuple[Optional[List[str]], Optional[ProfileRef], Optional[List[str]]]:
-    """Resolve a profile name to ordered overlay paths (lifted ``_activate_profile``
-    resolution half). Returns (ordered_paths, ProfileRef, errors). On any failure
-    ``ordered_paths`` is ``None`` and ``errors`` is populated."""
+    """Resolve a profile name to ordered overlay paths and return any errors."""
     try:
         result = _profiles.resolve_profile(profile)
     except _profiles.ProfileError as exc:
@@ -97,15 +87,7 @@ def compose(
     dry_run: bool = False,
     allow_newer_schema: bool = False,
 ) -> CompileResult:
-    """Orchestrate the front-end composition pipeline and return a ``CompileResult``.
-
-    Mirrors the front-end half of ``composer.compose`` / ``_activate_profile``:
-    load schema + anchor map, guard ``project_path`` against the base, optionally
-    resolve a profile, read + validate each manifest, detect conflicts, and (when
-    clean) assemble a ``System2Graph``. No backend is invoked; ``dry_run`` only
-    affects whether the backend later writes content — the graph and
-    ``files_to_write`` are computed regardless.
-    """
+    """Orchestrate the front-end composition pipeline and return a ``CompileResult``."""
     errors: List[str] = []
 
     # 1. Load schema and anchor map.
@@ -292,11 +274,7 @@ def _compute_files_to_write(
     validated_manifests: List[dict],
     overlay_path_map: Dict[str, str],
 ) -> List[str]:
-    """Compute the intended write set (lifted from ``composer.compose``).
-
-    Always includes CLAUDE.md and the lock; one ``.claude/agents/<name>.md`` per
-    auxiliary agent; one overlay-content marker per overlay. The actual writing
-    is the backend's job; this is the dry-run-safe intent list."""
+    """Compute the intended write set (lifted from ``composer.compose``)."""
     files_to_write = [
         os.path.join(project_path, "CLAUDE.md"),
         os.path.join(project_path, "spec", "overlay-manifest.lock"),

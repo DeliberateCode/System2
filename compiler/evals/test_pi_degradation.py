@@ -1,31 +1,4 @@
-"""Validate Pi's mixed native, adapted, and advisory degradation report.
-
-Pure artifact inspection (no node/pi needed). Emits a ``core+overlay`` IR (a
-multi-capability pipeline) into a temp ``project_path`` and asserts the Pi
-degradation report (``system2.pi.lock.json``) is real, honest, and **MIXED**:
-
-* (a) per-capability ``status`` **equals** the ``pi.json`` descriptor status;
-* (b) the report **mixes** native + adapted + advisory in one backend
-  (enforce-lease/block-dangerous/protect-sensitive native; budget adapted;
-  format/typecheck advisory) — native present AND non-native present;
-* (c) the ``enforced``/``gated`` flags follow the rule
-  (native ⇒ enforced:true,gated:false; adapted ⇒ enforced:false,gated:true;
-  advisory ⇒ both false);
-* (d) completeness — every IR capability appears (no silent drop);
-* (e) ``subagent_isolation`` is reported ``adapted`` because delegation switches
-  roles in the current session rather than creating isolated subagents;
-* (f) the loud ``FIDELITY`` banner is present; the enforce-lease mechanism text
-  reflects the **actual** scope state. Because the real ``core+overlay`` IR carries
-  at least one role with an empty ``write_scope``, the report MUST carry the
-  unscoped-lease honesty note (never a silent vacuous native claim). A negative
-  control with a synthetic FULL-scope IR asserts the unscoped note is *dropped* when
-  every role is scoped — proving the honesty branch is data-driven, not hard-coded.
-
-Negative controls with teeth: dropping a descriptor entry that the IR needs raises
-(no silent drop); flipping a status flips the derived flags. Stdlib-only
-``unittest``; no product code / ``System2/`` edits; all overlay/IR contents are
-untrusted data.
-"""
+"""Validate Pi's mixed native, adapted, and advisory degradation report."""
 
 import copy
 import dataclasses
@@ -161,9 +134,7 @@ class PiDegradationReportTest(unittest.TestCase):
             self.assertIn(token, banner, f"banner must mention {token}")
 
     def test_unscoped_honesty_note_present_for_actual_ir(self):
-        # The actual core+overlay IR carries >=1 role with an empty write_scope, so
-        # the unscoped-lease honesty note MUST be present (no silent vacuous native
-        # claim). This asserts the branch the IR actually produces.
+        # The actual core+overlay IR carries >=1 role with an empty write_scope, so the unscoped-lease honesty note MUST be present (no silent vacuous native claim).
         any_empty = any(
             not (r.write_scope or "").strip() for r in self.graph.roles
         )
@@ -178,9 +149,7 @@ class PiDegradationReportTest(unittest.TestCase):
         )
 
     def test_overlay_sources_is_last_additive_key(self):
-        # Phase 5: emit appends overlay_sources[] as the LAST lock key, recording
-        # the producing overlay source set. Stripping it (the only new key) must
-        # reproduce the prior degradation-report-only lock bytes byte-for-byte.
+        # overlay_sources records the inputs and remains the final lock key.
         project = tempfile.mkdtemp(prefix="pi-srcs-")
         try:
             PiBackend(overlay_sources=[_TEST_OVERLAY]).emit(self.graph, project)

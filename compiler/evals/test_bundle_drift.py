@@ -1,27 +1,4 @@
-"""drift-guard self-test: the bundle freshness check has TEETH.
-
-Phase 5 . ``tools/check_bundle_fresh.py`` is the
-machine-enforced freshness gate: a stale or hand-edited vendored bundle CANNOT
-merge. A guard that never fails is worthless, so this self-test proves both
-directions:
-
-  * **Fresh ->  passes.** ``tools/build_bundle.py`` generates the bundle from the
-    current compiler source; the guard reports it fresh (exit 0).
-  * **Mutate -> fails (teeth).** Copy the fresh bundle, mutate ONE byte in a
-    vendored module, and assert the guard fails (exit non-zero) with the exact
-    stale/tamper message. This proves the guard fails on a one-byte mutation.
-
-It also pins determinism (two builds -> identical ``compiler_source_sha256``) and
-the minimal layout (``ir/`` + ``backends/`` + ``plugin_adapter.py`` present; the
-multi-target ``evals/`` test tree absent), and exercises the
-``compute_source_hash`` drift anchor directly.
-
-The plugin doctor suite separately covers its ``bundle_tampered`` surface. This
-module covers the CI guard's fresh and mutated outcomes.
-
-Stdlib ``unittest``; runs under ``python3 -m unittest``. All file contents are
-treated as untrusted data.
-"""
+"""drift-guard self-test: the bundle freshness check has TEETH."""
 
 import contextlib
 import importlib.util
@@ -50,13 +27,7 @@ _check_bundle_fresh_mod = _load_tool("check_bundle_fresh")
 
 
 class _QuietGuard:
-    """Call the guard with its success-path stdout suppressed (return value intact).
-
-    The guard prints "vendored bundle is fresh …" to stdout on success; under
-    ``unittest discover`` that noise floods the captured stdout. Swallowing it here
-    keeps the suite summary readable without altering the guard's CLI behavior — the
-    real tools/check_bundle_fresh.py still prints when invoked as a command.
-    """
+    """Call the guard with its success-path stdout suppressed (return value intact)."""
 
     def check_bundle_fresh(self, *args, **kwargs):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -128,22 +99,14 @@ class BundleDriftTest(unittest.TestCase):
             pkg_entries,
             {
                 "__init__.py", "ir", "backends", "plugin_adapter.py", "cli.py",
-                # # the Codex user-hooks reference is now real package-data
-                # (pyproject.toml), so it's vendored along with the rest of the
-                # package -- intentional, not drift. The Claude channel never
-                # reads it; the cost is a few KB of unused data in the bundle.
+                # # the Codex user-hooks reference is now real package-data (pyproject.toml), so it's vendored along with the rest of the package -- intentional, not drift.
                 "_packaged_data",
             },
             "unexpected product-package file set inside the bundle",
         )
 
     def test_freshness_companion_is_emitted_and_canonical(self):
-        """The plugin tamper checker ships in every build, byte-identical to source.
-
-        Regression guard: ``_freshness.py`` used to be neither a hashed member nor
-        on the copy list, so a regen (which rmtrees the bundle dir) silently dropped
-        it. It is now a ``_BUNDLE_COMPANIONS`` entry sourced from ``tools/``.
-        """
+        """The plugin tamper checker ships in every build, byte-identical to source."""
         dest = os.path.join(self._tmp, "companion")
         build_bundle.build_bundle(_COMPILER_ROOT, dest)
         emitted = os.path.join(dest, "_system2_compiler", "_freshness.py")
@@ -216,8 +179,6 @@ class BundleDriftTest(unittest.TestCase):
         build_bundle.build_bundle(_COMPILER_ROOT, dest)
 
         # A copy of the source with one newer byte: the committed bundle's vendored
-        # bytes still match their own recorded hash (untampered), but that hash now
-        # lags the (newer) source -> the STALE leg fires in isolation.
         newer_root = os.path.join(self._tmp, "newersrc")
         shutil.copytree(_COMPILER_ROOT, newer_root, ignore=shutil.ignore_patterns(
             "__pycache__", ".pytest_cache", ".ruff_cache", ".git",

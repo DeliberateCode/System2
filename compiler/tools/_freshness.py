@@ -1,28 +1,4 @@
-"""Plugin-side bundle TAMPER check (ships WITH the vendored bundle).
-
-The plugin runs the vendored ``_system2_compiler/`` bundle and CANNOT see the compiler source, so it
-can only perform the INTERNAL-INTEGRITY (tamper) check:
-
-  recompute the sha256 over the vendored subtree's source bytes (the SAME
-  ``(relpath, bytes)`` algorithm ``tools/build_bundle.py`` uses) and compare it to
-  ``BUNDLE.json``'s recorded ``compiler_source_sha256``.
-
-A mismatch means a vendored file was hand-edited without re-running the bundler
-(``bundle_tampered`` -> regenerate via the compiler's ``tools/build_bundle.py``).
-
-This is DISTINCT from the cross-repo STALENESS check
-(``compiler/tools/check_bundle_fresh.py``): staleness asks "does the
-vendored bundle still match the *current compiler source*?", which requires the
-compiler source and is therefore the CI guard. The plugin ships only the bundle,
-so it surfaces the *recorded provenance* + the *internal-integrity* (tamper)
-result through ``system2:doctor``. Both keys off the same
-``compiler_source_sha256``.
-
-Stdlib-only, report-only (it never blocks compose). Runs with no compiler source
-present. ``BUNDLE.json`` and ``__pycache__``/``*.pyc`` are excluded from the hash
-(``BUNDLE.json`` is not a bundled member; the volatile ``bundled_at`` lives only
-inside it and so never enters the digest).
-"""
+"""Plugin-side bundle TAMPER check (ships WITH the vendored bundle)."""
 
 import hashlib
 import json
@@ -36,13 +12,7 @@ __all__ = [
     "format_findings",
 ]
 
-# The vendored member, matching ``tools/build_bundle.py``'s ``_BUNDLE_MEMBERS``:
-# the single ``system2_compiler`` product package (its ``ir``/``backends``
-# subpackages, the ``plugin_adapter`` entry, and ``cli``). Every relpath under it is
-# IDENTICAL on the compiler source side and inside ``_system2_compiler/`` (the
-# bundle is a pure copy), so this digest reproduces the recorded hash exactly. NOTE:
-# ``_freshness.py`` itself is a COMPANION (not a member), so it lives at the bundle
-# root alongside this nested package and is correctly excluded from the digest.
+# Hash only the verbatim product package; this companion must not hash itself.
 _BUNDLE_MEMBERS = ("system2_compiler",)
 
 # Build/test detritus excluded from the verbatim copy (and so from the hash),
@@ -54,12 +24,7 @@ BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _iter_source_files(bundle_dir):
-    """Yield ``(relpath, abspath)`` for every vendored source file, sorted.
-
-    ``relpath`` is POSIX-normalized and relative to *bundle_dir* — the same key
-    ``tools/build_bundle.py`` folds into the digest. ``BUNDLE.json`` is not a
-    member and ``*.pyc`` / ``__pycache__`` are skipped, so the digest is stable.
-    """
+    """Yield ``(relpath, abspath)`` for every vendored source file, sorted."""
     out = []
     for member in _BUNDLE_MEMBERS:
         src = os.path.join(bundle_dir, member)
@@ -83,12 +48,7 @@ def _iter_source_files(bundle_dir):
 
 
 def compute_subtree_hash(bundle_dir):
-    """Return the sha256 over the sorted ``(relpath, bytes)`` of the vendored subtree.
-
-    Byte-for-byte the algorithm ``tools/build_bundle.compute_source_hash`` runs on
-    the compiler source, so an untampered bundle's recomputed hash equals its
-    recorded ``compiler_source_sha256``.
-    """
+    """Return the sha256 over the sorted ``(relpath, bytes)`` of the vendored subtree."""
     digest = hashlib.sha256()
     for rel, abspath in _iter_source_files(bundle_dir):
         digest.update(rel.encode("utf-8"))
@@ -105,17 +65,7 @@ def _read_manifest(bundle_dir):
 
 
 def check_bundle_integrity(bundle_dir=None):
-    """Return the structured ``bundle_freshness`` / ``bundle_tampered`` result.
-
-    The returned dict is report-only (it never blocks compose):
-
-      * ``tampered``  -- True when the recomputed subtree hash != the recorded
-                         ``compiler_source_sha256`` (a hand-edited bundle).
-      * ``recorded_source_sha256`` / ``recomputed_source_sha256`` -- the anchors.
-      * ``compiler_version`` / ``generated_from`` -- the recorded provenance.
-      * ``error`` -- a message when ``BUNDLE.json`` is unreadable (treated as
-                     tampered: the manifest is part of the bundle's integrity).
-    """
+    """Return the structured ``bundle_freshness`` / ``bundle_tampered`` result."""
     bundle_dir = bundle_dir or BUNDLE_DIR
     result = {
         "tampered": False,
@@ -143,12 +93,7 @@ def check_bundle_integrity(bundle_dir=None):
 
 
 def format_findings(result):
-    """Render the doctor surface (a ``bundle_freshness`` line, then the verdict).
-
-    Always reports ``bundle_freshness`` (recorded provenance + source hash). On a
-    mismatch it adds a LOUD ``bundle_tampered`` finding directing the user to
-    regenerate via the compiler's bundler; otherwise an ``ok`` line.
-    """
+    """Render the doctor surface (a ``bundle_freshness`` line, then the verdict)."""
     recorded = result["recorded_source_sha256"]
     short = (recorded[:12] + "…") if recorded else "<none>"
     lines = [

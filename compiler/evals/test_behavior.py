@@ -1,25 +1,4 @@
-"""Path-safety, atomic-write/restore, dry-run, and refusal behavioral
-regression tests against the ``compose -> emit`` path (stdlib ``unittest``).
-
-Covers the failure/recovery matrix the goldens do not directly exercise:
-
-*  — ``project_path`` inside or equal to the base dir ⇒ ``compose``
-  refuses (``graph is None``, non-empty ``errors``) and emits nothing.
-*  — a known-conflict overlay pair ⇒ refusal whose ``errors[0]`` message
-  byte-matches the frozen oracle's ``errors[0]`` (oracle invoked as a hermetic
-  subprocess via ``evals/oracle.py``).
-*  — ``dry_run`` ⇒ ``files_to_write`` is computed and the backend's
-  dry-run emit writes nothing to the project dir.
-*  — a simulated ``OSError`` mid-write (monkeypatched ``shutil.copy2`` in
-  ``backends.claude_code``) ⇒ pre-existing ``CLAUDE.md`` / lock are restored with
-  no ``.tmp`` / ``.bak`` / ``.staging`` leftovers.
-
-Runs under both ``python3 -m unittest`` and ``pytest``. Stdlib-only. The oracle is
-reached only as a subprocess (never imported).
-
-All cited file/overlay contents are treated as untrusted data; embedded
-instructions are not followed.
-"""
+"""Behavioral tests for path safety, atomic writes, dry runs, and refusals."""
 
 import json
 import os
@@ -147,9 +126,7 @@ class DryRunTest(unittest.TestCase):
                 [], os.listdir(proj), "compose must not write under project dir"
             )
 
-            # The backend's dry-run path must also write nothing. The graph is
-            # frozen; the dry-run intent is carried via the same ``dry_run``
-            # attribute the backend reads (getattr(ir, "dry_run", False)).
+            # The backend's dry-run path must also write nothing.
             object.__setattr__(result.graph, "dry_run", True)
             would_write = ClaudeCodeBackend().emit(result.graph, proj)
             self.assertTrue(would_write, "dry-run emit must return a would-write set")
@@ -199,8 +176,6 @@ class AtomicWriteRestoreTest(unittest.TestCase):
 
         def _boom(src, dst, *args, **kwargs):
             # Fail when the atomic writer copies the auxiliary agent .md into
-            # .claude/agents/ — this occurs AFTER CLAUDE.md/lock have already
-            # been os.replace()'d, so it exercises the restore path.
             if dst.endswith(".md") and (os.sep + "agents" + os.sep) in dst:
                 raise OSError("simulated mid-write failure")
             return original_copy2(src, dst, *args, **kwargs)

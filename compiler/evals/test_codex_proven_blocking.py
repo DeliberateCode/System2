@@ -1,20 +1,4 @@
-"""Exercise generated Codex hooks end to end against bypass and fault corpora.
-
-Each case launches the emitted shell or edit guard, sends a realistic Codex
-``PreToolUse`` event on stdin, and checks the stdout and exit-code boundary where an
-event becomes a command or path. A block uses
-``hookSpecificOutput.permissionDecision = deny`` or exits fail-closed; an allow exits
-zero without a decision. The removed legacy ``{"decision":"block"}`` form never counts
-as a block.
-
-The corpus covers string and argv shell forms, command chains, heredocs, alternate
-event keys, and patch/edit/write payloads. Every Pi proven-blocking case has a Codex
-event-shaped counterpart at the normalized-input boundary. Oversized commands and
-stdin, a held-open stdin, watchdog expiry, malformed JSON, and internal errors must
-all decide or fail closed rather than crash open. Node is required; a local skip is
-made loud and CI rejects all skips. Tests use committed hooks when available or a
-fresh temporary emission, and treat all event and IR content as untrusted data.
-"""
+"""Exercise generated Codex hooks end to end against bypass and fault corpora."""
 
 import json
 import os
@@ -58,9 +42,6 @@ _WATCHDOG_MS = 2000
 
 
 # The CAPTURED codex-cli 0.142.5 PreToolUse event envelope (verbatim shape).
-# Each corpus case's ``event`` is merged OVER this so the hook receives the real stdin
-# shape a live Codex fires; the case's own keys (tool_input/arguments/top-level command)
-# win, and the envelope adds the surrounding real fields the guard tolerates/ignores.
 _CODEX_0_142_5_ENVELOPE = {
     "session_id": "sess_00000000",
     "turn_id": "turn_00000000",
@@ -97,12 +78,7 @@ def _pi_corpus_names():
 
 
 def _resolve_hooks_dir(tmp_project):
-    """Path-parameterized hooks dir: the committed user-scope reference
-    ``distributions/codex/user-hooks/hooks`` when present; the guard JavaScript bytes
-    are location-independent, so driving them directly by path is unaffected by the
-    user- vs project-scope delivery move), else a fresh emission into ``tmp_project``.
-    Set SYSTEM2_CODEX_DIST to override the distributions root.
-    """
+    """Return committed hooks when available, otherwise emit temporary hooks."""
     override = os.environ.get("SYSTEM2_CODEX_DIST")
     candidates = []
     if override:
@@ -145,10 +121,7 @@ def _run_hook(hooks_dir, hook_kind, stdin_bytes, env_extra=None, timeout=30):
 
 
 def _deny_of(obj):
-    """The modern-schema deny reason if *obj* is a Codex ``permissionDecision:"deny"``
-    block, else None. The legacy ``{"decision":"block"}`` is deliberately NOT honored
-   : it returns None here so a hook still emitting it fails the block tests.
-    """
+    """The modern-schema deny reason if *obj* is a Codex ``permissionDecision:"deny"`` block, else None."""
     if not isinstance(obj, dict):
         return None
     hso = obj.get("hookSpecificOutput")
@@ -158,13 +131,7 @@ def _deny_of(obj):
 
 
 def _classify(returncode, stdout):
-    """Map (exit code, stdout) to a decision: 'block' | 'allow' | 'error'.
-
-    block  = a modern permissionDecision:"deny" (stdout) OR exit 2 (fail-closed = still
-             a block, and fail-closed handling also puts the deny JSON on stdout).
-    allow  = exit 0 with no decision on stdout (the negative control).
-    error  = anything else, incl. a legacy {"decision":"block"} (no longer a pass).
-    """
+    """Map (exit code, stdout) to a decision: 'block' | 'allow' | 'error'."""
     if returncode == 2:
         return "block", None
     if returncode == 0:
@@ -233,9 +200,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         return [c for c in self.corpus if predicate(c)]
 
     def _assert_not_allow(self, out, ctx):
-        """A fail-closed exit must never emit an allow. The fallback deny
-        JSON is written to stdout before the non-zero exit, so stdout is either empty or
-        a modern ``permissionDecision:"deny"`` — never a silent allow."""
+        """A fail-closed exit must never emit an allow."""
         text = (out or "").strip()
         if not text:
             return
@@ -311,10 +276,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_block_json_is_modern_permission_decision_schema(self):
-        """a stdout block is the MODERN Codex schema — an emitted block case
-        (exit 0) carries ``hookSpecificOutput.permissionDecision == "deny"`` with the
-        reason in ``permissionDecisionReason``, and NO legacy top-level ``decision`` key.
-        Codex 0.142.5 silently ignores the legacy form, so its presence is a real defect."""
+        """Policy blocks use the modern permissionDecision schema."""
         checked = 0
         for case in self._cases(lambda c: c["expect"] == "block"):
             res = self.results[case["name"]]
@@ -362,9 +324,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_multi_command_chains_block(self):
-        """a dangerous command embedded after a `&&`, `;`, or `|` chain operator is
-        still caught (chain parsing is exactly the normalization glue that can hide a
-        bypass while the hook reports itself active)."""
+        """Dangerous commands remain blocked within shell command chains."""
         for name in ("chain_and_rm", "chain_semi_sudo_rm", "chain_pipe_rm",
                      "chain_pipe_curl_sh"):
             self.assertEqual(
@@ -373,18 +333,14 @@ class CodexProvenBlockingTest(unittest.TestCase):
             )
 
     def test_heredoc_blocks(self):
-        """a dangerous command carried inside a heredoc body (multi-line command
-        string) is still caught (the `m` flag on the ported regexes; the newline glue
-        must not defeat it)."""
+        """Dangerous commands remain blocked inside heredocs."""
         self.assertEqual(
             self.results["heredoc_rm"]["decision"], "block",
             f"heredoc-embedded `rm -rf /` was not blocked ({self.results['heredoc_rm']})",
         )
 
     def test_dangerous_command_corpus_blocks(self):
-        """The extended dangerous-command set (mkfs, dd of=, DROP TABLE, DELETE FROM
-        without WHERE, git reset --hard, git push --force to main) all block through the
-        real shell hook."""
+        """The shell hook blocks the extended dangerous-command corpus."""
         for name in ("danger_mkfs", "danger_dd_of", "danger_drop_table",
                      "danger_delete_from_no_where", "danger_git_reset_hard",
                      "danger_git_push_force_main"):
@@ -415,9 +371,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         self.assertIn("protect-sensitive", shell["reason"] or "")
 
     def test_lease_enforcement_corpus(self):
-        """enforce-lease end-to-end: off-scope (absolute + off-extension) blocked,
-        in-scope allowed, `../` traversal fails closed, and an empty-scope (read-only)
-        role's write fails closed. Also a shell write-redirection target is leased."""
+        """enforce-lease end-to-end: off-scope (absolute + off-extension) blocked, in-scope allowed, `../` traversal fails closed, and an empty-scope (read-only) role's write fails closed."""
         for name in ("off_scope_write", "lease_offscope_ext", "traversal_write",
                      "traversal_py_write", "shell_write_redirect_offscope"):
             res = self.results[name]
@@ -430,9 +384,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             )
 
     def test_apply_patch_payload_variants(self):
-        """apply_patch payloads cannot bypass the edit guard: the guard pulls file
-        paths out of the patch text (Add/Update File + unified-diff headers) so a patch
-        carrying a sensitive/off-scope path inline is still gated."""
+        """Patch payload paths cannot bypass the edit guard."""
         self.assertEqual(self.results["patch_add_sensitive"]["decision"], "block")
         self.assertIn(
             "protect-sensitive",
@@ -449,9 +401,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_role_switch_lease(self):
-        """SYSTEM2_ACTIVE_ROLE (the in-session role switch) re-scopes the lease:
-        design-architect's own spec/design.md is allowed, its off-scope src/x.py is
-        blocked, and a read-only role (code-reviewer, empty scope) fails closed."""
+        """Changing SYSTEM2_ACTIVE_ROLE updates the enforced write scope."""
         self.assertEqual(
             self.results["da_in_scope"]["decision"], "allow",
             "design-architect's in-scope write (spec/design.md) was blocked — the "
@@ -467,10 +417,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
     # -- Pi-corpus parity at the normalized-input boundary ------------------
 
     def test_pi_corpus_parity_zero_uncovered(self):
-        """Every Pi proven-blocking corpus case has a Codex-event-shaped counterpart —
-        enumerated with zero uncovered cases. This enforces parity at
-        the normalized-input boundary: Codex's stdin-JSON event model
-        is new wiring, so happy-path-only coverage is a failed acceptance."""
+        """Every Pi proven-blocking corpus case has a Codex-event-shaped counterpart — enumerated with zero uncovered cases."""
         pi_names = _pi_corpus_names()
         covered = set()
         for case in self.corpus:
