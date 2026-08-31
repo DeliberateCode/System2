@@ -77,8 +77,11 @@ def grep_dir(rel_dir: str, pattern: str, file_suffix: str = "") -> List[Tuple[st
     for fpath in sorted(full.rglob("*")):
         if not fpath.is_file():
             continue
-        if any(part in {".git", ".venv", ".pytest_cache", "node_modules", "__pycache__"}
-               for part in fpath.parts):
+        if any(
+            part in {".git", ".venv", ".pytest_cache", "node_modules", "__pycache__"}
+            or part.endswith(".egg-info")
+            for part in fpath.parts
+        ):
             continue
         if file_suffix and not fpath.name.endswith(file_suffix):
             continue
@@ -766,39 +769,44 @@ def check_documentation_set_has_required_patterns_no_prohibited_patterns():
     )
 
 
+def _prohibited_pattern_hits(rule: dict):
+    """Search a rule's file or directory scope and apply its exclusions."""
+    scope = rule["scope"]
+    exclude_files = set(rule.get("exclude_files", []))
+    exclude_dirs = tuple(rule.get("exclude_dirs", []) or [])
+    if (REPO_ROOT / scope).is_dir():
+        hits = grep_dir(scope, rule["pattern"])
+        return [
+            hit for hit in hits
+            if hit[0] not in exclude_files
+            and not hit[0].startswith(exclude_dirs)
+        ]
+    if scope in exclude_files:
+        return []
+    return grep_file(scope, rule["pattern"])
+
+
+def _generated_identifier_rule() -> dict:
+    golden = load_golden("prohibited_patterns.json")
+    return next(
+        rule for rule in golden["rules"]
+        if rule["id"] == "no-generated-spec-identifiers"
+    )
+
+
 def check_no_generated_spec_identifiers_in_implementation_files():
     """Implementation files contain no generated specification identifiers."""
-    golden = load_golden("prohibited_patterns.json")
-    errors = []
-    for rule in golden["rules"]:
-        if rule["id"] != "no-generated-spec-identifiers":
-            continue
-        scope = rule["scope"]
-        pattern = rule["pattern"]
-        exclude_files = set(rule.get("exclude_files", []))
-        exclude_dirs = tuple(rule.get("exclude_dirs", []) or [])
-        if scope.endswith("/"):
-            hits = grep_dir(scope.rstrip("/"), pattern)
-            # Filter out excluded files and excluded/vendored subtrees
-            if exclude_files:
-                hits = [h for h in hits if h[0] not in exclude_files]
-            if exclude_dirs:
-                hits = [h for h in hits if not h[0].startswith(exclude_dirs)]
-        else:
-            if scope in exclude_files:
-                continue
-            hits = grep_file(scope, pattern)
-        if hits:
-            if isinstance(hits[0], tuple) and len(hits[0]) == 3:
-                locations = [f"{h[0]}:{h[1]}" for h in hits[:3]]
-            else:
-                locations = [f"line {h[0]}" for h in hits[:3]]
-            errors.append(f"{rule['id']} in {scope}: {len(hits)} hit(s) at {locations}")
+    rule = _generated_identifier_rule()
+    hits = _prohibited_pattern_hits(rule)
+    if hits and len(hits[0]) == 3:
+        locations = [f"{hit[0]}:{hit[1]}" for hit in hits[:3]]
+    else:
+        locations = [f"line {hit[0]}" for hit in hits[:3]]
     record(
         'Documentation: implementation files contain no generated specification identifiers',
         "Implementation files contain no generated specification identifiers",
-        len(errors) == 0,
-        "; ".join(errors) if errors else "",
+        not hits,
+        f"{len(hits)} hit(s) at {locations}" if hits else "",
     )
 
 
@@ -2292,7 +2300,7 @@ ALL_EVALS = [
     check_composer_py_exists_and_is_syntactically_valid_python,
     check_composition_with_test_fixture_succeeds_in_dry_run_mode,
     check_composed_claude_md_preserves_base_content_and_includes_overlay_content,
-    # Overlay:  regression
+    # Unknown-anchor behavior
     check_skipped_unknown_anchor_contributions_do_not_block_composition,
     # Overlay: conflict detection
     check_known_conflicts_declarations_produce_structural_conflicts,

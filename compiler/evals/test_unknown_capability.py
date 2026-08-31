@@ -112,8 +112,7 @@ class UnknownCapabilityComposePathTest(unittest.TestCase):
         self.assertEqual(
             first.graph.warnings.validation,
             second.graph.warnings.validation,
-            "the validation warning stream must be byte-identical across runs "
-            "( determinism)",
+            "the validation warning stream must be byte-identical across runs",
         )
 
     def test_known_capability_produces_no_unknown_warning(self):

@@ -5,17 +5,7 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Changed
-
-- Replaced generated planning references throughout documentation, comments, docstrings,
-  test names, diagnostics, and archived compiler notes with direct behavioral descriptions.
-  Agent guidance now produces descriptive requirement, task, and eval headings, and a
-  repository-wide structural check prevents generated specification identifiers from
-  returning.
-
-## [1.2.0] - 2026-08-04
+## [1.2.0] - 2026-08-30
 
 ### Added
 
@@ -24,6 +14,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Codex install channel.** A generated Codex plugin at `distributions/codex/` (installable via `codex plugin marketplace add DeliberateCode/System2`, resolved through the root `.agents/plugins/marketplace.json`). Agents are lowered to role skills plus an orchestrator skill (adapted; no native subagent isolation). Safety gates (`block-dangerous`, `protect-sensitive`, `enforce-lease`) are Node command hooks ported from the same proven matcher constants as the Pi backend; they are **advisory until the user reviews and trusts the hooks via `/hooks`**, then adapted (`enforced: false`, `gated: true` at rest, never `native`) with partial tool coverage (shell + apply_patch/Edit/Write only, not WebSearch/other). A three-surface honesty invariant (manifest `description`, README preamble, lock FIDELITY banner) is machine-checked on every change.
 - **Pi install channel (pending publish).** A generated npm package at `distributions/pi/` (`@deliberatecode/pi-system2`) carrying a native safety gate, the 13-role `/delegate` orchestrator, and the System2 skills and prompts; no install scripts and no dependencies. **Not yet published:** the install command is deliberately withheld from user docs until the package is published (the scope was claimed and secured 2026-07-04; publish is Phase 3, user-gated), so the docs cannot direct users at an unservable name.
 - **Repo docs for the three channels.** `README.md` now documents all three install channels with per-channel one-line commands (the Pi command withheld with justification), the utility-skills migration note, the clone-and-run posture for overlays on non-Claude harnesses, and per-channel backout notes. A new local runbook `docs/runbooks/codex-smoke.md` covers the one path CI does not exercise (Codex marketplace resolution + hook-trust canary).
+- **License update.** Copyright notices now identify Deliberate Code, reflecting the original owner's intentional transfer to the organization.
 
 ### Changed
 

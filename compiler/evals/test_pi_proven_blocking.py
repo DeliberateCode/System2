@@ -61,7 +61,7 @@ _BLOCK_CASES = (
     ("off_scope_write", "write", {"path": "/etc/passwd", "content": "x"}, "enforce-lease"),
     ("dangerous_bash", "bash", {"command": "rm -rf /"}, "block-dangerous"),
     ("sensitive_read", "read", {"path": ".env"}, "protect-sensitive"),
-    #  bypass corpus: obfuscated dangerous commands (flag order, whitespace, long flags).
+    # Dangerous-command flag and whitespace variants.
     ("danger_rm_fr", "bash", {"command": "rm -fr /"}, "block-dangerous"),
     ("danger_rm_double_space", "bash", {"command": "rm  -rf /"}, "block-dangerous"),
     ("danger_rm_separated", "bash", {"command": "rm -r -f /"}, "block-dangerous"),
@@ -69,7 +69,7 @@ _BLOCK_CASES = (
     ("danger_sudo_rm", "bash", {"command": "sudo  rm -rf /etc"}, "block-dangerous"),
     ("danger_chmod_777", "bash", {"command": "chmod -R  777 /srv"}, "block-dangerous"),
     ("danger_git_push_f", "bash", {"command": "git push -f origin main"}, "block-dangerous"),
-    #  traversal corpus: ../-escaping paths must be blocked regardless of suffix.
+    # Traversal paths must block regardless of suffix.
     ("traversal_write", "write", {"path": "../../etc/cron.d/x.sh", "content": "x"}, "enforce-lease"),
     ("traversal_py_write", "write", {"path": "../secret.py", "content": "x"}, "enforce-lease"),
 )
@@ -325,8 +325,7 @@ class PiProvenBlockingTest(unittest.TestCase):
         )
 
     def test_obfuscated_dangerous_commands_are_blocked(self):
-        #  regression: the OLD substring matcher let these through. Each must
-        # now BLOCK via the ported flag-permutation regexes.
+        # Every supported flag permutation must block.
         for name in (
             "danger_rm_fr",
             "danger_rm_double_space",
@@ -339,30 +338,25 @@ class PiProvenBlockingTest(unittest.TestCase):
             case = self.result["blocks"][name]
             self.assertTrue(
                 case["block"],
-                f"obfuscated dangerous command {name!r} was NOT blocked — the "
-                "substring-bypass regression is back",
+                f"obfuscated dangerous command {name!r} was not blocked",
             )
             self.assertIn("block-dangerous", case["reason"])
 
     def test_traversal_writes_are_blocked(self):
-        #  regression: ../-escaping paths must fail closed regardless of suffix.
         for name in ("traversal_write", "traversal_py_write"):
             case = self.result["blocks"][name]
             self.assertTrue(
                 case["block"],
-                f"traversal write {name!r} escaped the lease — un-normalized "
-                "unanchored matching regression is back",
+                f"traversal write {name!r} escaped the lease",
             )
             self.assertIn("enforce-lease", case["reason"])
 
     def test_multiline_scope_role_allows_in_scope_blocks_off_scope(self):
-        #  regression: design-architect's 3-line allowlist (now OR-joined) must
-        # ALLOW its own spec/design.md and BLOCK an off-scope src/x.py.
+        # Multiline scopes allow matching paths and block non-matches.
         in_scope = self.result["roleBlocks"]["da_in_scope"]
         self.assertFalse(
             in_scope["block"],
-            "design-architect's in-scope write (spec/design.md) was BLOCKED — the "
-            "multi-line allowlist is bricked (deny-all regression is back)",
+            "design-architect's in-scope write (spec/design.md) was blocked",
         )
         off_scope = self.result["roleBlocks"]["da_off_scope"]
         self.assertTrue(

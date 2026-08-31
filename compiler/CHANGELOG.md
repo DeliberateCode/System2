@@ -225,14 +225,14 @@ additive (reached only via `--target pi`).
 
 #### Folded hardening
 
-- **Vendored-pin drift guard (`evals/test_vendored_pin.py`, ).** Pins the
+- **Vendored-pin drift guard (`evals/test_vendored_pin.py`).** Pins the
   vendored `ir/profiles.py` / `ir/_hook_security.py` byte-for-byte against their
   plugin originals (`System2/plugin/scripts/`), failing loudly ("vendored copy
   drifted / re-vendor required") on any non-sanctioned diff, with a negative
   control proving the guard has teeth.
 - **Eval-breadth tests (`evals/test_breadth.py`).** Asserts argument-ordering
-  determinism ( — composition is independent of `--overlays` order) and
-  anchor-exclusion ( — a contribution to a non-existent
+  determinism (composition is independent of `--overlays` order) and anchor
+  exclusion (a contribution to a non-existent
   `(agent, anchor)` is excluded exactly as the oracle excludes it) **directly**,
   not only transitively via the golden byte-diff.
 
@@ -324,7 +324,7 @@ additive (reached only via `--target pi`).
   the preserved-verbatim `composer.py.preflip`. The compiler is now the single
   source of truth; the Claude end-user experience is unchanged (byte-identical
   output, identical CLI contract, zero dependency).
-- **The degradation report is now a shared helper (Phase 4, ).** The
+- **The degradation report is now a shared helper (Phase 4).** The
   per-capability record assembly and the `status → (enforced, gated)` flag rule
   moved into `backends/_degradation.py`, shared by both backends. The refactor
   is byte-preserving: the Claude lock `degradation_report` is byte-identical

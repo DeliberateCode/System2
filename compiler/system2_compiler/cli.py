@@ -139,7 +139,7 @@ def _render_composed_text(graph: System2Graph, backend: Backend) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-# Shared stderr warning emission (relocated verbatim from the oracle, )
+# Preserve the frozen oracle's warning order.
 
 def _emit_stderr_warnings(report: dict) -> None:
     """Emit all warning categories to stderr (verbatim from ``composer._emit_stderr_warnings``)."""

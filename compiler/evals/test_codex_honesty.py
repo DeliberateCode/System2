@@ -40,7 +40,7 @@ _SURFACE_LOCK_BANNER = "lock FIDELITY banner"
 # These three safety gates must be adapted and gated at rest.
 _SAFETY_GATES = ("enforce-lease", "block-dangerous", "protect-sensitive")
 
-# The modern Codex block schema the lock mechanism text must describe, and the two obsoleted legacy forms that must be ABSENT .
+# Require the modern deny schema and reject obsolete forms.
 _MODERN_DENY_TOKENS = ("permissionDecision", "deny")
 _LEGACY_BLOCK_SCHEMA = '{"decision":"block"}'          # obsoleted stdout block form
 _LEGACY_BLOCK_SCHEMA_ESCAPED = '{\\"decision\\":\\"block\\"}'  # its JSON-file byte form

@@ -876,9 +876,9 @@ def _build_utility_skill(name: str) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-# Node command hooks (JavaScript, Node stdlib only — )
+# Node command hooks (JavaScript, Node stdlib only)
 
-#  hardening constants shared by every generated enforcement hook.
+# Resource limits shared by every generated enforcement hook.
 _MAX_INPUT_BYTES = 1048576   # 1 MiB stdin hard cap (memory guard); over => fail closed
 _MAX_MATCH_LEN = 16384       # per command/path string cap before matching; over => block
 _WATCHDOG_MS = 2000          # no decision within this window => fail closed (BLOCK)
@@ -1479,7 +1479,7 @@ def _resolve_hook_commands(node: object, hooks_dir_abs: str) -> None:
 
 
 def render_user_hooks_config(reference_dir: str, hooks_dir_abs: str) -> str:
-    """Render ``hooks.json.tmpl`` with ``{{SYSTEM2_HOOKS_DIR}}`` -> *hooks_dir_abs* (absolute, )."""
+    """Render ``hooks.json.tmpl`` with an absolute *hooks_dir_abs*."""
     tmpl_path = os.path.join(reference_dir, _USER_HOOKS_TMPL)
     with open(tmpl_path, "r", encoding="utf-8") as fh:
         text = fh.read()

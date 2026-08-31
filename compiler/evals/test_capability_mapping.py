@@ -75,8 +75,7 @@ class MechanismMappingTest(unittest.TestCase):
         for mechanism in _NON_CAPABILITY_MECHANISMS:
             self.assertNotIn(
                 mechanism, _MECHANISM_TO_CAPABILITY,
-                f"{mechanism!r} is a notification side-effect; it must not be mapped "
-                "to a safety capability ( note (3))",
+                f"{mechanism!r} is a notification side-effect, not a safety capability",
             )
         self.assertIn(
             "tts-notify.py", _NON_CAPABILITY_MECHANISMS,

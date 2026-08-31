@@ -161,10 +161,7 @@ class AnchorExclusionTest(unittest.TestCase):
         )
         self.assertIsNone(
             self.table.resolve("executor", "nonexistent_anchor_zzz"),
-            msg=(
-                "resolution of a non-existent anchor must return None (the IR "
-                "signal for the oracle's silent exclusion, )"
-            ),
+            msg="a non-existent anchor must resolve to None for silent exclusion",
         )
 
     def test_per_agent_scoping_is_independent(self):

@@ -36,7 +36,10 @@
       "id": "no-generated-spec-identifiers",
       "pattern": "(?<![A-Za-z0-9])(?:(?:REQ|TASK|NFR|AC|EVAL|OQ|ROQ|OPEN|ODQ|OA|RL|PG|DoD)(?:[-_][A-Z]+)*[-_]?(?:\\d+(?:[._/-]\\d+)*|[xX]{2,})|(?:F|G|J|K|D|A|S|N|R|Q|T|C|B)\\d+(?:[._/-]\\d+)*)(?![A-Za-z0-9])",
       "scope": ".",
-      "description": "Documentation and implementation text describe behavior directly instead of using generated specification identifiers"
+      "exclude_dirs": [
+        "spec/"
+      ],
+      "description": "Maintained documentation and implementation text outside source specifications describe behavior directly instead of using generated specification identifiers"
     }
   ]
 }

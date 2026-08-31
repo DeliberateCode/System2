@@ -1,4 +1,4 @@
-"""Tests for : compose(), lock generation, content copying, atomic writes."""
+"""Tests for composition, lock generation, content copying, and atomic writes."""
 
 import hashlib
 import json

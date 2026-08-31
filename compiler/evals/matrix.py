@@ -72,10 +72,7 @@ _CELLS = (
         profile=PROFILE_NAME,
         profile_store=PROFILE_STORE_FIXTURE,
         pending=True,
-        notes=(
-            "Profile resolving >=1 overlay via the hermetic temp-HOME store. Profile store "
-            "fixture lands in ."
-        ),
+        notes="Profile resolving >=1 overlay via the hermetic temp-HOME store.",
     ),
     Cell(
         name="core+conflict",
@@ -83,24 +80,20 @@ _CELLS = (
         expected_artifacts=ARTIFACTS_REFUSAL,
         refusal=True,
         pending=True,
-        notes="known_conflicts pair -> refusal. Overlay fixtures land in .",
+        notes="known_conflicts pair -> refusal.",
     ),
     Cell(
         name="core+tension",
         overlays=(TENSION_A, TENSION_B),
         pending=True,
-        notes=(
-            "Shared review_when_combined_with_tags tag -> semantic-tension warning (proceeds). "
-            "Overlay fixtures land in ."
-        ),
+        notes="Shared review_when_combined_with_tags tag -> semantic-tension warning (proceeds).",
     ),
     Cell(
         name="core+anchorfile",
         overlays=(ANCHORFILE,),
         notes=(
-            "prompt_sections to an UNKNOWN anchor carrying a content_file. The applied (anchor-"
-            "filtered) collector copies/fingerprints known.md only; extra.md (unknown anchor) is "
-            "silently excluded. Exposes blocker  (backend was collecting unfiltered)."
+            "An unknown-anchor contribution carrying a content_file is excluded. The applied "
+            "collector copies and fingerprints known.md only, never extra.md."
         ),
     ),
 )

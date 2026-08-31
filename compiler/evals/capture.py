@@ -189,7 +189,7 @@ def _capture_refusal(cell: "matrix.Cell", cell_dir: str) -> None:
 
 
 def _capture_core(cell_dir: str) -> None:
-    """Capture the static inventory invariant for the ``core`` cell (design )."""
+    """Capture the static inventory invariant for the ``core`` cell."""
     _reset_dir(cell_dir)
     base_template = _read_base_template()
     _write_text(os.path.join(cell_dir, "base_template.md"), base_template)
@@ -204,9 +204,8 @@ def _capture_core(cell_dir: str) -> None:
 
     reference_record = {
         "description": (
-            "Static inventory invariant (13-agent/6-gate + hook/allowlist bindings). "
-            "Captured by reference to the plugin's read-only structural goldens; the oracle "
-            "is not invoked for the core cell because it refuses empty overlay sets (design )."
+            "Static inventory invariant for the 13-agent, 6-gate workflow and its "
+            "hook and allowlist bindings."
         ),
         "base_template_sha256": _sha256_bytes(base_template.encode("utf-8")),
         "structural_goldens": references,

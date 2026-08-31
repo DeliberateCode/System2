@@ -408,7 +408,7 @@ class PiInitMaterializerTest(unittest.TestCase):
         with open(target, "rb") as fh:
             self.assertEqual(
                 fh.read(), user_bytes,
-                f"{rel} was overwritten WITHOUT --force ( violation)",
+                f"{rel} was overwritten without --force",
             )
         counts = _summary_counts(out["notes"])
         self.assertEqual(counts["replaced"], 0, "nothing may be replaced without --force")

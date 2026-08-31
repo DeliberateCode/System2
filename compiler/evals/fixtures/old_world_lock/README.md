@@ -12,9 +12,9 @@ stale-base nudge — never a schema error or a hard failure.
 
 ## What is "old-world" here
 
-The compiler/composer engine bytes are identical pre/post consolidation ('s
-sha-identity HALT proved it), so the lock *format* is unchanged across the move. The
-only distinguishing marks of a pre-consolidation lock are its **provenance values**:
+The compiler/composer engine is byte-identical before and after consolidation, so
+its lock format is unchanged. The only distinguishing marks of a pre-consolidation
+lock are its **provenance values**:
 
 - `system2_version: "1.1.0"` — a pre-consolidation plugin version, differing from
   the currently installed plugin version (`plugin/.claude-plugin/plugin.json`), so

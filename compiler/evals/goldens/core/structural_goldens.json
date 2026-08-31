@@ -36,7 +36,7 @@
     },
     {
       "path": "evals/goldens/prohibited_patterns.json",
-      "sha256": "641616dd0eef7240e376428bde921ca2c1fd93a0cc258037de55575072f7d4cc"
+      "sha256": "53cd1e41833138180a222bdd38b690da668c07eaa7a3638b51e994d9170ad749"
     },
     {
       "path": "evals/goldens/required_readme_patterns.json",

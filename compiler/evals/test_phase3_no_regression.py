@@ -107,7 +107,7 @@ class BackendRegistryTest(unittest.TestCase):
 
 
 class ClaudeKeystoneGoldenGate(unittest.TestCase):
-    """claude-code goldens empty-diff across the matrix ( sign-off)."""
+    """Require empty Claude Code golden diffs across the matrix."""
 
     def test_compiler_driver_empty_diff(self):
         failures = run_goldens.run_goldens(driver="compiler")

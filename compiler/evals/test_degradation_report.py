@@ -72,7 +72,6 @@ class DegradationReportTest(unittest.TestCase):
         self.assertIsInstance(report["capabilities"], dict)
 
     def test_report_enumerates_every_ir_capability(self):
-        #  completeness: every IR capability appears in the report.
         report_caps = self._report()["capabilities"]
         self.assertTrue(
             self.ir_capabilities,
@@ -128,8 +127,7 @@ class DegradationReportTest(unittest.TestCase):
             )
 
     def test_no_silent_drop_negative_control(self):
-        #  with teeth: removing a capability's entry must fail the
-        # completeness assertion (set equality), proving no silent drop slips by.
+        # Removing an entry must break the completeness assertion.
         report_caps = dict(self._report()["capabilities"])
         self.assertTrue(report_caps, "report must be non-empty to drop from")
         victim = sorted(report_caps.keys())[0]
@@ -137,8 +135,7 @@ class DegradationReportTest(unittest.TestCase):
         self.assertNotEqual(
             set(report_caps.keys()),
             self.ir_capabilities,
-            "negative control: dropping a capability entry must break completeness "
-            "(a silently dropped capability must be detectable, )",
+            "dropping a capability entry must break completeness",
         )
 
 
@@ -176,8 +173,7 @@ class CapabilityDescriptorTest(unittest.TestCase):
             )
 
     def test_every_descriptor_entry_carries_a_mechanism(self):
-        #  substrate: the descriptor entry names a mechanism so the report is
-        # self-describing.
+        # Mechanism names make the report self-describing.
         for cap, entry in self.caps.items():
             self.assertTrue(
                 entry.get("mechanism"),

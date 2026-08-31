@@ -35,7 +35,7 @@ class IrCapabilityUnionTest(unittest.TestCase):
 
 
 class FourStatusFixtureTest(unittest.TestCase):
-    """The  mixed-status fixture: all four statuses through one builder."""
+    """Exercise all four statuses through one builder."""
 
     def test_all_four_statuses_flagged_correctly(self):
         union = set(_FOUR_STATUS_CAPS)

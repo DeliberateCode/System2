@@ -91,7 +91,7 @@
 - *Acceptance:* No change to the plugin's invocation of `composer.py`; the plugin's runtime behavior is unaffected by the existence of `System2-Compiler`.
 
 **Ubiquitous.** Phase 1 shall produce no user-visible change to the Claude end-user surface (`/system2:init`, `/system2:compose`, `/system2:doctor`, plugin install) or installed file layout.
-- *Acceptance:* Slash-command surface, command outputs, and installed file layout are unchanged; verified by  byte-identity plus absence of plugin-side edits.
+- *Acceptance:* Slash-command surface, command outputs, and installed file layout are unchanged; verified by byte identity plus absence of plugin-side edits.
 
 **Ubiquitous.** The `claude-code` backend shall reproduce the lock file (`spec/overlay-manifest.lock`) shape, key ordering, and JSON formatting exactly as the frozen oracle emits it.
 - *Acceptance:* Lock files match byte-for-byte across the matrix (`json.dumps(..., indent=2) + "\n"` formatting preserved).
@@ -117,7 +117,7 @@
 - *Acceptance:* Anchors are represented as named IR-level insertion points keyed per agent; the `after_section` literal-heading match is no longer the resolution mechanism in the IR; resolution is driven by IR anchor identity.
 
 **Ubiquitous.** Each backend shall decide how to render an IR-anchored contribution into its own representation; the `claude-code` backend shall render anchored contributions into the **`CLAUDE.md` delegation / agent-augmentation instructions** (not into pipeline-agent system prompts) at the same placement and ordering as the frozen oracle.
-- *Acceptance:* For every matrix cell that exercises anchors, the composed `CLAUDE.md` remains byte-identical to the oracle (golden diff empty), confirming that anchored-contribution placement and ordering within the `CLAUDE.md` delegation/agent-augmentation sections are preserved through the IR-level anchor lift. The pipeline-agent system prompts (installer-owned static files, ) are unaffected by anchor rendering.
+- *Acceptance:* For every matrix cell that exercises anchors, the composed `CLAUDE.md` remains byte-identical to the oracle (golden diff empty), confirming that anchored-contribution placement and ordering within the `CLAUDE.md` delegation/agent-augmentation sections are preserved through the IR-level anchor lift. The installer-owned pipeline-agent system prompts are unaffected by anchor rendering.
 
 **Ubiquitous.** The IR shall represent the full set of agent anchors currently defined in `anchor-map.json` for all 13 agents, preserving anchor identity and per-agent scoping.
 - *Acceptance:* Every `(agent, anchor)` pair present in `anchor-map.json` and `valid_anchor_names_by_agent` is representable and resolvable in the IR; a contribution to a non-existent anchor is excluded exactly as the oracle excludes it.
@@ -211,9 +211,9 @@
 
 ## Data & Interface Contracts
 
-- **IR (System2Graph).** Harness-neutral structure produced by `compose(core, overlays, profile)`. Required content: 13 roles; Gate 0→5 graph; delegation contract; post-execution trigger rules; regression/maintenance loop; `spec/` artifact set; ordered overlay contributions; active profile; (Phase 2) per-agent intent capabilities and role attributes; IR-level anchors. Formal schema deferred to design. No Claude mechanism fields permitted .
-- **Backend interface.** `Backend.emit(ir, project_path) -> written_files` (list of written file paths). Sole lowering entry point . Backends receive only the IR and the target path; they do not read manifests/anchor-map/profiles/schema.
-- **Capability descriptor.** `backends/capabilities/<backend>.json`: maps each capability in the IR vocabulary to one of `{native, adapted, advisory, unsupported}` .
+- **IR (System2Graph).** Harness-neutral structure produced by `compose(core, overlays, profile)`. Required content: 13 roles; Gate 0→5 graph; delegation contract; post-execution trigger rules; regression/maintenance loop; `spec/` artifact set; ordered overlay contributions; active profile; (Phase 2) per-agent intent capabilities and role attributes; IR-level anchors. Formal schema is deferred to design. Claude mechanism fields are prohibited.
+- **Backend interface.** `Backend.emit(ir, project_path) -> written_files` (list of written file paths) is the sole lowering entry point. Backends receive only the IR and the target path; they do not read manifests, the anchor map, profiles, or schemas.
+- **Capability descriptor.** `backends/capabilities/<backend>.json` maps each capability in the IR vocabulary to one of `{native, adapted, advisory, unsupported}`.
 - **Lock file.** `spec/overlay-manifest.lock` (Claude) or its per-target equivalent is machine-readable JSON with stable formatting and a complete per-capability degradation report.
 - **Capability vocabulary (fixed for this cycle).** Intent: `enforce-lease`, `block-dangerous`, `protect-sensitive`, `format`, `typecheck`, `budget`. Role attributes: `write-scope`, `model-hint`, `gate-role`. Status enum: `native | adapted | advisory | unsupported`.
 - **Idempotency / determinism.** Identical inputs → byte-identical outputs; argument-order independent.

@@ -174,7 +174,7 @@ REGISTRY: List[_Artifact] = [
 
 
 def stale_message(artifact: str) -> str:
-    """The  divergence message: names the artifact AND the exact regen command."""
+    """Name the stale artifact and its regeneration command."""
     return f"{artifact} is stale: regenerate via {_REGEN_COMMAND}"
 
 

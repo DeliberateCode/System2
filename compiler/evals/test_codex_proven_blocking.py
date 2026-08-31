@@ -34,8 +34,7 @@ _SHELL_HOOK = "system2-shell-guard.js"
 _EDIT_HOOK = "system2-edit-guard.js"
 _HOOK_FILE = {"shell": _SHELL_HOOK, "edit": _EDIT_HOOK}
 
-#  caps mirrored from backends/codex.py (asserted behaviorally, not imported, so a
-# drift in the generated hook is caught here rather than silently tracked).
+# Mirror the backend caps so generated-hook drift remains observable.
 _MAX_MATCH_LEN = 16384
 _MAX_INPUT_BYTES = 1048576
 _WATCHDOG_MS = 2000
@@ -432,8 +431,8 @@ class CodexProvenBlockingTest(unittest.TestCase):
         uncovered = pi_names - covered
         self.assertFalse(
             uncovered,
-            "Pi corpus cases WITHOUT a Codex-event-shaped counterpart ( parity "
-            f"failure — happy-path-only is a failed acceptance): {sorted(uncovered)}",
+            "Pi corpus cases without a Codex-event-shaped counterpart: "
+            f"{sorted(uncovered)}",
         )
         # And each covered Pi case's Codex counterpart(s) must actually have been
         # exercised end-to-end (present in the results), not merely declared.
@@ -505,8 +504,8 @@ class CodexProvenBlockingTest(unittest.TestCase):
             proc.kill()
             proc.communicate()
             self.fail(
-                "watchdog did NOT fire — the hook hung on never-closed stdin instead "
-                "of failing closed ( silent-hang regression)"
+                "watchdog did not fire; the hook hung on never-closed stdin instead "
+                "of failing closed"
             )
         self.assertEqual(
             proc.returncode, 2,

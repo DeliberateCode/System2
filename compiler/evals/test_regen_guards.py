@@ -31,7 +31,7 @@ regen_all = _load_tool("regen_all")
 _PLUGIN_ROOT = os.path.join(_REPO_ROOT, "plugin")
 _OVERLAYS = [os.path.join(_REPO_ROOT, r) for r in regen_all._CODEX_OVERLAY_RELPATHS]
 
-# The exact, documented  ignore set.
+# Only volatile provenance breadcrumbs may be ignored.
 _EXPECTED_IGNORE = ("bundled_at", "generated_at", "generated_from")
 
 # Correctness-bearing provenance fields that must NEVER be ignored.
@@ -132,8 +132,7 @@ class RegenGuardContractTest(unittest.TestCase):
         active = {a.name for a in regen_all.REGISTRY if a.builder is not None}
         placeholders = [a for a in regen_all.REGISTRY if a.builder is None]
 
-        # Tripwire: a newly-activated builder must be acknowledged here. This FAILS the
-        # moment  set a real builder, forcing a coverage review.
+        # Every active builder must have explicit coverage.
         uncovered = active - _COVERED_ACTIVE
         self.assertEqual(
             uncovered, set(),
@@ -179,7 +178,7 @@ class RegenInducedDivergenceTest(unittest.TestCase):
                 os.path.join(tc, "system2_compiler", "**", "*.py"), recursive=True))
             self.assertTrue(members, "temp compiler root has no hashed source members")
             with open(members[0], "ab") as fh:
-                fh.write(b"\n#  induced divergence\n")
+                fh.write(b"\n# induced divergence\n")
 
             rc, _out, err = self._run_check(art, ctx)
             self.assertEqual(rc, 1, "a mutated hashed source member must go RED")

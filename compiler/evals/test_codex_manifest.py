@@ -22,8 +22,7 @@ _REPO_ROOT = oracle.PLUGIN_REPO_ROOT
 _MANIFEST_REL = os.path.join(".codex-plugin", "plugin.json")
 _LOCK_REL = "system2.codex.lock.json"
 
-# The committed distribution + repo-scoped marketplace file ( — not yet
-# present). Parameterized so the same validator auto-covers them once they land.
+# Committed distribution and repository marketplace locations.
 _DIST_CODEX_ROOT = os.path.join(_REPO_ROOT, "distributions", "codex")
 _MARKETPLACE_PATH = os.path.join(_REPO_ROOT, ".agents", "plugins", "marketplace.json")
 
@@ -247,8 +246,6 @@ def _codex_descriptor():
         return json.load(fh)
 
 
-# Path-parameterized source discovery: always the staging emission; plus the committed distributions/codex tree once  lands (auto-discovered).
-
 def _build_sources():
     """Return [(label, root_dir, is_temp)] — staging always; committed dist if present."""
     staging = tempfile.mkdtemp(prefix="codex-manifest-")
@@ -278,7 +275,7 @@ class _CodexEmissionBase(unittest.TestCase):
 # Positive: manifest structure + pointer hygiene
 
 class CodexManifestStructureTest(_CodexEmissionBase):
-    """The emitted manifest satisfies the structural +  pointer contract."""
+    """The emitted manifest satisfies its structure and pointer contract."""
 
     def test_manifest_validates(self):
         for label, root, _tmp in self.sources:
@@ -407,10 +404,8 @@ class CodexLockSchemaTest(_CodexEmissionBase):
                 self.assertIsInstance(lock["overlay_sources"], list)
 
 
-# repo-scoped marketplace pointer hygiene (synthetic always; real if present)
-
 class CodexMarketplacePointerHygieneTest(unittest.TestCase):
-    """The  pointer rule applies to the marketplace doc (synthetic + real-if-present)."""
+    """Marketplace documents enforce the same pointer rule as manifests."""
 
     def test_in_root_marketplace_doc_validates(self):
         doc = {

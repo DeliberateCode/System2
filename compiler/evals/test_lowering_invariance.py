@@ -122,7 +122,6 @@ class AdditiveLockDeltaGate(unittest.TestCase):
                 "lock must be byte-identical to the frozen baseline",
             )
 
-            #  cross-check: no enforced capability dropped; all native.
             caps = report.get("capabilities", {})
             self.assertTrue(
                 caps, f"[{cell.name}] degradation_report.capabilities must be non-empty"
@@ -138,7 +137,6 @@ class AdditiveLockDeltaGate(unittest.TestCase):
         )
 
     def test_no_enforced_capability_dropped_from_report(self):
-        #  cross-check against the IR's capability union per cell.
         for cell in self._composed_cells():
             cell_dir = cell.snapshot_dir(_GOLDENS_DIR)
             if not os.path.isfile(
@@ -218,13 +216,11 @@ class StaticSurfaceInventoryInvariantGate(unittest.TestCase):
             actual = capture._sha256_file(abs_path)
             self.assertEqual(
                 actual, entry["sha256"],
-                f"static plugin surface drift: {rel} sha256 changed "
-                "( inventory invariant violated)",
+                f"static plugin surface inventory drift: {rel} sha256 changed",
             )
 
     def test_inventory_invariant_goldens_are_referenced(self):
-        # The 13-agent inventory, hook inventory, allowlist bindings, and delegation
-        # map must all be locked (design  static surface).
+        # Lock every static inventory and binding surface.
         referenced = {os.path.basename(e["path"]) for e in self.entries}
         for required in (
             "agent_inventory.json",

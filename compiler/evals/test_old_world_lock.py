@@ -201,8 +201,7 @@ class OldWorldLockTest(unittest.TestCase):
         self.assertEqual(recomposed_fp, self._fresh_fingerprint())
 
     def test_fingerprint_is_version_sensitive_and_deterministic(self):
-        # Directly demonstrate  over identical content: the fingerprint
-        # changes ONLY when the version changes, and is deterministic otherwise.
+        # Identical content stays deterministic but remains version-sensitive.
         project = tempfile.mkdtemp(prefix="owl-fp-")
         self.addCleanup(shutil.rmtree, project, True)
         result = ir.compose(_BASE, [_TEST_OVERLAY], project)

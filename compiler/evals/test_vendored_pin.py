@@ -24,7 +24,7 @@ _PINS = (
     ),
 )
 
-# The ONLY sanctioned diffs are intra-package import-path relocations ( adjusted only import paths, no logic).
+# Only import-path relocations are sanctioned; logic must remain identical.
 _SANCTIONED_IMPORT_DELTAS: tuple = ()
 
 
