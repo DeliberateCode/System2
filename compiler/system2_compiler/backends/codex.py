@@ -2018,8 +2018,6 @@ class CodexBackend:
             except Exception:
                 pass
 
-        self._prune_empty_dirs(project_path)
-
         return UninstallResult(
             removed={"name": overlay_name},
             remaining=[],
@@ -2030,23 +2028,6 @@ class CodexBackend:
             preview="",
             errors=[],
         )
-
-    def _prune_empty_dirs(self, project_path: str) -> None:
-        """Remove now-empty ``.codex-plugin/`` / ``user-hooks/`` / ``skills/`` dirs (best-effort)."""
-        for top in (".codex-plugin", "user-hooks", "skills"):
-            root_dir = os.path.join(project_path, top)
-            if not os.path.isdir(root_dir):
-                continue
-            for root, dirs, _files in os.walk(root_dir, topdown=False):
-                for d in dirs:
-                    try:
-                        os.rmdir(os.path.join(root, d))
-                    except OSError:
-                        pass
-            try:
-                os.rmdir(root_dir)
-            except OSError:
-                pass
 
     # Lifecycle: doctor (documented honest subset)
 

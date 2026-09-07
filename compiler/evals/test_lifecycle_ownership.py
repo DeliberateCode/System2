@@ -284,6 +284,32 @@ class LifecycleOwnershipTest(unittest.TestCase):
                 "Codex uninstall-last must not remove skills/caller-skill/SKILL.md",
             )
 
+    def test_codex_uninstall_last_preserves_caller_owned_empty_directories(self):
+        with tempfile.TemporaryDirectory(prefix="codex-owned-empty-") as project:
+            _emit(CodexBackend, project)
+            caller_directories = [
+                os.path.join(project, parent, "caller-empty", "nested")
+                for parent in (".codex-plugin", "user-hooks", "skills")
+            ]
+            for path in caller_directories:
+                os.makedirs(path)
+
+            backend = CodexBackend(base_path=_BASE, compose_fn=ir.compose)
+            result = backend.uninstall(project, "test-overlay")
+
+            self.assertEqual(result.errors, [], "Codex uninstall-last must succeed")
+            for path in caller_directories:
+                self.assertTrue(
+                    os.path.isdir(path),
+                    f"Codex uninstall-last must preserve caller directory {path}",
+                )
+            for path in result.artifacts_removed:
+                self.assertFalse(
+                    os.path.lexists(path),
+                    f"Codex uninstall-last must remove owned artifact {path}",
+                )
+            self.assertFalse(os.path.lexists(backend.lock_path(project)))
+
     def test_pi_emit_preserves_caller_owned_agents(self):
         with tempfile.TemporaryDirectory(prefix="pi-owned-agents-") as project:
             agents = os.path.join(project, "AGENTS.md")
@@ -324,6 +350,48 @@ class LifecycleOwnershipTest(unittest.TestCase):
                         os.path.isfile(path),
                         f"Pi uninstall-last must not remove {relative}",
                     )
+
+    def test_pi_uninstall_last_preserves_caller_owned_empty_directories(self):
+        with tempfile.TemporaryDirectory(prefix="pi-owned-empty-") as project:
+            _emit(PiBackend, project)
+            caller_directory = os.path.join(
+                project, ".pi", "caller-empty", "nested"
+            )
+            os.makedirs(caller_directory)
+
+            backend = PiBackend(base_path=_BASE, compose_fn=ir.compose)
+            result = backend.uninstall(project, "test-overlay")
+
+            self.assertEqual(result.errors, [], "Pi uninstall-last must succeed")
+            self.assertTrue(
+                os.path.isdir(caller_directory),
+                "Pi uninstall-last must preserve caller-owned empty directories",
+            )
+            for path in result.artifacts_removed:
+                self.assertFalse(
+                    os.path.lexists(path),
+                    f"Pi uninstall-last must remove owned artifact {path}",
+                )
+            self.assertFalse(os.path.lexists(backend.lock_path(project)))
+
+    def test_uninstall_last_dry_run_preserves_empty_directories_and_all_files(self):
+        cases = (
+            (CodexBackend, os.path.join("skills", "caller-empty", "nested")),
+            (PiBackend, os.path.join(".pi", "caller-empty", "nested")),
+        )
+        for backend_cls, relative in cases:
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="uninstall-dry-run-") as project:
+                    _emit(backend_cls, project)
+                    os.makedirs(os.path.join(project, relative))
+                    before = _tree_fingerprint(project)
+
+                    result = backend_cls(
+                        base_path=_BASE, compose_fn=ir.compose
+                    ).uninstall(project, "test-overlay", dry_run=True)
+
+                    self.assertEqual(result.errors, [])
+                    self.assertEqual(_tree_fingerprint(project), before)
 
     def test_codex_recompose_dry_run_leaves_tree_byte_identical(self):
         with tempfile.TemporaryDirectory(prefix="codex-dry-run-") as project:
@@ -433,13 +501,22 @@ class LifecycleOwnershipTest(unittest.TestCase):
 
     def test_modified_owned_artifact_refuses_recompose_and_uninstall(self):
         cases = (
-            (CodexBackend, os.path.join(".codex-plugin", "plugin.json")),
-            (PiBackend, os.path.join(".pi", "SYSTEM.md")),
+            (
+                CodexBackend,
+                os.path.join(".codex-plugin", "plugin.json"),
+                os.path.join("skills", "caller-empty", "nested"),
+            ),
+            (
+                PiBackend,
+                os.path.join(".pi", "SYSTEM.md"),
+                os.path.join(".pi", "caller-empty", "nested"),
+            ),
         )
-        for backend_cls, relative in cases:
+        for backend_cls, relative, empty_relative in cases:
             with self.subTest(backend=backend_cls.__name__):
                 with tempfile.TemporaryDirectory(prefix="modified-owned-") as project:
                     backend = _emit(backend_cls, project)
+                    os.makedirs(os.path.join(project, empty_relative))
                     _write(os.path.join(project, relative), b"caller modification\n")
                     before = _tree_fingerprint(project)
                     sources = backend.read_lock_overlay_sources(project)
