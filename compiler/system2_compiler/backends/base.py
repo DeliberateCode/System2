@@ -24,18 +24,27 @@ __all__ = [
 OWNERSHIP_SCHEMA_VERSION = 1
 
 
-def _validate_relative_artifact_path(path: object) -> str:
+def _canonicalize_relative_artifact_path(path: object) -> str:
+    """Convert a trusted backend path to the portable lock-path form."""
+    if not isinstance(path, str) or not path or "\x00" in path:
+        raise ValueError(f"invalid owned artifact path: {path!r}")
+    canonical = path.replace("\\", "/")
+    parts = canonical.split("/")
     if (
-        not isinstance(path, str)
-        or path in ("", ".", "..")
-        or "\x00" in path
-        or os.path.isabs(path)
-        or "\\" in path
-        or os.path.normpath(path) != path
-        or path.startswith(".." + os.sep)
+        canonical.startswith("/")
+        or (len(canonical) >= 2 and canonical[1] == ":")
+        or any(part in ("", ".", "..") for part in parts)
     ):
         raise ValueError(f"invalid owned artifact path: {path!r}")
-    return path
+    return "/".join(parts)
+
+
+def _validate_relative_artifact_path(path: object) -> str:
+    """Accept only canonical slash-separated paths from an untrusted lock."""
+    canonical = _canonicalize_relative_artifact_path(path)
+    if path != canonical:
+        raise ValueError(f"invalid owned artifact path: {path!r}")
+    return canonical
 
 
 def _sha256_bytes(content: bytes) -> str:
@@ -46,11 +55,11 @@ def build_artifact_ownership(
     planned: List[Tuple[str, str]], lock_relative_path: str
 ) -> dict:
     """Build the narrow ownership inventory embedded in a target lock."""
-    lock_rel = _validate_relative_artifact_path(lock_relative_path)
+    lock_rel = _canonicalize_relative_artifact_path(lock_relative_path)
     artifacts: List[dict] = []
     seen = set()
     for relative_path, content in planned:
-        rel = _validate_relative_artifact_path(relative_path)
+        rel = _canonicalize_relative_artifact_path(relative_path)
         if rel == lock_rel or rel in seen:
             raise ValueError(f"duplicate owned artifact path: {rel!r}")
         seen.add(rel)
@@ -151,18 +160,24 @@ def preflight_artifact_write(
     recompose: bool,
 ) -> List[str]:
     """Refuse collisions or unproven overwrites before a backend writes anything."""
-    lock_rel = _validate_relative_artifact_path(lock_relative_path)
-    planned_paths = [os.path.join(project_path, rel) for rel, _content in planned]
+    lock_rel = _canonicalize_relative_artifact_path(lock_relative_path)
+    planned_rels = [
+        _canonicalize_relative_artifact_path(rel) for rel, _content in planned
+    ]
+    planned_paths = [os.path.join(project_path, rel) for rel in planned_rels]
     if recompose:
         with open(os.path.join(project_path, lock_rel), "r", encoding="utf-8") as fh:
             lock_data = json.load(fh)
         owned_paths = verify_owned_artifacts(
             project_path, lock_data, lock_rel, require_all=True
         )
-        owned = {os.path.relpath(path, project_path) for path in owned_paths}
+        owned = {
+            _canonicalize_relative_artifact_path(os.path.relpath(path, project_path))
+            for path in owned_paths
+        }
         collisions = [
             rel
-            for rel, _content in planned
+            for rel in planned_rels
             if rel != lock_rel
             and os.path.lexists(os.path.join(project_path, rel))
             and rel not in owned
@@ -170,7 +185,7 @@ def preflight_artifact_write(
     else:
         collisions = [
             rel
-            for rel, _content in planned
+            for rel in planned_rels
             if os.path.lexists(os.path.join(project_path, rel))
         ]
     if collisions:

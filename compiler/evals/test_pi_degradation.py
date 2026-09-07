@@ -172,6 +172,7 @@ class PiDegradationReportTest(unittest.TestCase):
         )
 
         stripped = dict(produced)
+        del stripped["ownership"]
         del stripped["overlay_sources"]
         stripped_bytes = (json.dumps(stripped, indent=2) + "\n").encode("utf-8")
         prior_bytes = (
@@ -179,8 +180,8 @@ class PiDegradationReportTest(unittest.TestCase):
         ).encode("utf-8")
         self.assertEqual(
             stripped_bytes, prior_bytes,
-            "stripping overlay_sources[] must reproduce the prior lock bytes "
-            "byte-for-byte (additive-only, no existing key shifted)",
+            "stripping additive ownership and overlay_sources[] must reproduce "
+            "the prior lock bytes byte-for-byte (no existing key shifted)",
         )
 
 

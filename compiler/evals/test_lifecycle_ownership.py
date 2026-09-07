@@ -1,13 +1,19 @@
 """Regression tests for backend ownership boundaries and dry-run purity."""
 
 import hashlib
+import io
 import json
 import os
 import stat
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
-from system2_compiler import ir
+from system2_compiler import cli, ir
+from system2_compiler.backends.base import (
+    build_artifact_ownership,
+    validate_artifact_ownership,
+)
 from system2_compiler.backends.codex import CodexBackend
 from system2_compiler.backends.pi import PiBackend
 from evals import matrix, oracle
@@ -66,6 +72,14 @@ def _emit(backend_cls, project):
     backend = backend_cls(overlay_sources=[_TEST_OVERLAY])
     backend.emit(graph, project)
     return backend
+
+
+def _run_cli(argv):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        code = cli.main(argv)
+    return code, stdout.getvalue(), stderr.getvalue()
 
 
 def _assert_dry_run_unchanged(test_case, backend_cls, project, edited_relative):
@@ -189,6 +203,88 @@ class LifecycleOwnershipTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="pi-dry-run-") as project:
             _assert_dry_run_unchanged(self, PiBackend, project, "AGENTS.md")
 
+    def test_repeat_emit_and_cli_compose_are_authorized_by_valid_lock(self):
+        for backend_cls, target in ((CodexBackend, "codex"), (PiBackend, "pi")):
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="repeat-emit-") as project:
+                    graph = _compose(project)
+                    backend = backend_cls(overlay_sources=[_TEST_OVERLAY])
+                    first = backend.emit(graph, project)
+                    self.assertEqual(backend.emit(graph, project), first)
+
+                with tempfile.TemporaryDirectory(prefix="repeat-cli-") as project:
+                    compile_argv = [
+                        "compile", "--target", target, "--base", _BASE,
+                        "--project", project, "--overlays", _TEST_OVERLAY,
+                        "--format", "json",
+                    ]
+                    first_code, _out, first_err = _run_cli(compile_argv)
+                    repeat_code, _out, repeat_err = _run_cli(compile_argv)
+                    from_lock_code, _out, from_lock_err = _run_cli([
+                        "from-lock", "--target", target, "--base", _BASE,
+                        "--project", project, "--format", "json",
+                    ])
+                    self.assertEqual(first_code, 0, first_err)
+                    self.assertEqual(repeat_code, 0, repeat_err)
+                    self.assertEqual(from_lock_code, 0, from_lock_err)
+
+    def test_legacy_lock_without_ownership_refuses_repeat_emit(self):
+        for backend_cls in (CodexBackend, PiBackend):
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="legacy-lock-") as project:
+                    backend = _emit(backend_cls, project)
+                    lock_path = backend.lock_path(project)
+                    with open(lock_path, "r", encoding="utf-8") as fh:
+                        lock = json.load(fh)
+                    del lock["ownership"]
+                    with open(lock_path, "w", encoding="utf-8") as fh:
+                        json.dump(lock, fh)
+                    before = _tree_fingerprint(project)
+                    graph = _compose(project)
+                    with self.assertRaisesRegex(ValueError, "ownership record"):
+                        backend.emit(graph, project)
+                    self.assertEqual(_tree_fingerprint(project), before)
+
+    def test_ownership_paths_are_canonical_and_reject_ambiguous_inputs(self):
+        ownership = build_artifact_ownership(
+            [(r".pi\SYSTEM.md", "content")], r"locks\system2.pi.lock.json"
+        )
+        self.assertEqual(
+            [entry["path"] for entry in ownership["artifacts"]],
+            [".pi/SYSTEM.md", "locks/system2.pi.lock.json"],
+        )
+        lock = {"ownership": ownership}
+        self.assertEqual(
+            validate_artifact_ownership(lock, "locks/system2.pi.lock.json"),
+            [(".pi/SYSTEM.md", hashlib.sha256(b"content").hexdigest())],
+        )
+
+        invalid_paths = (
+            r".pi\SYSTEM.md",
+            "../outside",
+            "safe/../outside",
+            r"..\outside",
+            r"safe\..\outside",
+            "safe//artifact",
+        )
+        for invalid in invalid_paths:
+            with self.subTest(path=invalid):
+                damaged = json.loads(json.dumps(lock))
+                damaged["ownership"]["artifacts"][0]["path"] = invalid
+                with self.assertRaisesRegex(ValueError, "invalid owned artifact path"):
+                    validate_artifact_ownership(
+                        damaged, "locks/system2.pi.lock.json"
+                    )
+
+    def test_overlay_sources_is_last_lock_key_for_both_backends(self):
+        for backend_cls in (CodexBackend, PiBackend):
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="lock-order-") as project:
+                    backend = _emit(backend_cls, project)
+                    with open(backend.lock_path(project), "r", encoding="utf-8") as fh:
+                        lock = json.load(fh)
+                    self.assertEqual(list(lock)[-1], "overlay_sources")
+
     def test_first_emit_collision_refuses_without_partial_mutation(self):
         cases = (
             (CodexBackend, os.path.join(".codex-plugin", "plugin.json")),
@@ -280,7 +376,10 @@ class LifecycleOwnershipTest(unittest.TestCase):
                     self.assertEqual(lock["ownership"]["schema_version"], 1)
                     entries = lock["ownership"]["artifacts"]
                     paths = [entry["path"] for entry in entries]
-                    expected = [os.path.relpath(path, project) for path in written]
+                    expected = [
+                        os.path.relpath(path, project).replace(os.sep, "/")
+                        for path in written
+                    ]
                     self.assertEqual(paths, expected)
                     self.assertNotIn(foreign_relative, paths)
                     self.assertNotIn(excluded_root, paths)

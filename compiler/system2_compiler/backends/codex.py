@@ -833,8 +833,8 @@ def _build_lock(
     ir: System2Graph, overlay_sources: List[str], ownership: dict
 ) -> dict:
     lock = _build_degradation_report(ir)
-    lock["overlay_sources"] = list(overlay_sources)
     lock["ownership"] = ownership
+    lock["overlay_sources"] = list(overlay_sources)
     return lock
 
 
@@ -1393,7 +1393,10 @@ class CodexBackend:
 
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
         return self._emit_with_sources(
-            ir, project_path, self._resolve_overlay_sources(ir)
+            ir,
+            project_path,
+            self._resolve_overlay_sources(ir),
+            recompose=os.path.lexists(self.lock_path(project_path)),
         )
 
     def _emit_with_sources(

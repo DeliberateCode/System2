@@ -54,7 +54,6 @@ _REAL_CONFIG = os.path.join(os.path.expanduser("~"), ".config")
 # The full artifact set a composed Pi cell must emit (relative paths).
 _EXTENSION = os.path.join(".pi", "extensions", "system2.ts")
 _SYSTEM_MD = os.path.join(".pi", "SYSTEM.md")
-_AGENTS_MD = "AGENTS.md"
 _ORCH_PROMPT = os.path.join(".pi", "prompts", "orchestrator.md")
 _LOCK = "system2.pi.lock.json"
 _SKILLS = tuple(
@@ -206,7 +205,7 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         self.assertEqual(len(self.roles), 13, "the IR must carry the 13 pipeline roles")
 
     def test_fixed_artifacts_present(self):
-        for rel in (_EXTENSION, _SYSTEM_MD, _AGENTS_MD, _ORCH_PROMPT, _LOCK):
+        for rel in (_EXTENSION, _SYSTEM_MD, _ORCH_PROMPT, _LOCK):
             self.assertIn(rel, self.tree, f"emit must produce {rel!r}")
         for rel in _SKILLS:
             self.assertIn(rel, self.tree, f"emit must produce skill {rel!r}")
@@ -243,8 +242,8 @@ class PiEmitArtifactSetTest(unittest.TestCase):
     def test_total_emitted_file_count(self):
         # Recompute the total from actual emission.
         self.assertEqual(
-            len(self.written), 21,
-            f"expected 21 emitted files, got {len(self.written)}",
+            len(self.written), 20,
+            f"expected 20 emitted files, got {len(self.written)}",
         )
 
     def test_all_three_skills_carry_nonempty_frontmatter(self):
