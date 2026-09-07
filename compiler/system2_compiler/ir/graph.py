@@ -49,6 +49,7 @@ class Role:
     model_hint: Optional[str]
     capabilities: list
     pipeline: bool
+    contract_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class GateNode:
 class GateGraph:
     gates: list
     edges: list
+    approval_rule: str = ""
 
 
 @dataclass(frozen=True)

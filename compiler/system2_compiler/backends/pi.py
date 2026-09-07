@@ -101,6 +101,13 @@ def _ts_escape(value: str) -> str:
     return json.dumps(value)
 
 
+def _adapt_canonical_text(text: str) -> List[str]:
+    """Apply only the completion-mechanism substitution required by Pi."""
+    adapted = text.replace("`attempt_completion`", "a final completion response")
+    adapted = adapted.replace("attempt_completion", "a final completion response")
+    return adapted.rstrip("\n").splitlines()
+
+
 # Structured-IR markdown rendering (shared by SYSTEM.md / prompts)
 
 def _gate_order(gate_graph) -> List[int]:
@@ -270,6 +277,8 @@ def _build_system_md(ir: System2Graph) -> str:
             lines.append(
                 f"  - Overlay consultation [{phase}] ({con.overlay_name}/{cid})"
             )
+    if ir.gate_graph.approval_rule:
+        lines.append(f"- Approval rule: {ir.gate_graph.approval_rule}")
     lines.append("")
 
     lines.append("## Delegation contract")
@@ -282,28 +291,9 @@ def _build_system_md(ir: System2Graph) -> str:
         lines.append(f"{idx}. {role_name}")
     lines.append("")
 
-    lines.append("## Post-execution workflow")
-    lines.append("- Execution order: " + ", ".join(ir.post_execution.execution_order))
-    for tr in ir.post_execution.trigger_rules:
-        when = "always" if tr.always else f"when {tr.condition}"
-        lines.append(f"- Run {tr.agent} ({when})")
-    lines.append(
-        f"- Boomerang cap: {ir.post_execution.boomerang_cap}; on blockers: "
-        f"{ir.post_execution.blocker_policy.get('on_blockers', '')} "
-        f"(options: {', '.join(ir.post_execution.blocker_policy.get('options', []))})"
-    )
+    lines.extend(_adapt_canonical_text(ir.post_execution.opaque_text))
     lines.append("")
-
-    lines.append("## Maintenance & regression loop")
-    lines.append(
-        f"- Corrective-cycle cap: {ir.maintenance_loop.corrective_cycle_cap}"
-    )
-    lines.append(
-        "- Classification: " + ", ".join(ir.maintenance_loop.classification)
-    )
-    lines.append("- Regression ledger fields:")
-    for ledger_field in ir.maintenance_loop.regression_ledger_fields:
-        lines.append(f"  - {ledger_field}")
+    lines.extend(_adapt_canonical_text(ir.maintenance_loop.opaque_text))
     lines.append("")
 
     scoped = _orchestrator_scoped_lines(ir)
@@ -365,6 +355,10 @@ def _build_role_prompt(ir: System2Graph, role) -> str:
         lines.append(f"- Model hint: {role.model_hint} (recorded; Pi model is session-level)")
     else:
         lines.append("- Model: session default model (no hint; not silently assumed)")
+    lines.append("")
+    lines.append("## Canonical role contract")
+    lines.append("")
+    lines.extend(_adapt_canonical_text(role.contract_text))
     lines.append("")
     notes = _role_capability_notes(ir, role.name)
     if notes:

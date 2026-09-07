@@ -197,6 +197,13 @@ def _skill_frontmatter(name: str, description: str) -> List[str]:
     return ["---", *_yaml.dump({"name": name, "description": description}).rstrip("\n").split("\n"), "---", ""]
 
 
+def _adapt_canonical_text(text: str) -> List[str]:
+    """Apply only the completion-mechanism substitution required by Codex."""
+    adapted = text.replace("`attempt_completion`", "a final completion response")
+    adapted = adapted.replace("attempt_completion", "a final completion response")
+    return adapted.rstrip("\n").splitlines()
+
+
 def _trust_state_block_lines() -> List[str]:
     """Build the shared enforcement trust and activation guidance."""
     return [
@@ -243,6 +250,8 @@ def _build_orchestrator_skill(ir: System2Graph) -> str:
         if gate is None:
             continue
         lines.append(f"- Gate {gate.number} ({gate.name}): {gate.checklist_text}")
+    if ir.gate_graph.approval_rule:
+        lines.append(f"- Approval rule: {ir.gate_graph.approval_rule}")
     lines.append("")
 
     lines.append("## Delegation (in-session role-switching — the Pi /delegate precedent)")
@@ -266,19 +275,9 @@ def _build_orchestrator_skill(ir: System2Graph) -> str:
         lines.append(f"- {fieldname}")
     lines.append("")
 
-    lines.append("## Post-execution workflow")
-    lines.append("- Execution order: " + ", ".join(ir.post_execution.execution_order))
-    for tr in ir.post_execution.trigger_rules:
-        when = "always" if tr.always else f"when {tr.condition}"
-        lines.append(f"- Run {tr.agent} ({when})")
-    lines.append(
-        f"- Boomerang cap: {ir.post_execution.boomerang_cap}; on blockers: "
-        f"{ir.post_execution.blocker_policy.get('on_blockers', '')}"
-    )
+    lines.extend(_adapt_canonical_text(ir.post_execution.opaque_text))
     lines.append("")
-    lines.append("## Maintenance & regression loop")
-    lines.append(f"- Corrective-cycle cap: {ir.maintenance_loop.corrective_cycle_cap}")
-    lines.append("- Classification: " + ", ".join(ir.maintenance_loop.classification))
+    lines.extend(_adapt_canonical_text(ir.maintenance_loop.opaque_text))
     lines.append("")
     lines.append(
         "See `system2.codex.lock.json` for the per-capability fidelity report and the "
@@ -449,6 +448,10 @@ def _build_role_skill(ir: System2Graph, role) -> str:
         lines.append(f"- Model hint: {role.model_hint} (recorded; Codex model is session-level)")
     else:
         lines.append("- Model: session default model (no hint; not silently assumed)")
+    lines.append("")
+    lines.append("## Canonical role contract")
+    lines.append("")
+    lines.extend(_adapt_canonical_text(role.contract_text))
     lines.append("")
     notes = _role_capability_notes(ir, role.name)
     if notes:

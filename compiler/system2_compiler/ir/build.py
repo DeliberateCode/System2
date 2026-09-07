@@ -207,6 +207,24 @@ def _load_write_scope(name: str, base_path: str) -> str:
     return "|".join(f"(?:{pattern})" for pattern in patterns)
 
 
+def _load_role_contract(name: str, base_path: str) -> str:
+    """Load a canonical role body without its Claude-specific frontmatter."""
+    path = os.path.join(base_path, "agents", f"{name}.md")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        for idx, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                return "\n".join(lines[idx + 1:]).strip()
+        return ""
+    return text.strip()
+
+
 def _derive_roles(
     anchor_map: dict, capabilities: CapabilitySet, base_path: str
 ) -> List[Role]:
@@ -220,6 +238,7 @@ def _derive_roles(
             model_hint=None,
             capabilities=list(capabilities.by_agent.get(name, [])),
             pipeline=True,
+            contract_text=_load_role_contract(name, base_path),
         )
         for name in names
     ]
@@ -251,7 +270,16 @@ def _derive_gate_graph(
         (gates[i].number, gates[i + 1].number)
         for i in range(len(gates) - 1)
     ]
-    return GateGraph(gates=gates, edges=edges)
+    approval_rule = ""
+    for line in _section_text(base_text, "Operating principles").splitlines():
+        if line.startswith("- Quality gates."):
+            approval_rule = line[2:].strip()
+            break
+    return GateGraph(
+        gates=gates,
+        edges=edges,
+        approval_rule=approval_rule,
+    )
 
 
 def _derive_delegation_contract(
