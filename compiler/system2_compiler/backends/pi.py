@@ -21,6 +21,7 @@ from .base import (
     build_artifact_ownership,
     lock_sources_outside_project,
     preflight_artifact_write,
+    render_workflow_contract,
     validate_project_target,
     verify_owned_artifacts,
 )
@@ -99,13 +100,6 @@ def _status_by_capability() -> dict:
 def _ts_escape(value: str) -> str:
     """Escape a Python string for a double-quoted TypeScript string literal."""
     return json.dumps(value)
-
-
-def _adapt_canonical_text(text: str) -> List[str]:
-    """Apply only the completion-mechanism substitution required by Pi."""
-    adapted = text.replace("`attempt_completion`", "a final completion response")
-    adapted = adapted.replace("attempt_completion", "a final completion response")
-    return adapted.rstrip("\n").splitlines()
 
 
 # Structured-IR markdown rendering (shared by SYSTEM.md / prompts)
@@ -291,9 +285,7 @@ def _build_system_md(ir: System2Graph) -> str:
         lines.append(f"{idx}. {role_name}")
     lines.append("")
 
-    lines.extend(_adapt_canonical_text(ir.post_execution.opaque_text))
-    lines.append("")
-    lines.extend(_adapt_canonical_text(ir.maintenance_loop.opaque_text))
+    lines.extend(render_workflow_contract(ir))
     lines.append("")
 
     scoped = _orchestrator_scoped_lines(ir)
@@ -358,7 +350,7 @@ def _build_role_prompt(ir: System2Graph, role) -> str:
     lines.append("")
     lines.append("## Canonical role contract")
     lines.append("")
-    lines.extend(_adapt_canonical_text(role.contract_text))
+    lines.extend(role.contract_text.splitlines())
     lines.append("")
     notes = _role_capability_notes(ir, role.name)
     if notes:

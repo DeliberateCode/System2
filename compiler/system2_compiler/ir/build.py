@@ -37,6 +37,31 @@ _SECTION_RE = re.compile(r"^## (.+)$")
 _GATE_CHECKLIST_RE = re.compile(r"^- Gate (\d+) \(([^)]+)\): (.+)$")
 _DELEGATION_RE = re.compile(r"^\d+\) (?:system2:)?([a-z0-9-]+):")
 
+_ROLE_CONTRACT_REPLACEMENTS = (
+    (
+        "CLAUDE.md / .claude/rules/ / tests / evals",
+        "repository instructions / repository rules / tests / evals",
+    ),
+    ("`.claude/slop-catalog.md`", "the repository slop-pattern catalog"),
+    (".claude/slop-catalog.md", "the repository slop-pattern catalog"),
+    (".claude/settings.json", "harness settings"),
+    (".claude/rules/*.md", "repository rule files"),
+    (".claude/rules/", "repository rules/"),
+    ("CLAUDE.md", "repository instructions"),
+    ("Claude Code CLI", "active harness"),
+    (
+        "`plugin/allowlists/*.regex` convention",
+        "the repository's regex-per-line path-pattern convention",
+    ),
+    ("`executor.regex`", "the default executor write scope"),
+    ("`attempt_completion`", "a final completion response"),
+    ("attempt_completion", "a final completion response"),
+)
+
+
+class RoleContractError(ValueError):
+    """A canonical role source cannot produce a valid neutral contract."""
+
 
 # Base template + version (lifted verbatim from composer.compose / version read)
 
@@ -208,21 +233,39 @@ def _load_write_scope(name: str, base_path: str) -> str:
 
 
 def _load_role_contract(name: str, base_path: str) -> str:
-    """Load a canonical role body without its Claude-specific frontmatter."""
+    """Load and validate a harness-neutral canonical role body."""
+    relative_path = os.path.join("plugin", "agents", f"{name}.md")
     path = os.path.join(base_path, "agents", f"{name}.md")
     try:
         with open(path, "r", encoding="utf-8") as fh:
             text = fh.read()
-    except OSError:
-        return ""
+    except (OSError, UnicodeError):
+        raise RoleContractError(
+            f"Role contract {name!r} is missing or unreadable: {relative_path}"
+        )
+
+    if not text.strip():
+        raise RoleContractError(f"Role contract {name!r} is empty: {relative_path}")
 
     lines = text.splitlines()
-    if lines and lines[0].strip() == "---":
+    if lines[0].strip() == "---":
         for idx, line in enumerate(lines[1:], start=1):
             if line.strip() == "---":
-                return "\n".join(lines[idx + 1:]).strip()
-        return ""
-    return text.strip()
+                body = "\n".join(lines[idx + 1:]).strip()
+                break
+        else:
+            raise RoleContractError(
+                f"Role contract {name!r} has unterminated frontmatter: "
+                f"{relative_path}"
+            )
+    else:
+        body = text.strip()
+
+    if not body:
+        raise RoleContractError(f"Role contract {name!r} is empty: {relative_path}")
+    for source, neutral in _ROLE_CONTRACT_REPLACEMENTS:
+        body = body.replace(source, neutral)
+    return body
 
 
 def _derive_roles(

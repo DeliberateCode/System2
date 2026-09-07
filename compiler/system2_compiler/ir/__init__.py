@@ -259,16 +259,20 @@ def compose(
         injection=list(injection_warnings),
     )
 
-    graph = _build.build_graph(
-        base_path=base_path,
-        validated_manifests=validated_manifests,
-        overlay_path_map=overlay_path_map,
-        anchor_map=anchor_map,
-        schema=schema,
-        project_path=project_path,
-        profile=active_profile,
-        warnings=warnings,
-    )
+    try:
+        graph = _build.build_graph(
+            base_path=base_path,
+            validated_manifests=validated_manifests,
+            overlay_path_map=overlay_path_map,
+            anchor_map=anchor_map,
+            schema=schema,
+            project_path=project_path,
+            profile=active_profile,
+            warnings=warnings,
+        )
+    except _build.RoleContractError as exc:
+        role_errors = [str(exc)]
+        return _refusal(role_errors, {"validation_errors": role_errors})
 
     files_to_write = _compute_files_to_write(
         project_path, validated_manifests, overlay_path_map

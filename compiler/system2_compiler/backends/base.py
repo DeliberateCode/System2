@@ -16,6 +16,7 @@ __all__ = [
     "build_artifact_ownership",
     "lock_sources_outside_project",
     "preflight_artifact_write",
+    "render_workflow_contract",
     "validate_artifact_ownership",
     "validate_project_target",
     "verify_owned_artifacts",
@@ -23,6 +24,35 @@ __all__ = [
 
 
 OWNERSHIP_SCHEMA_VERSION = 1
+
+
+def render_workflow_contract(ir: System2Graph) -> List[str]:
+    """Render the structured post-execution and maintenance policies."""
+    lines = [
+        "## Post-execution workflow",
+        "- Execution order: " + ", ".join(ir.post_execution.execution_order),
+    ]
+    for trigger in ir.post_execution.trigger_rules:
+        when = "always" if trigger.always else f"when {trigger.condition}"
+        lines.append(f"- Run {trigger.agent} ({when})")
+    lines.extend(
+        [
+            "- Blocker policy: "
+            + ir.post_execution.blocker_policy.get("on_blockers", ""),
+            "- Blocker options: "
+            + ", ".join(ir.post_execution.blocker_policy.get("options", [])),
+            f"- Boomerang cap: {ir.post_execution.boomerang_cap}",
+            "",
+            "## Maintenance & regression loop",
+            f"- Corrective-cycle cap: {ir.maintenance_loop.corrective_cycle_cap}",
+            "- Classification: " + ", ".join(ir.maintenance_loop.classification),
+            "- Regression ledger fields:",
+        ]
+    )
+    lines.extend(
+        f"  - {field}" for field in ir.maintenance_loop.regression_ledger_fields
+    )
+    return lines
 
 
 def _canonicalize_relative_artifact_path(path: object) -> str:

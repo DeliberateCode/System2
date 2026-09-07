@@ -49,17 +49,37 @@ _ROLE_EXCERPTS = {
 
 _ORCHESTRATOR_EXCERPTS = (
     "Pause for explicit user approval at each gate unless the user says to skip gates.",
-    "Parse executor's completion summary for `files_changed`, `tests_added`, `test_outcomes`",
-    "system2:test-engineer -> simplification (code-reviewer in simplification mode) "
-    "-> system2:security-sentinel -> system2:eval-engineer -> "
-    "system2:docs-release -> system2:code-reviewer",
-    "(a) Delegate fixes to executor, then re-run this agent",
-    "(b) Override and proceed to next agent",
-    "(c) Abort the workflow",
-    "Read `spec/post-execution-log.md` to aggregate completion summaries",
+    "Execution order: test-engineer, code-reviewer (simplification), security-sentinel, "
+    "eval-engineer, docs-release, code-reviewer",
+    "Run test-engineer (always)",
+    "Run security-sentinel (when changed path/content matches security patterns)",
+    "Blocker policy: user-gate",
+    "Blocker options: delegate-fix, override, abort",
+    "Boomerang cap: 3",
+    "Corrective-cycle cap: 3",
+    "Classification: Local, Non-local",
+    "Regression ledger fields:",
     "previously passing tests now failing",
     "changed-file summary (files modified since last green run)",
-    "After **3** corrective cycles without convergence",
+)
+
+_FORBIDDEN_NEUTRAL_MECHANICS = (
+    "CLAUDE_PLUGIN_ROOT",
+    "SubagentStop",
+    "plugin/allowlists/",
+    ".task-budget.json",
+    "change-budget-reporter.py",
+    "system2:",
+    "attempt_completion",
+)
+
+_CLAUDE_ROLE_REFERENCES = (
+    "CLAUDE.md",
+    ".claude/settings.json",
+    ".claude/rules",
+    ".claude/slop-catalog.md",
+    "executor.regex",
+    "Claude Code CLI",
 )
 
 
@@ -102,7 +122,11 @@ class CanonicalRoleContractTest(unittest.TestCase):
                 self.assertNotIn("\ntools:\n", contract)
                 self.assertNotIn("\nhooks:\n", contract)
                 self.assertNotIn("\nmodel:", contract)
-                self.assertNotIn("CLAUDE_PLUGIN_ROOT", contract)
+                for forbidden in (
+                    *_FORBIDDEN_NEUTRAL_MECHANICS,
+                    *_CLAUDE_ROLE_REFERENCES,
+                ):
+                    self.assertNotIn(forbidden, contract)
         for name, excerpts in _ROLE_EXCERPTS.items():
             with self.subTest(role=name, control="semantics"):
                 self.assertEqual([], _missing(roles[name].contract_text, excerpts))
@@ -112,6 +136,22 @@ class CanonicalRoleContractTest(unittest.TestCase):
             "Pause for explicit user approval at each gate",
             serialized["gate_graph"]["approval_rule"],
         )
+        neutral_workflow = json.dumps(
+            {
+                "post_execution": {
+                    key: value
+                    for key, value in serialized["post_execution"].items()
+                    if key != "opaque_text"
+                },
+                "maintenance_loop": {
+                    key: value
+                    for key, value in serialized["maintenance_loop"].items()
+                    if key != "opaque_text"
+                },
+            }
+        )
+        for forbidden in _FORBIDDEN_NEUTRAL_MECHANICS:
+            self.assertNotIn(forbidden, neutral_workflow)
 
     def test_codex_and_pi_roles_preserve_distinctive_semantics(self):
         role_paths = {
@@ -125,7 +165,6 @@ class CanonicalRoleContractTest(unittest.TestCase):
                 with self.subTest(target=target, role=name):
                     artifact = _read(self.projects[target], path_for(name))
                     self.assertEqual([], _missing(artifact, excerpts))
-                    self.assertNotIn("attempt_completion", artifact)
                     self.assertIn("final completion response", artifact)
 
     def test_emitted_role_inventories_are_exactly_thirteen(self):
@@ -147,6 +186,30 @@ class CanonicalRoleContractTest(unittest.TestCase):
         }
         self.assertEqual(expected, codex_roles)
         self.assertEqual(expected, pi_roles)
+        for target, root, path_for in (
+            (
+                "codex",
+                self.projects["codex"],
+                lambda name: os.path.join(
+                    "skills", f"system2-role-{name}", "SKILL.md"
+                ),
+            ),
+            (
+                "pi",
+                self.projects["pi"],
+                lambda name: os.path.join(".pi", "prompts", f"role-{name}.md"),
+            ),
+        ):
+            for name in expected:
+                with self.subTest(target=target, role=name, control="neutrality"):
+                    artifact = _read(root, path_for(name))
+                    for forbidden in (
+                        *_FORBIDDEN_NEUTRAL_MECHANICS,
+                        *_CLAUDE_ROLE_REFERENCES,
+                    ):
+                        self.assertNotIn(forbidden, artifact)
+                    self.assertEqual(1, artifact.count("# System2 role:"))
+                    self.assertNotIn("## Canonical role contract\n\n\n", artifact)
 
     def test_generic_role_stub_fails_the_semantic_control(self):
         generic_stub = (
@@ -169,10 +232,68 @@ class CanonicalRoleContractTest(unittest.TestCase):
         for target, artifact in artifacts.items():
             with self.subTest(target=target):
                 self.assertEqual([], _missing(artifact, _ORCHESTRATOR_EXCERPTS))
-                self.assertNotIn("attempt_completion", artifact)
-                self.assertIn("final completion response", artifact)
+                for trigger in self.graph.post_execution.trigger_rules:
+                    when = "always" if trigger.always else f"when {trigger.condition}"
+                    self.assertIn(f"Run {trigger.agent} ({when})", artifact)
+                for option in self.graph.post_execution.blocker_policy["options"]:
+                    self.assertIn(option, artifact)
+                for field in self.graph.maintenance_loop.regression_ledger_fields:
+                    self.assertIn(field, artifact)
+                for forbidden in _FORBIDDEN_NEUTRAL_MECHANICS:
+                    self.assertNotIn(forbidden, artifact)
+                self.assertEqual(1, artifact.count("# System2 orchestrator"))
         self.assertIn("Trust state (READ THIS FIRST", artifacts["codex"])
         self.assertIn("Enforcement on Pi (read this", artifacts["pi"])
+
+
+class InvalidRoleContractTest(unittest.TestCase):
+    def _compose_with_executor_source(self, mutation):
+        source_parent = tempfile.mkdtemp(prefix="invalid-role-source-")
+        project = tempfile.mkdtemp(prefix="invalid-role-project-")
+        base = os.path.join(source_parent, "plugin")
+        shutil.copytree(_BASE, base)
+        role_path = os.path.join(base, "agents", "executor.md")
+        mutation(role_path)
+        try:
+            result = ir.compose(base, [_TEST_OVERLAY], project)
+            self.assertIsNone(result.graph)
+            self.assertEqual([], result.files_to_write)
+            self.assertTrue(result.errors)
+            self.assertIn("executor", result.errors[0])
+            self.assertEqual([], os.listdir(project))
+            return result
+        finally:
+            shutil.rmtree(source_parent, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+    def test_missing_role_source_refuses_without_a_graph_or_write_plan(self):
+        result = self._compose_with_executor_source(os.remove)
+        self.assertIn("missing or unreadable", result.errors[0])
+
+    def test_unreadable_role_source_refuses_without_a_raw_decode_error(self):
+        def make_unreadable(path):
+            with open(path, "wb") as fh:
+                fh.write(b"\xff\xfe\x00")
+
+        result = self._compose_with_executor_source(make_unreadable)
+        self.assertIn("missing or unreadable", result.errors[0])
+        self.assertNotIn("UnicodeDecodeError", result.errors[0])
+
+    def test_empty_role_source_refuses_without_a_graph_or_write_plan(self):
+        def empty(path):
+            with open(path, "w", encoding="utf-8"):
+                pass
+
+        result = self._compose_with_executor_source(empty)
+        self.assertIn("empty", result.errors[0])
+
+    def test_unterminated_frontmatter_refuses_without_a_graph_or_write_plan(self):
+        def unterminate(path):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("---\nname: executor\n")
+
+        result = self._compose_with_executor_source(unterminate)
+        self.assertIn("unterminated frontmatter", result.errors[0])
 
 
 if __name__ == "__main__":
