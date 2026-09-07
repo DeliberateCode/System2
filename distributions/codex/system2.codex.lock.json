@@ -1,27 +1,27 @@
 {
   "backend": "codex",
-  "codex_plugin_version": "0.2.2",
-  "enforcement": "conditional-node-hooks",
+  "codex_plugin_version": "0.2.3",
+  "enforcement": "unverified-candidate-hooks",
   "subagent_isolation": "adapted",
-  "FIDELITY": "System2 workflows for Codex. NOTE: safety enforcement is INACTIVE until you review and trust the bundled hooks via /hooks; until then System2 runs advisory-only. On Codex the safety gates (enforce-lease, block-dangerous, protect-sensitive) are ADAPTED, never native: they are deterministic pre-execution blocks (modern deny schema: hookSpecificOutput.permissionDecision=deny) ONLY once the guard is active \u2014 materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks; until then they are advisory-only, and an admin requirements.toml override can disable them immutably. budget is ADAPTED (a Stop-event report, not a block). format/typecheck are ADVISORY (skill instruction only). Even with hooks trusted, Codex hooks intercept shell commands and apply_patch-matched edits; they do NOT intercept WebSearch or other non-shell, non-MCP tools. Enforcement on Codex is therefore ADAPTED, never total. EMPTY-SCOPE (UNSCOPED) ROLES FAIL CLOSED: one or more roles carry an empty write_scope (read-only roles); when the hooks are trusted the lease BLOCKS every write for them. This is fail-closed enforcement, not a silent allow.",
+  "FIDELITY": "System2 workflows for Codex. NOTE: bundled hooks are unverified candidate artifacts, not a release enforcement guarantee; Codex safety capabilities remain advisory-only pending native acceptance. PENDING NATIVE ACCEPTANCE: enforce-lease, block-dangerous, protect-sensitive, and budget are ADVISORY with enforced:false and gated:false. Candidate guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested inputs, but native event routing, trust, and deny semantics are unverified and not a release guarantee. Same-session role adoption does not provide role-aware hook authorization. Candidate guards inspect command strings from recognized command keys, shell redirection and limited tee targets, and explicit edit paths or apply-patch headers. Other shell writes are not inspected. Synthetic corpus tests are not native Codex acceptance.",
   "capabilities": {
     "enforce-lease": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (PreToolUse on apply_patch/Edit/Write and shell write-redirections): a write outside the active role's write_scope regex is hard-blocked (modern Codex deny schema on stdout: {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":R}}) BEFORE the tool runs \u2014 deterministic pre-execution block IFF the guard is active: materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks. It is ADAPTED, never native: enforcement is gated on the Codex trust model (untrusted or admin-disabled hooks never run, so System2 is advisory-only until trusted), and tool coverage is PARTIAL (shell + apply_patch/Edit/Write only \u2014 NOT WebSearch or other non-shell, non-MCP tools). The matcher is the proven lease algorithm from backends/_enforcement.build_lease_gate_source: path project-normalized (./ collapsed, .. resolved, ~/absolute rejected) and FAILS CLOSED on any escape, scope start-anchored (new RegExp(\"^(?:\" + scope + \")\")), OR-joined from the role allowlist; a role with an empty write_scope (read-only, e.g. code-reviewer) has EVERY write BLOCKED (fail-closed). The active role is read from SYSTEM2_ACTIVE_ROLE (in-session role-switch, adapted) and falls back to the default role. enforced:false, gated:true.",
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested recognized edit paths, apply-patch headers, shell redirection targets, and limited tee targets. Other shell writes are not inspected, and same-session prompt/skill role adoption cannot update hook authorization. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false.",
       "enforced": false,
-      "gated": true
+      "gated": false
     },
     "block-dangerous": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (PreToolUse on shell): a command matching the backend-owned dangerous-command set is hard-blocked (modern Codex deny schema on stdout: {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":R}}) BEFORE execution \u2014 deterministic pre-execution block IFF the guard is active: materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks; advisory-only until trusted; partial tool coverage (shell only, not WebSearch/other). The matcher is the proven Claude dangerous-command set ported VERBATIM via backends/_enforcement.build_dangerous_command_patterns (flag-permutation _RM_RF_FLAGS: -rf/-fr/-r -f/--recursive --force, interior whitespace; rm -rf at / . .. ~, sudo rm -rf, chmod 777, git reset --hard, git push --force/-f to main/master, DROP TABLE, DELETE FROM without WHERE, mkfs, dd of=, shutdown, curl|sh). The command length is capped before matching and any internal error/timeout fails closed (exit 2). It is ADAPTED, never native: gated on the Codex trust model. enforced:false, gated:true.",
+      "status": "advisory",
+      "mechanism": "An unverified candidate Node shell guard emits hookSpecificOutput.permissionDecision=deny when recognized command strings match the backend-owned dangerous-command regex corpus. Uninspectable routed shapes and extraction/resource overflows fail closed inside the candidate. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false.",
       "enforced": false,
-      "gated": true
+      "gated": false
     },
     "protect-sensitive": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (PreToolUse on shell and on apply_patch/Edit/Write): an edit path or slash-delimited shell path touching a backend-owned sensitive path (.env, .env.*, .ssh/, .git/, .aws/, id_rsa, *.pem, *.key, credentials, secrets, .netrc/.npmrc/.pypirc) is hard-blocked; bare relative shell arguments (for example `cat .env`) are not parsed as paths and remain advisory (modern Codex deny schema on stdout: {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":R}}) BEFORE the tool runs \u2014 deterministic pre-execution block IFF the guard is active: materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks; advisory-only until trusted; partial tool coverage (shell + apply_patch/Edit/Write only, not WebSearch/other). The matcher is the proven sensitive-file set ported VERBATIM via backends/_enforcement.build_sensitive_path_patterns (segment/basename-anchored regexes). It is ADAPTED, never native: gated on the Codex trust model. enforced:false, gated:true.",
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested sensitive strings in recognized shell command text, explicit edit paths, and apply-patch headers. They do not parse every shell path or write mechanism. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false.",
       "enforced": false,
-      "gated": true
+      "gated": false
     },
     "format": {
       "status": "advisory",
@@ -36,11 +36,99 @@
       "gated": false
     },
     "budget": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (Stop/SubagentStop): the change budget (files touched, lines added/removed) is reported at turn end via the hook's systemMessage. This is a REPORT, not a block \u2014 a Stop-event hook cannot retroactively prevent edits, so it is adapted (a gated report), NOT native enforcement. enforced:false, gated:true.",
+      "status": "advisory",
+      "mechanism": "The candidate Stop/SubagentStop hook emits only a systemMessage instruction asking the agent to report files and line counts; it does not calculate budget data. Native delivery is unverified and this is not a release guarantee. enforced:false, gated:false.",
       "enforced": false,
-      "gated": true
+      "gated": false
     }
+  },
+  "ownership": {
+    "schema_version": 1,
+    "artifacts": [
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha256": "1d45f9b54224dbcbc5b94d420a9ff7241f256a25873c29ec21f6ee550bb982a3"
+      },
+      {
+        "path": "user-hooks/hooks.json.tmpl",
+        "sha256": "9425545fe4c2c790e67137616268abbbe94ada7222c1e6a0fd7cec8b42254dd4"
+      },
+      {
+        "path": "user-hooks/hooks/system2-shell-guard.js",
+        "sha256": "66ec452cebe1c2a89fba9cd51a34ef38f007f5e2658b605e61b7bff70f0fa043"
+      },
+      {
+        "path": "user-hooks/hooks/system2-edit-guard.js",
+        "sha256": "8d2d3d89e642bb30ccccdac877825d7dd33129760d1926e2add232ed492d61f6"
+      },
+      {
+        "path": "user-hooks/hooks/system2-budget.js",
+        "sha256": "6bb85b5b58fe3d7f01e2291c273ca0e5d25188d946fcc03dcf1a4be468732d55"
+      },
+      {
+        "path": "skills/system2/SKILL.md",
+        "sha256": "944fc1b9e0275054013ae61589788fafbd87c96cd67791f7abb715773fc33b3d"
+      },
+      {
+        "path": "skills/system2-doctor/SKILL.md",
+        "sha256": "f8d261220d1a28098572896111d6d408350e9f1cfadbf74582783478e8f77af6"
+      },
+      {
+        "path": "skills/system2-role-repo-governor/SKILL.md",
+        "sha256": "40a51bd7ee289fc37f9f81dae424784b64374654ee7d3a55171b5c9a77db1eb7"
+      },
+      {
+        "path": "skills/system2-role-spec-coordinator/SKILL.md",
+        "sha256": "22656fc7fff421030c6e9381bc6c9d15cbaba427770fb65f77f6af7b024855b0"
+      },
+      {
+        "path": "skills/system2-role-requirements-engineer/SKILL.md",
+        "sha256": "5bd0c4dfce7474aae8460a7f6735d02cf6f4a6d48dede6d6dfb426efe73d3018"
+      },
+      {
+        "path": "skills/system2-role-design-architect/SKILL.md",
+        "sha256": "fce72ab7e9fa1aa07c3de0e272b571b3f1f882964a1e70cfe0d4bc00bea760ca"
+      },
+      {
+        "path": "skills/system2-role-task-planner/SKILL.md",
+        "sha256": "5051b9419978e370358e8c9d35ba6467d8a62653a92fc6e0582eb41ad3b4e9d4"
+      },
+      {
+        "path": "skills/system2-role-executor/SKILL.md",
+        "sha256": "a1eda5ddcaa87cd9616c61ccbc1ea096d888bd2e9dae8735b7d984850accdee1"
+      },
+      {
+        "path": "skills/system2-role-test-engineer/SKILL.md",
+        "sha256": "36448dcc82828775aa2acbed63105b5ffe476d2b0605383aa0e60bc79b29819f"
+      },
+      {
+        "path": "skills/system2-role-security-sentinel/SKILL.md",
+        "sha256": "acce237e82038859141706afb22a50aba3b995ad86deadac823eb9cfa8a41212"
+      },
+      {
+        "path": "skills/system2-role-eval-engineer/SKILL.md",
+        "sha256": "07a32a7294df95661835160a28930dccec6c0acac68b3780af5833d7f1eddce7"
+      },
+      {
+        "path": "skills/system2-role-docs-release/SKILL.md",
+        "sha256": "d3b6cf41cfdfb1816453aba894b24c3c40681011f1de6bb259c2c11bc9551095"
+      },
+      {
+        "path": "skills/system2-role-code-reviewer/SKILL.md",
+        "sha256": "1eabca725463156611727794fa1eba4c0f1f003d1596f69f7ba1dbe9687c31f5"
+      },
+      {
+        "path": "skills/system2-role-postmortem-scribe/SKILL.md",
+        "sha256": "cb184f46c93a96d0d884ce92092e062e830cdc28a461cfa312c21243aad723af"
+      },
+      {
+        "path": "skills/system2-role-mcp-toolsmith/SKILL.md",
+        "sha256": "d8b4c21fd0a042067169fb75a39bb319ec782d126e251f2b1b2fbff65aa5c964"
+      },
+      {
+        "path": "system2.codex.lock.json"
+      }
+    ]
   },
   "overlay_sources": []
 }

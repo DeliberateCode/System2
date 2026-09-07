@@ -1,8 +1,32 @@
 {
-  "source_sha256": "cb89106499f9678f1e28b304ee0a3f8c0e06bc29ae2410e5f1616ed6dcf908e7",
-  "generated_from": "System2@4aaea09",
+  "source_sha256": "1c66d6ab30ff59994c48ccb799349bd5db56e8ca2d8f2884c8ca3aa346928251",
+  "artifact_sha256": "1628c7fb71e4eb9ac4dce61293acb6072ea5aec52c430603cb3de3c7786aa3ae",
+  "artifact_inventory": [
+    ".codex-plugin/plugin.json",
+    "skills/system2-doctor/SKILL.md",
+    "skills/system2-role-code-reviewer/SKILL.md",
+    "skills/system2-role-design-architect/SKILL.md",
+    "skills/system2-role-docs-release/SKILL.md",
+    "skills/system2-role-eval-engineer/SKILL.md",
+    "skills/system2-role-executor/SKILL.md",
+    "skills/system2-role-mcp-toolsmith/SKILL.md",
+    "skills/system2-role-postmortem-scribe/SKILL.md",
+    "skills/system2-role-repo-governor/SKILL.md",
+    "skills/system2-role-requirements-engineer/SKILL.md",
+    "skills/system2-role-security-sentinel/SKILL.md",
+    "skills/system2-role-spec-coordinator/SKILL.md",
+    "skills/system2-role-task-planner/SKILL.md",
+    "skills/system2-role-test-engineer/SKILL.md",
+    "skills/system2/SKILL.md",
+    "system2.codex.lock.json",
+    "user-hooks/hooks.json.tmpl",
+    "user-hooks/hooks/system2-budget.js",
+    "user-hooks/hooks/system2-edit-guard.js",
+    "user-hooks/hooks/system2-shell-guard.js"
+  ],
+  "generated_from": "System2@abc5554",
   "generator": "compiler/tools/regen_all.py",
-  "channel_version": "0.2.2",
+  "channel_version": "0.2.3",
   "compiler_version": "0.1.0",
-  "generated_at": "2026-08-29T23:54:10.710110+00:00"
+  "generated_at": "2026-09-07T17:06:59.872251+00:00"
 }

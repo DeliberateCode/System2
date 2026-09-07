@@ -138,7 +138,9 @@ const PATH_KEYS = [
 ];
 
 function pathsOf(event) {
-  const input = (event && (event.tool_input || event.toolInput || event.input || event.arguments)) || {};
+  if (!event || typeof event !== "object" || Array.isArray(event)) return null;
+  const input = (event.tool_input || event.toolInput || event.input || event.arguments) || {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const out = [];
   for (const key of PATH_KEYS) {
     const v = input[key];
@@ -151,18 +153,23 @@ function pathsOf(event) {
   if (patch) {
     const re = /^\s*(?:\*\*\* (?:Add|Update|Delete) File: |\+\+\+ (?:b\/)?|--- (?:a\/)?)(.+?)\s*$/gm;
     let m; let guard = 0;
-    while ((m = re.exec(patch)) !== null && guard < 512) {
+    while ((m = re.exec(patch)) !== null) {
+      if (guard >= 512) return { paths: out, overflow: true };
       guard++;
       const p = m[1].trim();
       if (p && p !== "/dev/null") out.push(p);
     }
   }
-  return out;
+  if (out.length === 0) return null;
+  return { paths: out, overflow: false };
 }
 
 function decide(event, raw) {
-  const paths = pathsOf(event);
-  // This enforcement hook carries its own canary sentinel (defense-in-depth).
+  const extracted = pathsOf(event);
+  if (extracted === null) return "enforce-lease: uninspectable routed edit event (candidate fail closed)";
+  if (extracted.overflow) return "enforce-lease: patch path extraction limit exceeded (candidate fail closed)";
+  const paths = extracted.paths;
+  // This candidate hook carries its own canary sentinel (defense-in-depth).
   const cr = canaryReason(paths);
   if (cr) return cr;
   for (const p of paths) {

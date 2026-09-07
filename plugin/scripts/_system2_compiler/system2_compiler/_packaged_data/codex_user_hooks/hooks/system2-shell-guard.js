@@ -168,11 +168,13 @@ function dangerousReason(command) {
 }
 
 function commandOf(event) {
-  const input = (event && (event.tool_input || event.toolInput || event.input || event.arguments)) || {};
+  if (!event || typeof event !== "object" || Array.isArray(event)) return null;
+  const input = (event.tool_input || event.toolInput || event.input || event.arguments) || {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   let cmd = input.command;
-  if (cmd === undefined && event) cmd = event.command;
-  if (Array.isArray(cmd)) cmd = cmd.map((x) => String(x)).join(" ");
-  return (typeof cmd === "string") ? cmd : "";
+  if (cmd === undefined) cmd = event.command;
+  if (Array.isArray(cmd) && cmd.every((x) => typeof x === "string")) cmd = cmd.join(" ");
+  return (typeof cmd === "string" && cmd.length > 0) ? cmd : null;
 }
 
 // Ignore redirect syntax inside quoted text.
@@ -199,24 +201,28 @@ function shellWriteTargets(command) {
   const mask = quoteMask(command);
   const re = /(?:>>?|(?:^|[|;&]\s*)tee(?:\s+-a)?\s+)\s*("[^"]+"|'[^']+'|[^\s;|&<>]+)/g;
   let m; let guard = 0;
-  while ((m = re.exec(command)) !== null && guard < 256) {
+  while ((m = re.exec(command)) !== null) {
+    if (guard >= 256) return { targets, overflow: true };
     guard++;
     if (mask[m.index]) continue;
     let t = m[1];
     if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) t = t.slice(1, -1);
     if (t.length > 0 && t !== "/dev/null") targets.push(t);
   }
-  return targets;
+  return { targets, overflow: false };
 }
 
 function decide(event, raw) {
   const command = commandOf(event);
+  if (command === null) return "block-dangerous: uninspectable routed shell event (candidate fail closed)";
   if (command.length > MAX_MATCH_LEN) return "block-dangerous: shell command exceeds safe match length (fail closed)";
   const dr = dangerousReason(command);
   if (dr) return dr;
   const sh = sensitiveHit(command);
   if (sh) return "protect-sensitive: " + sh;
-  const targets = shellWriteTargets(command);
+  const extracted = shellWriteTargets(command);
+  if (extracted.overflow) return "enforce-lease: shell target extraction limit exceeded (candidate fail closed)";
+  const targets = extracted.targets;
   for (const t of targets) {
     if (t.length > MAX_MATCH_LEN) return "enforce-lease: write target exceeds safe match length (fail closed)";
   }

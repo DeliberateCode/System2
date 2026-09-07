@@ -37,6 +37,43 @@ _SECTION_RE = re.compile(r"^## (.+)$")
 _GATE_CHECKLIST_RE = re.compile(r"^- Gate (\d+) \(([^)]+)\): (.+)$")
 _DELEGATION_RE = re.compile(r"^\d+\) (?:system2:)?([a-z0-9-]+):")
 
+_REPO_GOVERNOR_PERMISSION_DELIVERABLE_RE = re.compile(
+    r"^2\) \.claude/settings\.json \(if missing or incomplete\)$"
+    r".*?"
+    r"(?=\n\n^Discovery process:$)",
+    re.MULTILINE | re.DOTALL,
+)
+_REPO_GOVERNOR_NEUTRAL_PERMISSION_POLICY = """2) Sensitive and large-artifact access policy
+   - Restrict access to secrets, sensitive paths, and large artifacts using the active harness's documented native mechanism.
+   - Do not guess configuration syntax.
+   - If no such mechanism exists, report that native access controls are unsupported."""
+
+_ROLE_CONTRACT_REPLACEMENTS = (
+    (
+        "CLAUDE.md / .claude/rules/ / tests / evals",
+        "repository instructions / repository rules / tests / evals",
+    ),
+    ("`.claude/slop-catalog.md`", "the repository slop-pattern catalog"),
+    (".claude/slop-catalog.md", "the repository slop-pattern catalog"),
+    (".claude/settings.json", "harness settings"),
+    (".claude/rules/*.md", "repository rule files"),
+    (".claude/rules/", "repository rules/"),
+    ("CLAUDE.md", "repository instructions"),
+    ("Claude Code CLI", "active harness"),
+    ("Claude Code", "the active harness"),
+    (
+        "`plugin/allowlists/*.regex` convention",
+        "the repository's regex-per-line path-pattern convention",
+    ),
+    ("`executor.regex`", "the default executor write scope"),
+    ("`attempt_completion`", "a final completion response"),
+    ("attempt_completion", "a final completion response"),
+)
+
+
+class RoleContractError(ValueError):
+    """A canonical role source cannot produce a valid neutral contract."""
+
 
 # Base template + version (lifted verbatim from composer.compose / version read)
 
@@ -207,6 +244,46 @@ def _load_write_scope(name: str, base_path: str) -> str:
     return "|".join(f"(?:{pattern})" for pattern in patterns)
 
 
+def _load_role_contract(name: str, base_path: str) -> str:
+    """Load and validate a harness-neutral canonical role body."""
+    relative_path = os.path.join("plugin", "agents", f"{name}.md")
+    path = os.path.join(base_path, "agents", f"{name}.md")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except (OSError, UnicodeError):
+        raise RoleContractError(
+            f"Role contract {name!r} is missing or unreadable: {relative_path}"
+        )
+
+    if not text.strip():
+        raise RoleContractError(f"Role contract {name!r} is empty: {relative_path}")
+
+    lines = text.splitlines()
+    if lines[0].strip() == "---":
+        for idx, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                body = "\n".join(lines[idx + 1:]).strip()
+                break
+        else:
+            raise RoleContractError(
+                f"Role contract {name!r} has unterminated frontmatter: "
+                f"{relative_path}"
+            )
+    else:
+        body = text.strip()
+
+    if not body:
+        raise RoleContractError(f"Role contract {name!r} is empty: {relative_path}")
+    if name == "repo-governor":
+        body = _REPO_GOVERNOR_PERMISSION_DELIVERABLE_RE.sub(
+            _REPO_GOVERNOR_NEUTRAL_PERMISSION_POLICY, body, count=1
+        )
+    for source, neutral in _ROLE_CONTRACT_REPLACEMENTS:
+        body = body.replace(source, neutral)
+    return body
+
+
 def _derive_roles(
     anchor_map: dict, capabilities: CapabilitySet, base_path: str
 ) -> List[Role]:
@@ -220,6 +297,7 @@ def _derive_roles(
             model_hint=None,
             capabilities=list(capabilities.by_agent.get(name, [])),
             pipeline=True,
+            contract_text=_load_role_contract(name, base_path),
         )
         for name in names
     ]
@@ -251,7 +329,16 @@ def _derive_gate_graph(
         (gates[i].number, gates[i + 1].number)
         for i in range(len(gates) - 1)
     ]
-    return GateGraph(gates=gates, edges=edges)
+    approval_rule = ""
+    for line in _section_text(base_text, "Operating principles").splitlines():
+        if line.startswith("- Quality gates."):
+            approval_rule = line[2:].strip()
+            break
+    return GateGraph(
+        gates=gates,
+        edges=edges,
+        approval_rule=approval_rule,
+    )
 
 
 def _derive_delegation_contract(
@@ -454,5 +541,6 @@ def build_graph(
         blocking_semantics=_capabilities.blocking_semantics(),
         warnings=warnings,
         base_template=base_template,
+        overlay_sources=tuple(item.source_path for item in overlay_inputs),
         overlay_inputs=overlay_inputs,
     )

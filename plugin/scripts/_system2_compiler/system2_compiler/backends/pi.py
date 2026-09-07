@@ -15,7 +15,16 @@ from ._enforcement import (
     build_dangerous_command_patterns,
     build_sensitive_path_patterns,
 )
-from .base import DoctorReport, UninstallResult, lock_sources_outside_project
+from .base import (
+    DoctorReport,
+    UninstallResult,
+    build_artifact_ownership,
+    lock_sources_outside_project,
+    preflight_artifact_write,
+    render_workflow_contract,
+    validate_project_target,
+    verify_owned_artifacts,
+)
 
 __all__ = ["PiBackend"]
 
@@ -26,34 +35,40 @@ _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "pi.json"
 )
 
-_PI_VERSION_ASSUMED = "0.80.2"
+_PI_VERSION_ASSUMED = "0.85.1"
 
 # Shared matcher order is semantic because the extension reports the first match.
 
-# Default role before /delegate selects another scope.
-_DEFAULT_ACTIVE_ROLE = "executor"
+# Missing or invalid session state must never broaden authorization.
+_READ_ONLY_FALLBACK_ROLE = "__system2-read-only__"
 
 _ADVISORY_LABEL = "ADVISORY — NOT ENFORCED ON PI (instruction only)"
 
 _CAPABILITY_NOTE = {
     "enforce-lease": (
-        "NATIVE on Pi: the generated extension's on(\"tool_call\") handler blocks a "
-        "write/edit outside your role's write scope before the tool runs. The path is "
-        "project-normalized and the scope is start-anchored (a ../ or absolute escape "
-        "fails closed). A role with an empty write scope (read-only) has EVERY write "
-        "blocked (fail-closed)."
+        "ADAPTED/PARTIAL on Pi: the generated extension hard-blocks off-scope "
+        "structured write/edit targets and supported literal shell redirection/tee "
+        "targets before execution. It is not a general shell-write gate; commands "
+        "such as touch, cp, mv, install, sed -i, interpreters, and build tools are "
+        "unsupported and must not be treated as lease-enforced. Escapes, symlink "
+        "escapes, malformed targets, and empty write scopes fail closed on supported "
+        "paths."
     ),
     "block-dangerous": (
-        "NATIVE on Pi: the generated extension's on(\"tool_call\") handler hard-blocks "
-        "a dangerous bash command before it runs."
+        "NATIVE but bounded on Pi: the generated extension hard-blocks commands "
+        "matching its declared literal dangerous-command regex set before execution. "
+        "It does not claim sound arbitrary-shell normalization."
     ),
     "protect-sensitive": (
-        "NATIVE on Pi: the generated extension's on(\"tool_call\") handler hard-blocks "
-        "any read/write/edit/bash touching a sensitive path before it runs."
+        "NATIVE but bounded on Pi: the generated extension hard-blocks sensitive "
+        "structured paths and ordinary literal shell tokens before execution. "
+        "Malformed/overflowing shell token extraction fails closed. Unknown custom "
+        "tool schemas, shell expansion, and arbitrary-shell interpretation are outside "
+        "this claim."
     ),
     "budget": (
-        "ADAPTED on Pi: the generated extension's on(\"agent_end\") handler REPORTS "
-        "your change budget at turn end — a report, not a block."
+        "ADVISORY on Pi: agent_end emits only a reminder to include change-budget "
+        "information in the completion summary. It computes no report and is not gated."
     ),
     "format": (
         f"[{_ADVISORY_LABEL}: format] Format every file you edit before finishing. "
@@ -206,8 +221,8 @@ def _enforcement_summary(ir: System2Graph) -> List[str]:
 
     lines: List[str] = ["## Enforcement on Pi (read this — it is MIXED)"]
     lines.append(
-        "Pi has no built-in permission system; the generated "
-        "`.pi/extensions/system2.ts` extension IS the gate."
+        "Pi has no built-in permission system; the generated or package-discovered "
+        "System2 extension provides the bounded gates described below."
     )
     lines.append("")
     if native:
@@ -215,7 +230,7 @@ def _enforcement_summary(ir: System2Graph) -> List[str]:
         lines.extend(native)
         lines.append("")
     if adapted:
-        lines.append("### ADAPTED — reported, not blocked")
+        lines.append("### ADAPTED — partial native coverage or reporting")
         lines.extend(adapted)
         lines.append("")
     if advisory:
@@ -237,7 +252,7 @@ def _any_empty_write_scope(ir: System2Graph) -> bool:
     return any(not (r.write_scope or "").strip() for r in ir.roles)
 
 
-# Markdown artifact builders (.pi/SYSTEM.md, AGENTS.md, prompts, skills)
+# Markdown artifact builders (.pi/SYSTEM.md, prompts, skills)
 
 def _build_system_md(ir: System2Graph) -> str:
     lines: List[str] = ["# System2 orchestrator context (Pi)"]
@@ -262,6 +277,8 @@ def _build_system_md(ir: System2Graph) -> str:
             lines.append(
                 f"  - Overlay consultation [{phase}] ({con.overlay_name}/{cid})"
             )
+    if ir.gate_graph.approval_rule:
+        lines.append(f"- Approval rule: {ir.gate_graph.approval_rule}")
     lines.append("")
 
     lines.append("## Delegation contract")
@@ -274,28 +291,7 @@ def _build_system_md(ir: System2Graph) -> str:
         lines.append(f"{idx}. {role_name}")
     lines.append("")
 
-    lines.append("## Post-execution workflow")
-    lines.append("- Execution order: " + ", ".join(ir.post_execution.execution_order))
-    for tr in ir.post_execution.trigger_rules:
-        when = "always" if tr.always else f"when {tr.condition}"
-        lines.append(f"- Run {tr.agent} ({when})")
-    lines.append(
-        f"- Boomerang cap: {ir.post_execution.boomerang_cap}; on blockers: "
-        f"{ir.post_execution.blocker_policy.get('on_blockers', '')} "
-        f"(options: {', '.join(ir.post_execution.blocker_policy.get('options', []))})"
-    )
-    lines.append("")
-
-    lines.append("## Maintenance & regression loop")
-    lines.append(
-        f"- Corrective-cycle cap: {ir.maintenance_loop.corrective_cycle_cap}"
-    )
-    lines.append(
-        "- Classification: " + ", ".join(ir.maintenance_loop.classification)
-    )
-    lines.append("- Regression ledger fields:")
-    for ledger_field in ir.maintenance_loop.regression_ledger_fields:
-        lines.append(f"  - {ledger_field}")
+    lines.extend(render_workflow_contract(ir))
     lines.append("")
 
     scoped = _orchestrator_scoped_lines(ir)
@@ -305,42 +301,6 @@ def _build_system_md(ir: System2Graph) -> str:
 
     lines.extend(_enforcement_summary(ir))
     return "\n".join(lines).rstrip("\n") + "\n"
-
-
-def _build_agents_md(ir: System2Graph) -> str:
-    lines: List[str] = ["# AGENTS.md — System2 (Pi project context)"]
-    lines.append("")
-    lines.append(
-        "This project runs the System2 multi-agent workflow on Pi. The generated "
-        "`.pi/extensions/system2.ts` extension provides the native safety gates "
-        "(see `.pi/SYSTEM.md` for the MIXED enforcement story)."
-    )
-    lines.append("")
-    lines.append("## The 13-role pipeline")
-    for idx, role_name in enumerate(ir.delegation_contract.preferred_order, start=1):
-        lines.append(f"{idx}. {role_name}")
-    lines.append("")
-    lines.append("## Gate pipeline")
-    gate_by_number = {g.number: g for g in ir.gate_graph.gates}
-    gate_names = [
-        f"Gate {n} ({gate_by_number[n].name})"
-        for n in _gate_order(ir.gate_graph)
-        if n in gate_by_number
-    ]
-    lines.append(" -> ".join(gate_names))
-    lines.append("")
-    lines.append("## Where to look")
-    lines.append("- `.pi/SYSTEM.md` — full orchestrator context + enforcement honesty.")
-    lines.append("- `.pi/skills/system2-{init,compose,doctor}/SKILL.md` — the skills.")
-    lines.append(
-        "- `.pi/skills/system2-{codex,gemini,stateless-loop}/SKILL.md` — utility "
-        "skills (each requires its external CLI; see the skill body)."
-    )
-    lines.append(
-        "- `/delegate <role>` — dispatch a sub-task to one of the 13 roles."
-    )
-    lines.append("- `system2.pi.lock.json` — the per-capability degradation report.")
-    return "\n".join(lines) + "\n"
 
 
 def _role_capability_notes(ir: System2Graph, role_name: str) -> List[str]:
@@ -357,7 +317,7 @@ def _role_capability_notes(ir: System2Graph, role_name: str) -> List[str]:
         for cap in native:
             lines.append(f"- {cap}: {_CAPABILITY_NOTE.get(cap, '')}")
     if adapted:
-        lines.append("Adapted (reported, not blocked):")
+        lines.append("Adapted (partial native coverage or reporting):")
         for cap in adapted:
             lines.append(f"- {cap}: {_CAPABILITY_NOTE.get(cap, '')}")
     if advisory:
@@ -380,19 +340,23 @@ def _build_role_prompt(ir: System2Graph, role) -> str:
     scope = (role.write_scope or "").strip()
     if scope:
         lines.append(
-            f"- Write scope (NATIVE lease — edits outside this are BLOCKED): "
-            f"`{scope}`"
+            f"- Write scope (PARTIAL native lease — structured writes and supported "
+            f"shell redirection/tee outside this are BLOCKED): `{scope}`"
         )
     else:
         lines.append(
             "- Write scope: none (read-only role). The lease gate FAILS CLOSED for "
-            "this role — any write/edit is BLOCKED before it runs. Produce review "
-            "output, not file edits."
+            "this role — any structured write/edit and supported shell redirection/tee "
+            "is BLOCKED before it runs. Produce review output, not file edits."
         )
     if role.model_hint:
         lines.append(f"- Model hint: {role.model_hint} (recorded; Pi model is session-level)")
     else:
         lines.append("- Model: session default model (no hint; not silently assumed)")
+    lines.append("")
+    lines.append("## Canonical role contract")
+    lines.append("")
+    lines.extend(role.contract_text.splitlines())
     lines.append("")
     notes = _role_capability_notes(ir, role.name)
     if notes:
@@ -427,47 +391,7 @@ _SKILL_DESCRIPTIONS = {
     "init": "Set up the System2 workflow on Pi.",
     "compose": "Run the System2 gate pipeline and delegation.",
     "doctor": "Verify the System2 extension loads and the gates are live.",
-    "codex": (
-        "Run a prompt through OpenAI's Codex CLI (`codex exec`) non-interactively for "
-        "a second opinion or code review from a fresh Codex instance."
-    ),
-    "gemini": (
-        "Run a prompt through Google's Antigravity CLI (`agy`) non-interactively for "
-        "a second opinion or code review from a fresh instance."
-    ),
-    "stateless-loop": (
-        "Run an instruction in a stateless subprocess loop using `claude -p` until "
-        "the task reports a CLEAN status or max iterations are reached."
-    ),
 }
-
-# External CLI prerequisites for utility skills.
-_UTILITY_SKILL_PREREQUISITES = {
-    "codex": "the OpenAI Codex CLI (`codex`) on PATH",
-    "gemini": "Google's Antigravity CLI (`agy`) on PATH",
-    "stateless-loop": (
-        "the Claude Code CLI (`claude`) on PATH — required even though this host is "
-        "not Claude Code"
-    ),
-}
-
-# Only the Codex utility skill needs to state that it launches a fresh,
-# non-interactive process. Keep this text identical to the Codex backend.
-_FRESH_CODEX_HONESTY = (
-    "This spawns a NEW non-interactive `codex exec` subprocess — a fresh Codex "
-    "instance with none of this session's context. It is a second opinion from a "
-    "clean slate, not a fork of the current session."
-)
-
-# Each external-CLI utility skill states this Pi-specific limitation. The base
-# init, compose, and doctor skills invoke no external CLI and need no such note.
-_KNOWN_PI_LIMITATION = (
-    "The System2 Pi extension's protect-sensitive gate scans the ENTIRE bash command, "
-    "with no override, and Pi has no permission prompt to bypass it — so a prompt "
-    "containing a token like `credentials` or `secrets` is hard-blocked before the CLI "
-    "runs. Workaround: reword the prompt to avoid those tokens. This is the gate doing "
-    "its declared job, not a bug — stated here so a block is never a surprise."
-)
 
 
 def _build_skill(name: str, ir: System2Graph) -> str:
@@ -478,13 +402,14 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "\n"
             "Set up the System2 workflow on Pi.\n"
             "\n"
-            "1. The `.pi/extensions/system2.ts` extension is auto-discovered by Pi "
-            "from `.pi/extensions/`; it installs the native safety gates "
-            "(enforce-lease, block-dangerous, protect-sensitive) and the budget "
-            "report.\n"
-            "2. Read `.pi/SYSTEM.md` for the orchestrator context and the MIXED "
-            "enforcement story.\n"
-            "3. Use `/delegate <role>` to dispatch to one of the 13 roles.\n"
+            "1. Confirm the System2 extension was discovered from this project or "
+            "from the installed Pi package; package discovery does not require a "
+            "project `.pi/extensions/system2.ts`.\n"
+            "2. Run `/system2-init` when using the package. It materializes only its "
+            "managed project payload, never replaces caller-owned `AGENTS.md`, and "
+            "reloads Pi after a successful write.\n"
+            "3. Read `.pi/SYSTEM.md` for the orchestrator context and MIXED "
+            "enforcement story, then use `/delegate <role>`.\n"
         )
     elif name == "compose":
         order = ", ".join(ir.delegation_contract.preferred_order)
@@ -506,339 +431,15 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "\n"
             "Verify the System2 extension loads and the gates are live.\n"
             "\n"
-            "1. Confirm Pi discovered `.pi/extensions/system2.ts` (no load error).\n"
-            "2. Confirm the `tool_call` handler is registered (the native gates).\n"
+            "1. Confirm Pi lists `/delegate` as an extension command; inspect its "
+            "command source information to distinguish project and package discovery.\n"
+            "2. Confirm the `tool_call` handler is registered (the bounded gates).\n"
             "3. The operator analogue of the proven-blocking test: a dangerous bash "
             "command and a sensitive-path read must be BLOCKED before they run; an "
             "off-scope write must be BLOCKED when the active role has a write scope.\n"
             "4. Read `system2.pi.lock.json` for the per-capability degradation "
-            "report and the FIDELITY banner.\n"
+            "report, unsupported shell-write disclosure, and FIDELITY banner.\n"
         )
-    elif name == "codex":
-        # Keep Codex CLI flags synchronized with the source skill.
-        lines: List[str] = []
-        lines.append(f"# {skill_name} -- Codex CLI Runner")
-        lines.append("")
-        lines.append(f"You are executing the {skill_name} skill. Follow these steps exactly.")
-        lines.append("")
-        lines.append(_FRESH_CODEX_HONESTY)
-        lines.append("")
-        lines.append("## Prerequisite")
-        lines.append("")
-        lines.append(
-            f"Requires {_UTILITY_SKILL_PREREQUISITES[name]}. If the CLI is missing, "
-            "stop and report the missing prerequisite verbatim; do not improvise a "
-            "substitute."
-        )
-        lines.append("")
-        lines.append("## Known Pi limitation")
-        lines.append("")
-        lines.append(_KNOWN_PI_LIMITATION)
-        lines.append("")
-        lines.append("## Arguments")
-        lines.append("")
-        lines.append("The user provides:")
-        lines.append(
-            "- **prompt** (required): the instruction to send to Codex. May be bare "
-            "text or quoted."
-        )
-        lines.append(
-            "- **additional flags** (optional): any flags supported by `codex exec` "
-            "(e.g. `--model <model>`, `--sandbox <mode>`, `--config <key=value>`). "
-            "These are passed through verbatim."
-        )
-        lines.append("")
-        lines.append("## Execution")
-        lines.append("")
-        lines.append("### Argument parsing")
-        lines.append("")
-        lines.append(
-            "1. Split the user's input into the **prompt** portion and any **flags** "
-            "(tokens starting with `-` or `--`, plus their values)."
-        )
-        lines.append(
-            "2. Known Codex exec flags that take a value: `--model`/`-m`, "
-            "`--config`/`-c`, `--image`/`-i`, `--sandbox`/`-s`, `--profile`/`-p`, "
-            "`--local-provider`, `--remote-auth-token-env`. When encountered, consume "
-            "the next token as the flag's value."
-        )
-        lines.append(
-            "3. Known Codex exec boolean flags: `--oss`, `--strict-config`, "
-            "`--dangerously-bypass-approvals-and-sandbox`. Also `--enable` and "
-            "`--disable` take a value each."
-        )
-        lines.append(
-            "4. Everything that is not a recognized flag or a flag's value is the "
-            "**prompt**."
-        )
-        lines.append("")
-        lines.append("### Running Codex")
-        lines.append("")
-        lines.append(
-            "Run a **single shell command**; allow up to 10 minutes before assuming a "
-            "hang:"
-        )
-        lines.append("")
-        lines.append("```")
-        lines.append("codex exec --ephemeral -c history.persistence=none '<prompt>' [flags...]")
-        lines.append("```")
-        lines.append("")
-        lines.append(
-            "**Statelessness (required).** This skill is a one-shot second opinion; "
-            "each call must be hermetic and must not see or leave behind any record of "
-            "other invocations. Codex otherwise persists state to two on-disk stores "
-            "under `$CODEX_HOME` (default `~/.codex`): session rollout transcripts in "
-            "`sessions/`, and a running prompt log in `history.jsonl` (default "
-            "persistence `save-all`). Plain `codex exec` does not auto-resume those, "
-            "but the running agent can read them mid-task, and every run appends to "
-            "them. To prevent both:"
-        )
-        lines.append("")
-        lines.append(
-            "- Always pass `--ephemeral` (do not write session rollout files), unless "
-            "the user explicitly passed it."
-        )
-        lines.append(
-            "- Always pass `-c history.persistence=none` (do not append to "
-            "`history.jsonl`), unless the user already supplied a "
-            "`history.persistence` override via their own `-c`/`--config`."
-        )
-        lines.append(
-            "- Never add `resume` / `--last`, and never set `experimental_resume` — "
-            "those deliberately reload prior context."
-        )
-        lines.append("")
-        lines.append("Shell-quoting rules for the prompt:")
-        lines.append("- If the prompt contains no single quotes, wrap it in single quotes.")
-        lines.append(
-            "- If it contains single quotes, wrap it in `$'...'` syntax with internal "
-            "single quotes escaped as `\\'`."
-        )
-        lines.append("- Never pass the prompt unquoted.")
-        lines.append("")
-        lines.append("### Error handling")
-        lines.append("")
-        lines.append(
-            "If `codex exec` exits non-zero, report the exit code and any stderr "
-            "output to the user."
-        )
-        lines.append("")
-        lines.append("## Output")
-        lines.append("")
-        lines.append(
-            "Present Codex's output directly to the user. After completion, report "
-            "success or failure status."
-        )
-        body = "\n".join(lines).rstrip("\n") + "\n"
-    elif name == "gemini":
-        # Keep Gemini CLI flags synchronized with the source skill.
-        lines = []
-        lines.append(f"# {skill_name} -- Antigravity (agy) CLI Runner")
-        lines.append("")
-        lines.append(
-            f"You are executing the {skill_name} skill. It drives Google's "
-            "Antigravity CLI, whose binary is `agy` (this replaced the older "
-            "standalone `gemini` CLI). Follow these steps exactly."
-        )
-        lines.append("")
-        lines.append("## Prerequisite")
-        lines.append("")
-        lines.append(
-            f"Requires {_UTILITY_SKILL_PREREQUISITES[name]}. If the CLI is missing, "
-            "stop and report the missing prerequisite verbatim; do not improvise a "
-            "substitute."
-        )
-        lines.append("")
-        lines.append("## Known Pi limitation")
-        lines.append("")
-        lines.append(_KNOWN_PI_LIMITATION)
-        lines.append("")
-        lines.append("## Arguments")
-        lines.append("")
-        lines.append("The user provides:")
-        lines.append(
-            "- **prompt** (required): the instruction to send to the model. May be "
-            "bare text or quoted."
-        )
-        lines.append(
-            "- **additional flags** (optional): any flags supported by `agy` (e.g. "
-            "`--model <model>`, `--sandbox`, `--dangerously-skip-permissions`). These "
-            "are passed through verbatim."
-        )
-        lines.append("")
-        lines.append("## Execution")
-        lines.append("")
-        lines.append("### Argument parsing")
-        lines.append("")
-        lines.append(
-            "1. Split the user's input into the **prompt** portion and any **flags** "
-            "(tokens starting with `-` or `--`, plus their values)."
-        )
-        lines.append(
-            "2. Known `agy` flags that take a value: `--model`, `--add-dir` "
-            "(repeatable), `--conversation`, `--log-file`, `--print-timeout`. When "
-            "encountered, consume the next token as the flag's value."
-        )
-        lines.append(
-            "3. Known `agy` boolean flags: `--continue`/`-c`, `--sandbox`, "
-            "`--dangerously-skip-permissions`. These stand alone."
-        )
-        lines.append(
-            "4. Everything that is not a recognized flag or a flag's value is the "
-            "**prompt**."
-        )
-        lines.append("")
-        lines.append(
-            "Note on migration: the old `gemini` flags map as follows — "
-            "`--yolo`/`-y` -> `--dangerously-skip-permissions`; "
-            "`--include-directories` -> `--add-dir`; `--resume`/`-r` -> "
-            "`--continue`/`-c` (most recent) or `--conversation <id>` (specific "
-            "session); `-m` short alias is gone (use `--model`). Flags like "
-            "`--debug`/`-d`, `--output-format`, `--extensions`, `--yolo` have no "
-            "`agy` equivalent — drop them if a user passes them, and tell the user "
-            "you did."
-        )
-        lines.append("")
-        lines.append("### Running agy")
-        lines.append("")
-        lines.append(
-            "Run a **single shell command**; allow up to 10 minutes before assuming a "
-            "hang:"
-        )
-        lines.append("")
-        lines.append("```")
-        lines.append("agy -p '<prompt>' [flags...]")
-        lines.append("```")
-        lines.append("")
-        lines.append(
-            "`agy`'s print mode has its own `--print-timeout` (default 5m), which is "
-            "shorter than the 10-minute window above. To avoid `agy` cutting off a "
-            "long run early, append `--print-timeout 9m` unless the user already "
-            "supplied a `--print-timeout` flag."
-        )
-        lines.append("")
-        lines.append("Shell-quoting rules for the prompt:")
-        lines.append("- If the prompt contains no single quotes, wrap it in single quotes.")
-        lines.append(
-            "- If it contains single quotes, wrap it in `$'...'` syntax with internal "
-            "single quotes escaped as `\\'`."
-        )
-        lines.append("- Never pass the prompt unquoted.")
-        lines.append("")
-        lines.append("### Error handling")
-        lines.append("")
-        lines.append(
-            "If `agy` exits non-zero, report the exit code and any stderr output to "
-            "the user. If the failure is `command not found: agy`, tell the user the "
-            "Antigravity CLI is not installed or not on PATH (it is typically "
-            "installed at `/opt/homebrew/bin/agy`)."
-        )
-        lines.append("")
-        lines.append("## Output")
-        lines.append("")
-        lines.append(
-            "Present agy's output directly to the user. After completion, report "
-            "success or failure status."
-        )
-        body = "\n".join(lines).rstrip("\n") + "\n"
-    elif name == "stateless-loop":
-        # Keep loop status and iteration behavior synchronized with the source skill.
-        lines = []
-        lines.append(f"# {skill_name} -- Stateless Subprocess Loop")
-        lines.append("")
-        lines.append(f"You are executing the {skill_name} skill. Follow these steps exactly.")
-        lines.append("")
-        lines.append("## Prerequisite")
-        lines.append("")
-        lines.append(
-            f"Requires {_UTILITY_SKILL_PREREQUISITES[name]}. If the CLI is missing, "
-            "stop and report the missing prerequisite verbatim; do not improvise a "
-            "substitute."
-        )
-        lines.append("")
-        lines.append("## Known Pi limitation")
-        lines.append("")
-        lines.append(_KNOWN_PI_LIMITATION)
-        lines.append("")
-        lines.append("## Arguments")
-        lines.append("")
-        lines.append("The user provides:")
-        lines.append(
-            "- **instruction** (required): the task to run each iteration. May be "
-            "bare text or quoted."
-        )
-        lines.append("- **--max_iterations N** (optional): iteration cap, default 10.")
-        lines.append("")
-        lines.append("## Execution")
-        lines.append("")
-        lines.append(
-            "Do NOT run the Python script. Orchestrate the loop yourself so each "
-            "iteration is a separate shell command, each allowed up to 10 minutes "
-            "before assuming a hang."
-        )
-        lines.append("")
-        lines.append("### Prompt construction")
-        lines.append("")
-        lines.append(
-            "Build the full prompt by appending this stop directive to the user's "
-            "instruction:"
-        )
-        lines.append("")
-        lines.append("```")
-        lines.append("<instruction>")
-        lines.append("")
-        lines.append("---")
-        lines.append(
-            "STOP CONDITION: When the task above is fully resolved and no further "
-            "action is needed, output exactly this line on its own:"
-        )
-        lines.append("STATUS: CLEAN")
-        lines.append(
-            "If the task is NOT fully resolved, do NOT output STATUS: CLEAN. "
-            "Describe what remains."
-        )
-        lines.append("---")
-        lines.append("```")
-        lines.append("")
-        lines.append("### Loop")
-        lines.append("")
-        lines.append("For each iteration from 1 to max_iterations:")
-        lines.append("")
-        lines.append("1. Print a header: `Iteration {i}/{max_iterations}`")
-        lines.append(
-            "2. Run a **single shell command**; allow up to 10 minutes before "
-            "assuming a hang:"
-        )
-        lines.append("   ```")
-        lines.append("   claude -p '<full_prompt>'")
-        lines.append("   ```")
-        lines.append("   Shell-quoting rules:")
-        lines.append(
-            "   - If the prompt contains no single quotes, wrap it in single quotes."
-        )
-        lines.append(
-            '   - If it contains single quotes, wrap it in double quotes and escape '
-            'any `"`, `$`, or `` ` `` inside.'
-        )
-        lines.append("   - Never pass the prompt unquoted.")
-        lines.append("3. Check the output for `STATUS: CLEAN`.")
-        lines.append("   - If found: report `Resolved after {i} iteration(s).` and stop.")
-        lines.append("   - If not found: proceed to the next iteration.")
-        lines.append(
-            "4. If `claude -p` exits non-zero, log the exit code but continue to the "
-            "next iteration."
-        )
-        lines.append("")
-        lines.append("If all iterations complete without `STATUS: CLEAN`, report:")
-        lines.append("`Max iterations ({max_iterations}) reached without STATUS: CLEAN.`")
-        lines.append("")
-        lines.append("## Output")
-        lines.append("")
-        lines.append(
-            "Present subprocess output directly to the user. After completion, "
-            "report the iteration count and final status."
-        )
-        body = "\n".join(lines).rstrip("\n") + "\n"
     else:
         raise ValueError(f"unknown Pi skill name: {name!r}")
     return _skill_frontmatter(skill_name, _SKILL_DESCRIPTIONS[name]) + body
@@ -848,11 +449,12 @@ def _build_skill(name: str, ir: System2Graph) -> str:
 
 def _fidelity_banner(ir: System2Graph) -> str:
     banner = (
-        "On Pi, the safety gates (enforce-lease, block-dangerous, protect-sensitive) "
-        "are NATIVE: the generated extension's on(\"tool_call\") handler hard-blocks "
-        "before the tool runs. budget is ADAPTED (reported at agent_end, not "
-        "blocked). format/typecheck are ADVISORY (SYSTEM.md instruction only, not "
-        "enforced)."
+        "On Pi, block-dangerous and protect-sensitive are bounded NATIVE gates for "
+        "their declared literal patterns. enforce-lease is ADAPTED/PARTIAL: structured "
+        "write/edit and supported shell redirection/tee targets are gated, but other "
+        "shell write mechanisms are unsupported. budget is ADVISORY: agent_end emits "
+        "a reminder, not a computed report or gate. format/typecheck are ADVISORY "
+        "instructions only."
     )
     if _any_empty_write_scope(ir):
         banner += (
@@ -899,10 +501,12 @@ def _role_scope_entries(ir: System2Graph) -> List[Tuple[str, str]]:
 
 
 def _default_active_role(ir: System2Graph) -> str:
-    names = ir.delegation_contract.preferred_order
-    if _DEFAULT_ACTIVE_ROLE in names:
-        return _DEFAULT_ACTIVE_ROLE
-    return names[0] if names else _DEFAULT_ACTIVE_ROLE
+    """Select an explicit read-only fallback, never a broad executor role."""
+    scopes = dict(_role_scope_entries(ir))
+    for name in ir.delegation_contract.preferred_order:
+        if name in scopes and not scopes[name]:
+            return name
+    return _READ_ONLY_FALLBACK_ROLE
 
 
 def _build_extension_ts(ir: System2Graph) -> str:
@@ -929,7 +533,10 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("// Generated by the System2 compiler. Do not edit by hand.")
     lines.append("// The tool_call handler blocks unsafe operations before execution.")
     lines.append("")
-    lines.append('import type { ExtensionAPI, ToolCallEvent, BashToolCallEvent } from "@earendil-works/pi-coding-agent";')
+    lines.append('import type { ExtensionAPI, ExtensionContext, ToolCallEvent, BashToolCallEvent } from "@earendil-works/pi-coding-agent";')
+    lines.append('import * as fs from "node:fs";')
+    lines.append('import * as path from "node:path";')
+    lines.append('import { fileURLToPath } from "node:url";')
     lines.append("")
     lines.append("// Dangerous-command matchers; order is semantic.")
     lines.append("const DANGEROUS_REGEXES: [RegExp, string][] = [")
@@ -955,7 +562,12 @@ def _build_extension_ts(ir: System2Graph) -> str:
     )
     lines.append("")
     lines.append(f"const VALID_ROLES: string[] = [{role_lits}];")
-    lines.append(f"let activeRole: string = {_ts_escape(default_role)};")
+    lines.append(f"const READ_ONLY_DEFAULT_ROLE = {_ts_escape(default_role)};")
+    lines.append('const ROLE_ENTRY_TYPE = "system2-role";')
+    lines.append("const HERE = path.dirname(fileURLToPath(import.meta.url));")
+    lines.append('const READ_ONLY_PROMPT = "System2 restrictive read-only fallback: no writes are authorized until /delegate selects a valid role.";')
+    lines.append("let activeRole: string = READ_ONLY_DEFAULT_ROLE;")
+    lines.append("let activeRolePrompt: string = READ_ONLY_PROMPT;")
     lines.append("")
     lines.append("// Extract every supported path alias before applying policy.")
     lines.append("const PATH_KEYS: string[] = [")
@@ -988,90 +600,189 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("  return undefined;")
     lines.append("}")
     lines.append("")
-    lines.append("// Normalize project-relative paths and return null on any escape.")
-    lines.append("function normalizeProjectPath(p: string): string | null {")
-    lines.append('  if (typeof p !== "string" || p.length === 0) return null;')
-    lines.append('  if (p === "~" || p.startsWith("~/")) return null; // home dir: outside project')
-    lines.append('  const slashed = p.replace(/\\\\/g, "/");')
-    lines.append('  if (slashed.startsWith("/")) return null; // absolute: cannot confirm in-project -> block')
-    lines.append("  const segs: string[] = [];")
-    lines.append('  for (const part of slashed.split("/")) {')
-    lines.append('    if (part === "" || part === ".") continue;')
-    lines.append('    if (part === "..") {')
-    lines.append("      if (segs.length === 0) return null; // escapes the project root -> block")
-    lines.append("      segs.pop();")
+    lines.append("type ShellToken = { value: string; operator: boolean };")
+    lines.append("function shellTokens(command: unknown): ShellToken[] | null {")
+    lines.append('  if (typeof command !== "string" || command.length > 65536) return null;')
+    lines.append('  if (command.includes("`") || command.includes("$(")) return null;')
+    lines.append("  const out: ShellToken[] = [];")
+    lines.append('  let current = "";')
+    lines.append('  let quote = "";')
+    lines.append("  let escaped = false;")
+    lines.append("  const pushWord = () => {")
+    lines.append('    if (current) out.push({ value: current, operator: false });')
+    lines.append('    current = "";')
+    lines.append("  };")
+    lines.append("  for (let i = 0; i < command.length; i++) {")
+    lines.append("    const ch = command[i];")
+    lines.append("    if (escaped) { current += ch; escaped = false; continue; }")
+    lines.append('    if (ch === "\\\\" && quote !== "\\\'") { escaped = true; continue; }')
+    lines.append("    if (quote) {")
+    lines.append("      if (ch === quote) quote = \"\"; else current += ch;")
     lines.append("      continue;")
     lines.append("    }")
-    lines.append("    segs.push(part);")
+    lines.append('    if (ch === "\\\'" || ch === \'"\') { quote = ch; continue; }')
+    lines.append("    if (/\\s/.test(ch)) { pushWord(); continue; }")
+    lines.append('    if ("<>|;&".includes(ch)) {')
+    lines.append("      pushWord();")
+    lines.append("      let op = ch;")
+    lines.append('      if (i + 1 < command.length && (command[i + 1] === ch || (ch === "&" && command[i + 1] === ">"))) op += command[++i];')
+    lines.append("      out.push({ value: op, operator: true });")
+    lines.append("    } else current += ch;")
+    lines.append("    if (out.length > 256) return null;")
     lines.append("  }")
-    lines.append('  return segs.join("/");')
+    lines.append("  if (escaped || quote) return null;")
+    lines.append("  pushWord();")
+    lines.append("  return out.length <= 256 ? out : null;")
     lines.append("}")
     lines.append("")
-    lines.append("function offLeasePath(event: ToolCallEvent): string | undefined {")
-    lines.append('  if (event.toolName !== "write" && event.toolName !== "edit") return undefined;')
-    lines.append("  const paths = pathsOf(event);")
+    lines.append("function shellWriteTargets(tokens: ShellToken[]): string[] | null {")
+    lines.append("  const targets: string[] = [];")
+    lines.append("  for (let i = 0; i < tokens.length; i++) {")
+    lines.append("    const token = tokens[i];")
+    lines.append('    if (token.operator && /^(?:>|>>|&>)$/.test(token.value)) {')
+    lines.append("      const target = tokens[++i];")
+    lines.append("      if (!target || target.operator) return null;")
+    lines.append("      targets.push(target.value);")
+    lines.append("      continue;")
+    lines.append("    }")
+    lines.append('    const commandPosition = i === 0 || (tokens[i - 1].operator && /^(?:\\||\\|\\||;|&&)$/.test(tokens[i - 1].value));')
+    lines.append('    if (commandPosition && !token.operator && /^(?:.*\\/)?tee$/.test(token.value)) {')
+    lines.append("      let sawTarget = false;")
+    lines.append("      for (let j = i + 1; j < tokens.length && !tokens[j].operator; j++) {")
+    lines.append("        const value = tokens[j].value;")
+    lines.append('        if (!sawTarget && value.startsWith("-")) continue;')
+    lines.append("        sawTarget = true;")
+    lines.append("        targets.push(value);")
+    lines.append("      }")
+    lines.append("      if (!sawTarget) return null;")
+    lines.append("    }")
+    lines.append("  }")
+    lines.append("  return targets;")
+    lines.append("}")
+    lines.append("")
+    lines.append("function loadRolePrompt(role: string): string | undefined {")
+    lines.append("  if (!VALID_ROLES.includes(role)) return undefined;")
+    lines.append('  const promptPath = path.resolve(HERE, "..", "prompts", `role-${role}.md`);')
+    lines.append("  try { return fs.readFileSync(promptPath, \"utf8\"); } catch { return undefined; }")
+    lines.append("}")
+    lines.append("")
+    lines.append("function resetReadOnly(): void {")
+    lines.append("  activeRole = READ_ONLY_DEFAULT_ROLE;")
+    lines.append("  activeRolePrompt = loadRolePrompt(activeRole) ?? READ_ONLY_PROMPT;")
+    lines.append("}")
+    lines.append("")
+    lines.append("function reconstructRole(ctx: ExtensionContext): void {")
+    lines.append("  resetReadOnly();")
+    lines.append("  const entries = ctx.sessionManager.getBranch().filter(")
+    lines.append('    (entry) => entry.type === "custom" && entry.customType === ROLE_ENTRY_TYPE,')
+    lines.append("  );")
+    lines.append("  if (entries.length === 0) return;")
+    lines.append("  const data = entries[entries.length - 1].data as { role?: unknown } | undefined;")
+    lines.append("  const role = data?.role;")
+    lines.append('  if (typeof role !== "string" || !VALID_ROLES.includes(role)) return;')
+    lines.append("  const prompt = loadRolePrompt(role);")
+    lines.append("  if (!prompt) return;")
+    lines.append("  activeRole = role;")
+    lines.append("  activeRolePrompt = prompt;")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Resolve project-relative targets, including existing symlink components.")
+    lines.append("function normalizeProjectPath(p: string, cwd: string): string | null {")
+    lines.append('  if (typeof p !== "string" || p.length === 0) return null;')
+    lines.append('  if (p === "~" || p.startsWith("~/") || path.isAbsolute(p)) return null;')
+    lines.append("  let root: string;")
+    lines.append("  try { root = fs.realpathSync(cwd); } catch { return null; }")
+    lines.append("  const parts = p.replace(/\\\\/g, \"/\").split(\"/\");")
+    lines.append("  let current = root;")
+    lines.append("  for (let i = 0; i < parts.length; i++) {")
+    lines.append("    const part = parts[i];")
+    lines.append('    if (!part || part === ".") continue;')
+    lines.append('    if (part === "..") { current = path.dirname(current); } else { current = path.join(current, part); }')
+    lines.append("    try {")
+    lines.append("      const stat = fs.lstatSync(current);")
+    lines.append("      if (stat.isSymbolicLink()) {")
+    lines.append("        try { current = fs.realpathSync(current); } catch { return null; }")
+    lines.append("      }")
+    lines.append("    } catch (error) {")
+    lines.append('      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;')
+    lines.append("    }")
+    lines.append("    const rel = path.relative(root, current);")
+    lines.append('    if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;')
+    lines.append("  }")
+    lines.append('  return path.relative(root, current).split(path.sep).join("/");')
+    lines.append("}")
+    lines.append("")
+    lines.append("function offLeasePath(paths: string[], cwd: string): string | undefined {")
     lines.append("  if (paths.length === 0) return undefined;")
-    lines.append("  // Unscoped roles cannot write.")
     lines.append("  const scope = ROLE_WRITE_SCOPES.get(activeRole);")
     lines.append("  if (!WRITEABLE_ROLES.has(activeRole) || !scope) return paths[0];")
     lines.append("  let re: RegExp;")
     lines.append("  try {")
     lines.append('    re = new RegExp("^(?:" + scope + ")");')
     lines.append("  } catch {")
-    lines.append("    return paths[0]; // an uncompilable scope fails closed, not open")
+    lines.append("    return paths[0];")
     lines.append("  }")
     lines.append("  for (const p of paths) {")
-    lines.append("    const norm = normalizeProjectPath(p);")
-    lines.append("    if (norm === null || !re.test(norm)) return p; // escape or off-scope -> block")
+    lines.append("    const norm = normalizeProjectPath(p, cwd);")
+    lines.append("    if (norm === null || !re.test(norm)) return p;")
     lines.append("  }")
     lines.append("  return undefined;")
     lines.append("}")
     lines.append("")
     lines.append("export default function (pi: ExtensionAPI) {")
-    lines.append("  // Block unsafe tool calls before execution.")
-    lines.append("  pi.on(\"tool_call\", (event) => {")
-    lines.append("    // block-dangerous: a bash command matching the ported regex set -> hard block.")
+    lines.append("  resetReadOnly();")
+    lines.append("  pi.on(\"session_start\", (_event, ctx) => reconstructRole(ctx));")
+    lines.append("  pi.on(\"session_tree\", (_event, ctx) => reconstructRole(ctx));")
+    lines.append("")
+    lines.append("  // Block the bounded, inspectable unsafe cases before execution.")
+    lines.append("  pi.on(\"tool_call\", (event, ctx) => {")
     lines.append('    if (event.toolName === "bash") {')
-    lines.append("      const command = (event as BashToolCallEvent).input.command;")
+    lines.append("      const command = (event as BashToolCallEvent).input?.command as unknown;")
+    lines.append('      if (typeof command !== "string") return { block: true, reason: "protect-sensitive: uninspectable bash command" };')
     lines.append("      const reason = dangerousReason(command);")
     lines.append("      if (reason) return { block: true, reason };")
-    lines.append("      const sBash = sensitiveHit(command);")
-    lines.append("      if (sBash) {")
-    lines.append("        return { block: true, reason: `protect-sensitive: ${sBash}` };")
+    lines.append("      const tokens = shellTokens(command);")
+    lines.append('      if (!tokens) return { block: true, reason: "protect-sensitive: shell token extraction failed or overflowed" };')
+    lines.append("      for (const token of tokens) {")
+    lines.append("        if (token.operator) continue;")
+    lines.append("        const hit = sensitiveHit(token.value);")
+    lines.append("        if (hit) return { block: true, reason: `protect-sensitive: ${hit}` };")
     lines.append("      }")
+    lines.append("      const targets = shellWriteTargets(tokens);")
+    lines.append('      if (targets === null) return { block: true, reason: "enforce-lease: supported shell write target is uninspectable" };')
+    lines.append("      const off = offLeasePath(targets, ctx.cwd);")
+    lines.append("      if (off) return { block: true, reason: `enforce-lease: ${off} is outside the write scope for role ${activeRole}` };")
     lines.append("      return;")
     lines.append("    }")
-    lines.append("    // protect-sensitive: any path-bearing input touching a sensitive path -> hard block.")
-    lines.append("    for (const p of pathsOf(event)) {")
-    lines.append("      const sPath = sensitiveHit(p);")
-    lines.append("      if (sPath) {")
-    lines.append("        return { block: true, reason: `protect-sensitive: ${sPath}` };")
-    lines.append("      }")
+    lines.append("    const eventPaths = pathsOf(event);")
+    lines.append('    if (["read", "write", "edit"].includes(event.toolName) && eventPaths.length === 0) {')
+    lines.append('      return { block: true, reason: "protect-sensitive: uninspectable path input" };')
     lines.append("    }")
-    lines.append("    // enforce-lease: a write/edit outside the active role's write scope -> hard block.")
-    lines.append("    const off = offLeasePath(event);")
-    lines.append("    if (off) {")
-    lines.append("      return { block: true, reason: `enforce-lease: ${off} is outside the write scope for role ${activeRole}` };")
+    lines.append("    for (const p of eventPaths) {")
+    lines.append("      const hit = sensitiveHit(p);")
+    lines.append("      if (hit) return { block: true, reason: `protect-sensitive: ${hit}` };")
     lines.append("    }")
-    lines.append("    return; // allow")
+    lines.append('    if (event.toolName === "write" || event.toolName === "edit") {')
+    lines.append("      const off = offLeasePath(eventPaths, ctx.cwd);")
+    lines.append("      if (off) return { block: true, reason: `enforce-lease: ${off} is outside the write scope for role ${activeRole}` };")
+    lines.append("    }")
+    lines.append("    return;")
     lines.append("  });")
     lines.append("")
-    lines.append("  // Report the budget after the agent ends; this does not block.")
+    lines.append("  // Advisory only: this reminder computes no budget report.")
     lines.append("  pi.on(\"agent_end\", (_event, ctx) => {")
     lines.append("    ctx.ui.notify(")
-    lines.append("      \"System2 budget: report files touched and lines added/removed in your completion summary.\",")
+    lines.append("      \"System2 budget reminder: include files touched and lines added/removed in your completion summary.\",")
     lines.append('      "info",')
     lines.append("    );")
     lines.append("  });")
     lines.append("")
-    lines.append("  // Inject the orchestrator context before the agent starts.")
     lines.append("  pi.on(\"before_agent_start\", (event) => ({")
-    lines.append("    systemPrompt: `${event.systemPrompt}\\n\\nSystem2 orchestrator context is in .pi/SYSTEM.md. Drive the gate graph 0 -> 5 and delegate via /delegate <role>.`,")
+    lines.append("    systemPrompt: `${event.systemPrompt}\\n\\nSystem2 orchestrator context is in .pi/SYSTEM.md.\\n\\n${activeRolePrompt}`,")
     lines.append("  }));")
     lines.append("")
-    lines.append("  // Limit /delegate to known roles.")
-    lines.append("  pi.registerCommand(\"/delegate\", {")
-    lines.append("    description: \"Delegate a sub-task to one of the 13 System2 roles.\",")
+    lines.append("  pi.registerCommand(\"delegate\", {")
+    lines.append("    description: \"Switch this session branch to one of the 13 System2 roles.\",")
     lines.append("    handler: async (args, ctx) => {")
     lines.append("      const role = args.trim();")
     lines.append("      if (!VALID_ROLES.includes(role)) {")
@@ -1081,8 +792,16 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("        );")
     lines.append("        return;")
     lines.append("      }")
-    lines.append("      activeRole = role; // role-switch: the lease gate now enforces this role's scope")
-    lines.append("      ctx.ui.notify(`Delegated to ${role}. Load .pi/prompts/role-${role}.md.`, \"info\");")
+    lines.append("      const prompt = loadRolePrompt(role);")
+    lines.append("      if (!prompt) {")
+    lines.append("        ctx.ui.notify(`Role prompt for ${role} is unavailable; remaining read-only.`, \"error\");")
+    lines.append("        resetReadOnly();")
+    lines.append("        return;")
+    lines.append("      }")
+    lines.append("      pi.appendEntry(ROLE_ENTRY_TYPE, { role });")
+    lines.append("      activeRole = role;")
+    lines.append("      activeRolePrompt = prompt;")
+    lines.append("      ctx.ui.notify(`Delegated in-session to ${role}; its role contract applies on the next agent turn.`, \"info\");")
     lines.append("    },")
     lines.append("  });")
     lines.append("}")
@@ -1091,15 +810,19 @@ def _build_extension_ts(ir: System2Graph) -> str:
 
 # Write posture (atomic write + backup/restore; mirrors claude-code)
 
-def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
+_PI_LOCK = "system2.pi.lock.json"
+
+
+def _build_lock(ir: System2Graph, ownership: dict) -> dict:
     """Assemble the standalone Pi lock dict."""
     lock = _build_degradation_report(ir)
-    lock["overlay_sources"] = list(overlay_sources)
+    lock["ownership"] = ownership
+    lock["overlay_sources"] = list(ir.overlay_sources)
     return lock
 
 
 def _planned_files(
-    ir: System2Graph, project_path: str, overlay_sources: List[str]
+    ir: System2Graph, project_path: str
 ) -> List[Tuple[str, str]]:
     """Return the ordered ``(relative_path, content)`` set emit writes."""
     planned: List[Tuple[str, str]] = []
@@ -1108,7 +831,6 @@ def _planned_files(
         (os.path.join(".pi", "extensions", "system2.ts"), _build_extension_ts(ir))
     )
     planned.append((os.path.join(".pi", "SYSTEM.md"), _build_system_md(ir)))
-    planned.append(("AGENTS.md", _build_agents_md(ir)))
     planned.append(
         (os.path.join(".pi", "prompts", "orchestrator.md"), _build_orchestrator_prompt(ir))
     )
@@ -1125,7 +847,7 @@ def _planned_files(
             )
         )
 
-    for skill in ("init", "compose", "doctor", "codex", "gemini", "stateless-loop"):
+    for skill in ("init", "compose", "doctor"):
         planned.append(
             (
                 os.path.join(".pi", "skills", f"system2-{skill}", "SKILL.md"),
@@ -1133,10 +855,11 @@ def _planned_files(
             )
         )
 
+    ownership = build_artifact_ownership(planned, _PI_LOCK)
     planned.append(
         (
-            "system2.pi.lock.json",
-            json.dumps(_build_lock(ir, overlay_sources), indent=2) + "\n",
+            _PI_LOCK,
+            json.dumps(_build_lock(ir, ownership), indent=2) + "\n",
         )
     )
     return planned
@@ -1151,30 +874,78 @@ def _default_file_mode(existing_path: Optional[str] = None) -> int:
     return 0o666 & ~umask
 
 
-def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[str]:
-    """Write planned files under ``project_path`` with backup/restore on failure."""
+def _write_outputs(
+    project_path: str,
+    planned: List[Tuple[str, str]],
+    stale_paths: Optional[List[str]] = None,
+) -> List[str]:
+    """Write planned files and transactionally remove validated stale files."""
+    project_root = os.path.abspath(project_path)
+
+    def relative(path: str) -> str:
+        return os.path.relpath(path, project_root).replace(os.sep, "/")
+
+    stale_rels = [relative(path) for path in stale_paths or []]
+    for rel in stale_rels:
+        validate_project_target(project_path, rel)
+    for rel, _content in planned:
+        validate_project_target(project_path, rel.replace(os.sep, "/"))
+
     backups: List[Tuple[str, str]] = []
     newly_created: List[str] = []
     dirs_created: List[str] = []
     written: List[str] = []
     try:
+        for rel in stale_rels:
+            path = validate_project_target(project_path, rel)
+            if not os.path.isfile(path):
+                raise ValueError(f"owned artifact is no longer a regular file: {rel}")
+            dir_name = os.path.dirname(path)
+            fd, bak = tempfile.mkstemp(
+                prefix=f".{os.path.basename(path)}.", suffix=".bak", dir=dir_name
+            )
+            os.close(fd)
+            try:
+                path = validate_project_target(project_path, rel)
+                validate_project_target(project_path, relative(bak))
+                shutil.copy2(path, bak)
+            except Exception:
+                os.unlink(bak)
+                raise
+            backups.append((path, bak))
+            path = validate_project_target(project_path, rel)
+            os.unlink(path)
         for rel, content in planned:
-            dst = os.path.join(project_path, rel)
+            canonical_rel = rel.replace(os.sep, "/")
+            dst = validate_project_target(project_path, canonical_rel)
             dir_name = os.path.dirname(dst)
             _makedirs_tracked(dir_name, dirs_created)
-            if os.path.exists(dst):
+            dst = validate_project_target(project_path, canonical_rel)
+            if os.path.lexists(dst):
+                if not os.path.isfile(dst):
+                    raise ValueError(
+                        f"owned artifact is no longer a regular file: {canonical_rel}"
+                    )
                 fd, bak = tempfile.mkstemp(
                     prefix=f".{os.path.basename(dst)}.", suffix=".bak", dir=dir_name
                 )
                 os.close(fd)
-                shutil.copy2(dst, bak)
+                try:
+                    dst = validate_project_target(project_path, canonical_rel)
+                    validate_project_target(project_path, relative(bak))
+                    shutil.copy2(dst, bak)
+                except Exception:
+                    os.unlink(bak)
+                    raise
                 backups.append((dst, bak))
+            dst = validate_project_target(project_path, canonical_rel)
             fd, tmp = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
-                # Apply the final mode because mkstemp creates files as 0600.
+                dst = validate_project_target(project_path, canonical_rel)
                 os.chmod(tmp, _default_file_mode(dst))
+                dst = validate_project_target(project_path, canonical_rel)
                 os.replace(tmp, dst)
             except Exception:
                 if os.path.exists(tmp):
@@ -1184,24 +955,35 @@ def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[st
                 newly_created.append(dst)
             written.append(dst)
     except Exception:
-        for orig, bak in backups:
-            if os.path.exists(bak):
-                shutil.copy2(bak, orig)
-                os.unlink(bak)
+        for orig, bak in reversed(backups):
+            try:
+                if os.path.exists(bak):
+                    validate_project_target(project_path, relative(orig))
+                    validate_project_target(project_path, relative(bak))
+                    shutil.copy2(bak, orig)
+                    os.unlink(bak)
+            except Exception:
+                pass
         for created in newly_created:
-            if os.path.exists(created):
-                os.unlink(created)
+            try:
+                if os.path.exists(created):
+                    validate_project_target(project_path, relative(created))
+                    os.unlink(created)
+            except Exception:
+                pass
         for d in dirs_created:
             try:
+                validate_project_target(project_path, relative(d))
                 os.rmdir(d)
-            except OSError:
+            except Exception:
                 pass
         raise
     for _orig, bak in backups:
         try:
             if os.path.exists(bak):
+                validate_project_target(project_path, relative(bak))
                 os.unlink(bak)
-        except OSError:
+        except Exception:
             pass
     return written
 
@@ -1224,14 +1006,12 @@ def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
 
 # Lifecycle helpers (lock read / removal / hermetic extension-load validation)
 
-# The fixed (non-prompt) Pi artifacts emit owns; uninstall removes these plus the
-# 13 role prompts and the three skills when the last overlay is removed.
+# Fixed Pi artifacts required by doctor (prompts/skills live in the lock inventory).
 _PI_FIXED_ARTIFACTS = (
     os.path.join(".pi", "extensions", "system2.ts"),
     os.path.join(".pi", "SYSTEM.md"),
-    "AGENTS.md",
     os.path.join(".pi", "prompts", "orchestrator.md"),
-    "system2.pi.lock.json",
+    _PI_LOCK,
 )
 
 # Minimal harness for validating extension loading and gate registration.
@@ -1267,7 +1047,8 @@ def _resolve_pi_pkg_entry(pi_bin: Optional[str]) -> Optional[str]:
     )
     roots: List[str] = []
     if pi_bin:
-        prefix = os.path.dirname(os.path.dirname(os.path.realpath(pi_bin)))
+        # Keep the symlink path: realpath(pi) points inside the package, not its prefix.
+        prefix = os.path.dirname(os.path.dirname(os.path.abspath(pi_bin)))
         roots.append(os.path.join(prefix, "lib", "node_modules"))
         roots.append(os.path.join(prefix, "node_modules"))
     roots.append(
@@ -1310,29 +1091,51 @@ class PiBackend:
     ) -> None:
         self._base_path = base_path
         self._compose_fn = compose_fn
+        # Deprecated compatibility input: graph provenance is authoritative.
         self._overlay_sources = list(overlay_sources) if overlay_sources else None
 
-    def _resolve_overlay_sources(self, ir: System2Graph) -> List[str]:
-        """The overlay ``source_path`` set that produced this tree (neutral only)."""
-        if self._overlay_sources is not None:
-            return list(self._overlay_sources)
-        profile = ir.active_profile
-        if profile is not None and profile.ordered_source_paths:
-            return list(profile.ordered_source_paths)
-        return []
+    def _validate_legacy_overlay_sources(self, ir: System2Graph) -> None:
+        if (
+            self._overlay_sources is not None
+            and tuple(self._overlay_sources) != ir.overlay_sources
+        ):
+            raise ValueError(
+                "constructor overlay_sources do not match authoritative graph "
+                "provenance"
+            )
 
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
-        return self._emit_with_sources(
-            ir, project_path, self._resolve_overlay_sources(ir)
+        return self._emit_graph(
+            ir,
+            project_path,
+            recompose=os.path.lexists(self.lock_path(project_path)),
         )
 
-    def _emit_with_sources(
-        self, ir: System2Graph, project_path: str, overlay_sources: List[str]
+    def plan(self, ir: System2Graph, project_path: str) -> List[str]:
+        """Return the target-native write plan without mutating the project."""
+        return self._emit_graph(
+            ir,
+            project_path,
+            dry_run=True,
+            recompose=os.path.lexists(self.lock_path(project_path)),
+        )
+
+    def _emit_graph(
+        self,
+        ir: System2Graph,
+        project_path: str,
+        *,
+        dry_run: bool = False,
+        recompose: bool = False,
     ) -> List[str]:
-        planned = _planned_files(ir, project_path, overlay_sources)
-        if bool(getattr(ir, "dry_run", False)):
-            return [os.path.join(project_path, rel) for rel, _ in planned]
-        return _write_outputs(project_path, planned)
+        self._validate_legacy_overlay_sources(ir)
+        planned = _planned_files(ir, project_path)
+        planned_paths, stale_paths = preflight_artifact_write(
+            project_path, planned, _PI_LOCK, recompose=recompose
+        )
+        if dry_run or bool(getattr(ir, "dry_run", False)):
+            return planned_paths + ["(remove) " + path for path in stale_paths]
+        return _write_outputs(project_path, planned, stale_paths)
 
     # Lock helpers
 
@@ -1342,9 +1145,10 @@ class PiBackend:
 
     def read_lock_overlay_sources(self, project_path: str) -> List[str]:
         """Read the additive ``overlay_sources[]`` key from the Pi lock."""
-        lp = self.lock_path(project_path)
+        lp = validate_project_target(project_path, _PI_LOCK)
         if not os.path.isfile(lp):
             raise FileNotFoundError(lp)
+        lp = validate_project_target(project_path, _PI_LOCK)
         with open(lp, "r", encoding="utf-8") as fh:
             lock_data = json.load(fh)
         return [s for s in lock_data.get("overlay_sources", []) if s]
@@ -1355,8 +1159,11 @@ class PiBackend:
         self, ir: System2Graph, project_path: str, *, dry_run: bool = False
     ) -> List[str]:
         """Re-emit from a recomposed IR (the ``--from-lock`` recompose path)."""
-        return self._emit_with_sources(
-            ir, project_path, self._resolve_overlay_sources(ir)
+        return self._emit_graph(
+            ir,
+            project_path,
+            dry_run=dry_run,
+            recompose=True,
         )
 
     # Uninstall
@@ -1383,10 +1190,14 @@ class PiBackend:
                 f"(lowercase alphanumeric, hyphens only)"
             ])
 
-        lp = self.lock_path(project_path)
+        try:
+            lp = validate_project_target(project_path, _PI_LOCK)
+        except ValueError as exc:
+            return _err([str(exc)])
         if not os.path.isfile(lp):
             return _err(["No lock file found; no overlays are composed"])
         try:
+            lp = validate_project_target(project_path, _PI_LOCK)
             with open(lp, "r", encoding="utf-8") as fh:
                 lock_data = json.load(fh)
         except json.JSONDecodeError:
@@ -1397,6 +1208,13 @@ class PiBackend:
         sources = lock_data.get("overlay_sources", [])
         if not isinstance(sources, list):
             return _err(["Lock file is malformed: 'overlay_sources' is not a list"])
+
+        try:
+            owned_artifacts = verify_owned_artifacts(
+                project_path, lock_data, _PI_LOCK, require_all=False
+            )
+        except ValueError as exc:
+            return _err([str(exc)])
 
         installed = [_overlay_name_of(s) for s in sources]
         if overlay_name not in installed:
@@ -1412,7 +1230,7 @@ class PiBackend:
 
         if not remaining_sources:
             return self._uninstall_last_overlay(
-                project_path, overlay_name, dry_run
+                project_path, overlay_name, dry_run, owned_artifacts
             )
 
         base_path = self._require_base_path("uninstall")
@@ -1440,12 +1258,15 @@ class PiBackend:
 
         report = getattr(result, "report", {}) or {}
         injection_warnings = list(report.get("injection_warnings", []))
-        if dry_run:
-            files_written = list(getattr(result, "files_to_write", []))
-        else:
-            files_written = self._emit_with_sources(
-                result.graph, project_path, remaining_sources
+        try:
+            files_written = self._emit_graph(
+                result.graph,
+                project_path,
+                dry_run=dry_run,
+                recompose=True,
             )
+        except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
+            return _err([f"Cannot safely recompose owned artifacts: {exc}"])
 
         return UninstallResult(
             removed={"name": overlay_name},
@@ -1459,10 +1280,23 @@ class PiBackend:
         )
 
     def _uninstall_last_overlay(
-        self, project_path: str, overlay_name: str, dry_run: bool
+        self,
+        project_path: str,
+        overlay_name: str,
+        dry_run: bool,
+        owned_artifacts: List[str],
     ) -> UninstallResult:
-        """Remove the whole Pi artifact tree (zero overlays remain)."""
-        artifacts = self._existing_artifacts(project_path)
+        """Remove the validated Pi artifacts when zero overlays remain."""
+        artifacts = list(owned_artifacts) + [
+            validate_project_target(project_path, _PI_LOCK)
+        ]
+        artifact_rels = [
+            os.path.relpath(path, os.path.abspath(project_path)).replace(os.sep, "/")
+            for path in artifacts
+        ]
+        artifacts = [
+            validate_project_target(project_path, rel) for rel in artifact_rels
+        ]
 
         if dry_run:
             return UninstallResult(
@@ -1478,28 +1312,66 @@ class PiBackend:
 
         backups: List[Tuple[str, str]] = []
         try:
-            for path in artifacts:
+            for rel in artifact_rels:
+                path = validate_project_target(project_path, rel)
+                if not os.path.isfile(path):
+                    raise ValueError(
+                        f"owned artifact is no longer a regular file: {rel}"
+                    )
                 dir_name = os.path.dirname(path)
                 fd, bak = tempfile.mkstemp(
                     prefix=f".{os.path.basename(path)}.", suffix=".bak", dir=dir_name
                 )
                 os.close(fd)
-                shutil.copy2(path, bak)
+                try:
+                    path = validate_project_target(project_path, rel)
+                    validate_project_target(
+                        project_path,
+                        os.path.relpath(
+                            bak, os.path.abspath(project_path)
+                        ).replace(os.sep, "/"),
+                    )
+                    shutil.copy2(path, bak)
+                except Exception:
+                    os.unlink(bak)
+                    raise
                 backups.append((path, bak))
-            for path in artifacts:
+            for rel in artifact_rels:
+                path = validate_project_target(project_path, rel)
                 os.unlink(path)
         except Exception:
-            for orig, bak in backups:
-                if os.path.exists(bak):
-                    shutil.copy2(bak, orig)
-                    os.unlink(bak)
+            for orig, bak in reversed(backups):
+                try:
+                    if os.path.exists(bak):
+                        validate_project_target(
+                            project_path,
+                            os.path.relpath(
+                                orig, os.path.abspath(project_path)
+                            ).replace(os.sep, "/"),
+                        )
+                        validate_project_target(
+                            project_path,
+                            os.path.relpath(
+                                bak, os.path.abspath(project_path)
+                            ).replace(os.sep, "/"),
+                        )
+                        shutil.copy2(bak, orig)
+                        os.unlink(bak)
+                except Exception:
+                    pass
             raise
 
         for _orig, bak in backups:
             try:
                 if os.path.exists(bak):
+                    validate_project_target(
+                        project_path,
+                        os.path.relpath(
+                            bak, os.path.abspath(project_path)
+                        ).replace(os.sep, "/"),
+                    )
                     os.unlink(bak)
-            except OSError:
+            except Exception:
                 pass
 
         self._prune_empty_pi_dirs(project_path)
@@ -1514,26 +1386,6 @@ class PiBackend:
             preview="",
             errors=[],
         )
-
-    def _existing_artifacts(self, project_path: str) -> List[str]:
-        """Every emitted Pi artifact path that exists under ``project_path``."""
-        found: List[str] = []
-        for rel in _PI_FIXED_ARTIFACTS:
-            p = os.path.join(project_path, rel)
-            if os.path.isfile(p):
-                found.append(p)
-        prompts_dir = os.path.join(project_path, ".pi", "prompts")
-        if os.path.isdir(prompts_dir):
-            for name in sorted(os.listdir(prompts_dir)):
-                if name.startswith("role-") and name.endswith(".md"):
-                    found.append(os.path.join(prompts_dir, name))
-        skills_dir = os.path.join(project_path, ".pi", "skills")
-        if os.path.isdir(skills_dir):
-            for skill in sorted(os.listdir(skills_dir)):
-                skill_md = os.path.join(skills_dir, skill, "SKILL.md")
-                if os.path.isfile(skill_md):
-                    found.append(skill_md)
-        return found
 
     def _prune_empty_pi_dirs(self, project_path: str) -> None:
         """Remove now-empty ``.pi/`` subdirectories bottom-up (best-effort)."""
@@ -1617,7 +1469,7 @@ class PiBackend:
                 "kind": "validator_unavailable",
                 "message": (
                     "node/pi not available — extension load validation SKIPPED "
-                    "(not a silent pass). Install node v22 + pi v0.80.2 (or set "
+                    "(not a silent pass). Install node v22 + pi v0.85.1 (or set "
                     "NODE_BIN/PI_BIN/PI_PKG_ENTRY) to validate; structural checks ran."
                 ),
             })

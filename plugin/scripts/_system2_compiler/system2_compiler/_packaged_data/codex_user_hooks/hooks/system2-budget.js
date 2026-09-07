@@ -8,7 +8,7 @@ process.stdin.on("data", (c) => { if (buf.length < 1048576) buf += c; });
 process.stdin.on("end", () => {
   try {
     process.stdout.write(JSON.stringify({
-      systemMessage: "System2 budget (adapted, not enforced): report files touched and lines added/removed in your completion summary.",
+      systemMessage: "System2 budget (advisory instruction only): report files touched and lines added/removed in your completion summary.",
     }));
   } catch (e) {}
   process.exit(0);

@@ -36,7 +36,7 @@
     },
     {
       "path": "evals/goldens/prohibited_patterns.json",
-      "sha256": "53cd1e41833138180a222bdd38b690da668c07eaa7a3638b51e994d9170ad749"
+      "sha256": "1e10275a28237a85a98182dafbc7d06996af8a6920720d314da7d89e659acf1b"
     },
     {
       "path": "evals/goldens/required_readme_patterns.json",
@@ -44,7 +44,7 @@
     },
     {
       "path": "evals/goldens/skill_inventory.json",
-      "sha256": "8579147b0e669a41386f38d8e18f16c0c2916b339ca1c8600491b5751036fe69"
+      "sha256": "6e8f96f7fea7f130080b2f78467b064214254d354fd4d97efdf23546d818f389"
     }
   ]
 }

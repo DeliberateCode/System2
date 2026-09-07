@@ -10,20 +10,60 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 
 // Project-relative files copied from payload/project/.
-const MANAGED_FILES: string[] = [".pi/SYSTEM.md", "AGENTS.md", "system2.pi.lock.json"];
+const MANAGED_FILES: string[] = [".pi/SYSTEM.md", "system2.pi.lock.json"];
 
 // Resolve the payload relative to this installed module.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(HERE, "..");
 const PAYLOAD_ROOT = path.join(PACKAGE_ROOT, "payload", "project");
 
-// Return null when a managed path escapes the project root.
+// Return null on lexical escape or any existing target/parent symlink.
 function resolveWithinRoot(projectRoot: string, rel: string): string | null {
   if (path.isAbsolute(rel)) return null;
   const target = path.resolve(projectRoot, rel);
   const prefix = projectRoot.endsWith(path.sep) ? projectRoot : projectRoot + path.sep;
   if (target !== projectRoot && !target.startsWith(prefix)) return null;
+
+  let current = projectRoot;
+  for (const part of path.relative(projectRoot, target).split(path.sep)) {
+    if (!part) continue;
+    current = path.join(current, part);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) return null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+    }
+  }
   return target;
+}
+
+let tempCounter = 0;
+
+function writeAtomic(projectRoot: string, rel: string, bytes: Buffer): boolean {
+  let target = resolveWithinRoot(projectRoot, rel);
+  if (target === null) return false;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  target = resolveWithinRoot(projectRoot, rel);
+  if (target === null) return false;
+
+  const temp = path.join(
+    path.dirname(target),
+    `.${path.basename(target)}.system2-init-${process.pid}-${tempCounter++}.tmp`,
+  );
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(temp, "wx", 0o666);
+    fs.writeFileSync(fd, bytes);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    if (resolveWithinRoot(projectRoot, rel) !== target) return false;
+    fs.renameSync(temp, target);
+    return true;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    try { fs.unlinkSync(temp); } catch { /* already renamed or never created */ }
+  }
 }
 
 function readIfExists(p: string): Buffer | null {
@@ -35,12 +75,12 @@ function readIfExists(p: string): Buffer | null {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerCommand("/system2-init", {
+  pi.registerCommand("system2-init", {
     description:
-      "Materialize System2 project files (AGENTS.md, .pi/SYSTEM.md, the lock) into this project from the package payload. Pass --force to overwrite user-modified files.",
+      "Materialize managed System2 project files (.pi/SYSTEM.md and the lock) from the package payload. Caller-owned AGENTS.md is not managed. Pass --force to replace modified managed files.",
     handler: async (args, ctx) => {
       const force = args.trim() === "--force";
-      const projectRoot = process.cwd();
+      const projectRoot = fs.realpathSync(ctx.cwd);
       const written: string[] = [];
       const skipped: string[] = [];
       const replaced: string[] = [];
@@ -73,14 +113,17 @@ export default function (pi: ExtensionAPI) {
           );
           continue;
         }
-        if (current !== null && force) {
+        const replacing = current !== null && force;
+        if (replacing) {
           // PRINT exactly which user-modified managed file is being replaced BEFORE
           // overwriting it.
           ctx.ui.notify(`system2-init: --force replacing user-modified ${rel}`, "info");
-          replaced.push(rel);
         }
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, payloadBytes);
+        if (!writeAtomic(projectRoot, rel, payloadBytes)) {
+          rejected.push(rel);
+          continue;
+        }
+        if (replacing) replaced.push(rel);
         written.push(rel);
       }
 
@@ -94,6 +137,10 @@ export default function (pi: ExtensionAPI) {
         `system2-init: wrote ${written.length}, skipped ${skipped.length}, replaced ${replaced.length}.`,
         "info",
       );
+      if (written.length > 0) {
+        await ctx.reload();
+        return;
+      }
     },
   });
 }
