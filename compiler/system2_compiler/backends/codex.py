@@ -18,7 +18,14 @@ from ._enforcement import (
     build_lease_gate_source,
     build_sensitive_path_patterns,
 )
-from .base import DoctorReport, UninstallResult, lock_sources_outside_project
+from .base import (
+    DoctorReport,
+    UninstallResult,
+    build_artifact_ownership,
+    lock_sources_outside_project,
+    preflight_artifact_write,
+    verify_owned_artifacts,
+)
 
 __all__ = ["CodexBackend"]
 
@@ -48,8 +55,8 @@ _TRUST_ONELINER = (
     "advisory-only."
 )
 
-# This coverage statement appears verbatim in the orchestrator preamble, README,
-# and lock banner so none of those surfaces can overstate hook coverage.
+# This coverage statement appears verbatim in the orchestrator preamble and lock
+# banner so neither surface can overstate hook coverage.
 _COVERAGE_GAP = (
     "Even with hooks trusted, Codex hooks intercept shell commands and "
     "apply_patch-matched edits; they do NOT intercept WebSearch or other "
@@ -276,46 +283,6 @@ def _build_orchestrator_skill(ir: System2Graph) -> str:
         "See `system2.codex.lock.json` for the per-capability fidelity report and the "
         "FIDELITY banner. Run the `system2-doctor` skill to verify hook liveness (the "
         "compiler cannot read Codex trust state)."
-    )
-    return "\n".join(lines).rstrip("\n") + "\n"
-
-
-def _build_readme() -> str:
-    """Build the committed README enforcement-honesty surface."""
-    lines: List[str] = []
-    lines.append("# System2 for Codex")
-    lines.append("")
-    lines.append(
-        "GENERATED plugin — do not hand-edit. Regenerate via "
-        "`python3 compiler/tools/regen_all.py`."
-    )
-    lines.append("")
-    lines.append("## Trust state (READ THIS FIRST — enforcement is CONDITIONAL on Codex)")
-    lines.append("")
-    lines.extend(_trust_state_block_lines())
-    lines.append("")
-    lines.append("## Activating enforcement")
-    lines.append("")
-    lines.append(
-        "1. Run `system2 codex init` to materialize the guards into "
-        "`~/.codex/hooks.json` (the hook `command` is written as an absolute path)."
-    )
-    lines.append(
-        "2. Review and trust the materialized hooks via `/hooks` — read each hook "
-        "before trusting it; never blanket-approve."
-    )
-    lines.append(
-        "3. An administrator may force-disable hooks via `requirements.toml`; when "
-        "disabled, System2 is advisory-only and this cannot be overridden in-session."
-    )
-    lines.append(
-        "4. Run the `system2-doctor` skill to verify hook liveness (the compiler "
-        "cannot read Codex trust state)."
-    )
-    lines.append("")
-    lines.append(
-        "See `system2.codex.lock.json` for the per-capability fidelity report and the "
-        "FIDELITY banner."
     )
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -859,9 +826,15 @@ def _build_degradation_report(ir: System2Graph) -> dict:
     }
 
 
-def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
+_CODEX_LOCK = "system2.codex.lock.json"
+
+
+def _build_lock(
+    ir: System2Graph, overlay_sources: List[str], ownership: dict
+) -> dict:
     lock = _build_degradation_report(ir)
     lock["overlay_sources"] = list(overlay_sources)
+    lock["ownership"] = ownership
     return lock
 
 
@@ -877,8 +850,6 @@ def _planned_files(
         (os.path.join(".codex-plugin", "plugin.json"),
          json.dumps(_build_manifest(), indent=2) + "\n")
     )
-
-    planned.append(("README.md", _build_readme()))
 
     planned.append(
         (os.path.join("user-hooks", "hooks.json.tmpl"), _build_hooks_config())
@@ -916,10 +887,11 @@ def _planned_files(
             )
         )
 
+    ownership = build_artifact_ownership(planned, _CODEX_LOCK)
     planned.append(
         (
-            "system2.codex.lock.json",
-            json.dumps(_build_lock(ir, overlay_sources), indent=2) + "\n",
+            _CODEX_LOCK,
+            json.dumps(_build_lock(ir, overlay_sources, ownership), indent=2) + "\n",
         )
     )
     return planned
@@ -1007,15 +979,14 @@ def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[st
 
 # Lifecycle helpers
 
-# The fixed (non-role-skill) Codex artifacts emit owns; uninstall removes these plus
-# the orchestrator + 13 role skills when the last overlay is removed.
+# Fixed Codex artifacts required by doctor (variable skills live in the lock inventory).
 _CODEX_FIXED_ARTIFACTS = (
     os.path.join(".codex-plugin", "plugin.json"),
     os.path.join("user-hooks", "hooks.json.tmpl"),
     os.path.join("user-hooks", "hooks", "system2-shell-guard.js"),
     os.path.join("user-hooks", "hooks", "system2-edit-guard.js"),
     os.path.join("user-hooks", "hooks", "system2-budget.js"),
-    "system2.codex.lock.json",
+    _CODEX_LOCK,
 )
 
 
@@ -1426,11 +1397,20 @@ class CodexBackend:
         )
 
     def _emit_with_sources(
-        self, ir: System2Graph, project_path: str, overlay_sources: List[str]
+        self,
+        ir: System2Graph,
+        project_path: str,
+        overlay_sources: List[str],
+        *,
+        dry_run: bool = False,
+        recompose: bool = False,
     ) -> List[str]:
         planned = _planned_files(ir, overlay_sources)
-        if bool(getattr(ir, "dry_run", False)):
-            return [os.path.join(project_path, rel) for rel, _ in planned]
+        planned_paths = preflight_artifact_write(
+            project_path, planned, _CODEX_LOCK, recompose=recompose
+        )
+        if dry_run or bool(getattr(ir, "dry_run", False)):
+            return planned_paths
         return _write_outputs(project_path, planned)
 
     # Lifecycle: lock helpers
@@ -1453,7 +1433,11 @@ class CodexBackend:
         self, ir: System2Graph, project_path: str, *, dry_run: bool = False
     ) -> List[str]:
         return self._emit_with_sources(
-            ir, project_path, self._resolve_overlay_sources(ir)
+            ir,
+            project_path,
+            self._resolve_overlay_sources(ir),
+            dry_run=dry_run,
+            recompose=True,
         )
 
     # Lifecycle: uninstall
@@ -1495,6 +1479,13 @@ class CodexBackend:
         if not isinstance(sources, list):
             return _err(["Lock file is malformed: 'overlay_sources' is not a list"])
 
+        try:
+            owned_artifacts = verify_owned_artifacts(
+                project_path, lock_data, _CODEX_LOCK, require_all=False
+            )
+        except ValueError as exc:
+            return _err([str(exc)])
+
         installed = [_overlay_name_of(s) for s in sources]
         if overlay_name not in installed:
             return _err([
@@ -1507,7 +1498,9 @@ class CodexBackend:
         remaining_meta = [{"name": _overlay_name_of(s)} for s in remaining_sources]
 
         if not remaining_sources:
-            return self._uninstall_last_overlay(project_path, overlay_name, dry_run)
+            return self._uninstall_last_overlay(
+                project_path, overlay_name, dry_run, owned_artifacts
+            )
 
         base_path = self._require_base_path("uninstall")
         compose_fn = self._require_compose_fn("uninstall")
@@ -1534,12 +1527,16 @@ class CodexBackend:
 
         report = getattr(result, "report", {}) or {}
         injection_warnings = list(report.get("injection_warnings", []))
-        if dry_run:
-            files_written = list(getattr(result, "files_to_write", []))
-        else:
+        try:
             files_written = self._emit_with_sources(
-                result.graph, project_path, remaining_sources
+                result.graph,
+                project_path,
+                remaining_sources,
+                dry_run=dry_run,
+                recompose=True,
             )
+        except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
+            return _err([f"Cannot safely recompose owned artifacts: {exc}"])
 
         return UninstallResult(
             removed={"name": overlay_name},
@@ -1553,10 +1550,14 @@ class CodexBackend:
         )
 
     def _uninstall_last_overlay(
-        self, project_path: str, overlay_name: str, dry_run: bool
+        self,
+        project_path: str,
+        overlay_name: str,
+        dry_run: bool,
+        owned_artifacts: List[str],
     ) -> UninstallResult:
-        """Remove the whole Codex artifact tree (zero overlays remain)."""
-        artifacts = self._existing_artifacts(project_path)
+        """Remove the validated Codex artifacts when zero overlays remain."""
+        artifacts = list(owned_artifacts) + [self.lock_path(project_path)]
 
         if dry_run:
             return UninstallResult(
@@ -1608,21 +1609,6 @@ class CodexBackend:
             preview="",
             errors=[],
         )
-
-    def _existing_artifacts(self, project_path: str) -> List[str]:
-        """Every emitted Codex artifact path that exists under ``project_path``."""
-        found: List[str] = []
-        for rel in _CODEX_FIXED_ARTIFACTS:
-            p = os.path.join(project_path, rel)
-            if os.path.isfile(p):
-                found.append(p)
-        skills_dir = os.path.join(project_path, "skills")
-        if os.path.isdir(skills_dir):
-            for skill in sorted(os.listdir(skills_dir)):
-                skill_md = os.path.join(skills_dir, skill, "SKILL.md")
-                if os.path.isfile(skill_md):
-                    found.append(skill_md)
-        return found
 
     def _prune_empty_dirs(self, project_path: str) -> None:
         """Remove now-empty ``.codex-plugin/`` / ``user-hooks/`` / ``skills/`` dirs (best-effort)."""

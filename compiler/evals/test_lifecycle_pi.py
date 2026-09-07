@@ -239,7 +239,7 @@ class PiLifecycleTest(_LifecycleBase):
         )
         self._backend(
             overlay_sources=[_REMOVABLE, _NEWER_SCHEMA]
-        ).emit(graph2, project)
+        ).recompose_from_lock(graph2, project)
         ok = backend.uninstall(
             project, "lifecycle-removable", allow_newer_schema=True
         )

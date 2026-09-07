@@ -15,7 +15,14 @@ from ._enforcement import (
     build_dangerous_command_patterns,
     build_sensitive_path_patterns,
 )
-from .base import DoctorReport, UninstallResult, lock_sources_outside_project
+from .base import (
+    DoctorReport,
+    UninstallResult,
+    build_artifact_ownership,
+    lock_sources_outside_project,
+    preflight_artifact_write,
+    verify_owned_artifacts,
+)
 
 __all__ = ["PiBackend"]
 
@@ -237,7 +244,7 @@ def _any_empty_write_scope(ir: System2Graph) -> bool:
     return any(not (r.write_scope or "").strip() for r in ir.roles)
 
 
-# Markdown artifact builders (.pi/SYSTEM.md, AGENTS.md, prompts, skills)
+# Markdown artifact builders (.pi/SYSTEM.md, prompts, skills)
 
 def _build_system_md(ir: System2Graph) -> str:
     lines: List[str] = ["# System2 orchestrator context (Pi)"]
@@ -305,38 +312,6 @@ def _build_system_md(ir: System2Graph) -> str:
 
     lines.extend(_enforcement_summary(ir))
     return "\n".join(lines).rstrip("\n") + "\n"
-
-
-def _build_agents_md(ir: System2Graph) -> str:
-    lines: List[str] = ["# AGENTS.md — System2 (Pi project context)"]
-    lines.append("")
-    lines.append(
-        "This project runs the System2 multi-agent workflow on Pi. The generated "
-        "`.pi/extensions/system2.ts` extension provides the native safety gates "
-        "(see `.pi/SYSTEM.md` for the MIXED enforcement story)."
-    )
-    lines.append("")
-    lines.append("## The 13-role pipeline")
-    for idx, role_name in enumerate(ir.delegation_contract.preferred_order, start=1):
-        lines.append(f"{idx}. {role_name}")
-    lines.append("")
-    lines.append("## Gate pipeline")
-    gate_by_number = {g.number: g for g in ir.gate_graph.gates}
-    gate_names = [
-        f"Gate {n} ({gate_by_number[n].name})"
-        for n in _gate_order(ir.gate_graph)
-        if n in gate_by_number
-    ]
-    lines.append(" -> ".join(gate_names))
-    lines.append("")
-    lines.append("## Where to look")
-    lines.append("- `.pi/SYSTEM.md` — full orchestrator context + enforcement honesty.")
-    lines.append("- `.pi/skills/system2-{init,compose,doctor}/SKILL.md` — the skills.")
-    lines.append(
-        "- `/delegate <role>` — dispatch a sub-task to one of the 13 roles."
-    )
-    lines.append("- `system2.pi.lock.json` — the per-capability degradation report.")
-    return "\n".join(lines) + "\n"
 
 
 def _role_capability_notes(ir: System2Graph, role_name: str) -> List[str]:
@@ -722,10 +697,16 @@ def _build_extension_ts(ir: System2Graph) -> str:
 
 # Write posture (atomic write + backup/restore; mirrors claude-code)
 
-def _build_lock(ir: System2Graph, overlay_sources: List[str]) -> dict:
+_PI_LOCK = "system2.pi.lock.json"
+
+
+def _build_lock(
+    ir: System2Graph, overlay_sources: List[str], ownership: dict
+) -> dict:
     """Assemble the standalone Pi lock dict."""
     lock = _build_degradation_report(ir)
     lock["overlay_sources"] = list(overlay_sources)
+    lock["ownership"] = ownership
     return lock
 
 
@@ -739,7 +720,6 @@ def _planned_files(
         (os.path.join(".pi", "extensions", "system2.ts"), _build_extension_ts(ir))
     )
     planned.append((os.path.join(".pi", "SYSTEM.md"), _build_system_md(ir)))
-    planned.append(("AGENTS.md", _build_agents_md(ir)))
     planned.append(
         (os.path.join(".pi", "prompts", "orchestrator.md"), _build_orchestrator_prompt(ir))
     )
@@ -764,10 +744,11 @@ def _planned_files(
             )
         )
 
+    ownership = build_artifact_ownership(planned, _PI_LOCK)
     planned.append(
         (
-            "system2.pi.lock.json",
-            json.dumps(_build_lock(ir, overlay_sources), indent=2) + "\n",
+            _PI_LOCK,
+            json.dumps(_build_lock(ir, overlay_sources, ownership), indent=2) + "\n",
         )
     )
     return planned
@@ -855,14 +836,12 @@ def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
 
 # Lifecycle helpers (lock read / removal / hermetic extension-load validation)
 
-# The fixed (non-prompt) Pi artifacts emit owns; uninstall removes these plus the
-# 13 role prompts and the three skills when the last overlay is removed.
+# Fixed Pi artifacts required by doctor (prompts/skills live in the lock inventory).
 _PI_FIXED_ARTIFACTS = (
     os.path.join(".pi", "extensions", "system2.ts"),
     os.path.join(".pi", "SYSTEM.md"),
-    "AGENTS.md",
     os.path.join(".pi", "prompts", "orchestrator.md"),
-    "system2.pi.lock.json",
+    _PI_LOCK,
 )
 
 # Minimal harness for validating extension loading and gate registration.
@@ -958,11 +937,20 @@ class PiBackend:
         )
 
     def _emit_with_sources(
-        self, ir: System2Graph, project_path: str, overlay_sources: List[str]
+        self,
+        ir: System2Graph,
+        project_path: str,
+        overlay_sources: List[str],
+        *,
+        dry_run: bool = False,
+        recompose: bool = False,
     ) -> List[str]:
         planned = _planned_files(ir, project_path, overlay_sources)
-        if bool(getattr(ir, "dry_run", False)):
-            return [os.path.join(project_path, rel) for rel, _ in planned]
+        planned_paths = preflight_artifact_write(
+            project_path, planned, _PI_LOCK, recompose=recompose
+        )
+        if dry_run or bool(getattr(ir, "dry_run", False)):
+            return planned_paths
         return _write_outputs(project_path, planned)
 
     # Lock helpers
@@ -987,7 +975,11 @@ class PiBackend:
     ) -> List[str]:
         """Re-emit from a recomposed IR (the ``--from-lock`` recompose path)."""
         return self._emit_with_sources(
-            ir, project_path, self._resolve_overlay_sources(ir)
+            ir,
+            project_path,
+            self._resolve_overlay_sources(ir),
+            dry_run=dry_run,
+            recompose=True,
         )
 
     # Uninstall
@@ -1029,6 +1021,13 @@ class PiBackend:
         if not isinstance(sources, list):
             return _err(["Lock file is malformed: 'overlay_sources' is not a list"])
 
+        try:
+            owned_artifacts = verify_owned_artifacts(
+                project_path, lock_data, _PI_LOCK, require_all=False
+            )
+        except ValueError as exc:
+            return _err([str(exc)])
+
         installed = [_overlay_name_of(s) for s in sources]
         if overlay_name not in installed:
             return _err([
@@ -1043,7 +1042,7 @@ class PiBackend:
 
         if not remaining_sources:
             return self._uninstall_last_overlay(
-                project_path, overlay_name, dry_run
+                project_path, overlay_name, dry_run, owned_artifacts
             )
 
         base_path = self._require_base_path("uninstall")
@@ -1071,12 +1070,16 @@ class PiBackend:
 
         report = getattr(result, "report", {}) or {}
         injection_warnings = list(report.get("injection_warnings", []))
-        if dry_run:
-            files_written = list(getattr(result, "files_to_write", []))
-        else:
+        try:
             files_written = self._emit_with_sources(
-                result.graph, project_path, remaining_sources
+                result.graph,
+                project_path,
+                remaining_sources,
+                dry_run=dry_run,
+                recompose=True,
             )
+        except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
+            return _err([f"Cannot safely recompose owned artifacts: {exc}"])
 
         return UninstallResult(
             removed={"name": overlay_name},
@@ -1090,10 +1093,14 @@ class PiBackend:
         )
 
     def _uninstall_last_overlay(
-        self, project_path: str, overlay_name: str, dry_run: bool
+        self,
+        project_path: str,
+        overlay_name: str,
+        dry_run: bool,
+        owned_artifacts: List[str],
     ) -> UninstallResult:
-        """Remove the whole Pi artifact tree (zero overlays remain)."""
-        artifacts = self._existing_artifacts(project_path)
+        """Remove the validated Pi artifacts when zero overlays remain."""
+        artifacts = list(owned_artifacts) + [self.lock_path(project_path)]
 
         if dry_run:
             return UninstallResult(
@@ -1145,26 +1152,6 @@ class PiBackend:
             preview="",
             errors=[],
         )
-
-    def _existing_artifacts(self, project_path: str) -> List[str]:
-        """Every emitted Pi artifact path that exists under ``project_path``."""
-        found: List[str] = []
-        for rel in _PI_FIXED_ARTIFACTS:
-            p = os.path.join(project_path, rel)
-            if os.path.isfile(p):
-                found.append(p)
-        prompts_dir = os.path.join(project_path, ".pi", "prompts")
-        if os.path.isdir(prompts_dir):
-            for name in sorted(os.listdir(prompts_dir)):
-                if name.startswith("role-") and name.endswith(".md"):
-                    found.append(os.path.join(prompts_dir, name))
-        skills_dir = os.path.join(project_path, ".pi", "skills")
-        if os.path.isdir(skills_dir):
-            for skill in sorted(os.listdir(skills_dir)):
-                skill_md = os.path.join(skills_dir, skill, "SKILL.md")
-                if os.path.isfile(skill_md):
-                    found.append(skill_md)
-        return found
 
     def _prune_empty_pi_dirs(self, project_path: str) -> None:
         """Remove now-empty ``.pi/`` subdirectories bottom-up (best-effort)."""

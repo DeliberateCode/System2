@@ -1,8 +1,10 @@
 """The lowering + lifecycle contract."""
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
-from typing import List, Protocol, runtime_checkable
+from typing import List, Protocol, Tuple, runtime_checkable
 
 from system2_compiler.ir.graph import System2Graph
 
@@ -10,8 +12,173 @@ __all__ = [
     "Backend",
     "UninstallResult",
     "DoctorReport",
+    "OWNERSHIP_SCHEMA_VERSION",
+    "build_artifact_ownership",
     "lock_sources_outside_project",
+    "preflight_artifact_write",
+    "validate_artifact_ownership",
+    "verify_owned_artifacts",
 ]
+
+
+OWNERSHIP_SCHEMA_VERSION = 1
+
+
+def _validate_relative_artifact_path(path: object) -> str:
+    if (
+        not isinstance(path, str)
+        or path in ("", ".", "..")
+        or "\x00" in path
+        or os.path.isabs(path)
+        or "\\" in path
+        or os.path.normpath(path) != path
+        or path.startswith(".." + os.sep)
+    ):
+        raise ValueError(f"invalid owned artifact path: {path!r}")
+    return path
+
+
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def build_artifact_ownership(
+    planned: List[Tuple[str, str]], lock_relative_path: str
+) -> dict:
+    """Build the narrow ownership inventory embedded in a target lock."""
+    lock_rel = _validate_relative_artifact_path(lock_relative_path)
+    artifacts: List[dict] = []
+    seen = set()
+    for relative_path, content in planned:
+        rel = _validate_relative_artifact_path(relative_path)
+        if rel == lock_rel or rel in seen:
+            raise ValueError(f"duplicate owned artifact path: {rel!r}")
+        seen.add(rel)
+        artifacts.append({
+            "path": rel,
+            "sha256": _sha256_bytes(content.encode("utf-8")),
+        })
+    artifacts.append({"path": lock_rel})
+    return {
+        "schema_version": OWNERSHIP_SCHEMA_VERSION,
+        "artifacts": artifacts,
+    }
+
+
+def validate_artifact_ownership(
+    lock_data: object, lock_relative_path: str
+) -> List[Tuple[str, str]]:
+    """Validate a lock's complete inventory and return non-lock path/digest pairs."""
+    lock_rel = _validate_relative_artifact_path(lock_relative_path)
+    if not isinstance(lock_data, dict):
+        raise ValueError("lock file is malformed: expected an object")
+    ownership = lock_data.get("ownership")
+    if not isinstance(ownership, dict):
+        raise ValueError("lock file lacks a valid ownership record")
+    if set(ownership) != {"schema_version", "artifacts"}:
+        raise ValueError("lock file ownership record is malformed")
+    if ownership.get("schema_version") != OWNERSHIP_SCHEMA_VERSION:
+        raise ValueError("lock file has an unsupported ownership schema version")
+    artifacts = ownership.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ValueError("lock file lacks a valid ownership artifact inventory")
+
+    owned: List[Tuple[str, str]] = []
+    seen = set()
+    lock_entries = 0
+    for entry in artifacts:
+        if not isinstance(entry, dict):
+            raise ValueError("lock ownership artifact entry is malformed")
+        rel = _validate_relative_artifact_path(entry.get("path"))
+        if rel in seen:
+            raise ValueError(f"duplicate owned artifact path: {rel!r}")
+        seen.add(rel)
+        if rel == lock_rel:
+            if set(entry) != {"path"}:
+                raise ValueError("lock ownership entry must not contain a digest")
+            lock_entries += 1
+            continue
+        if set(entry) != {"path", "sha256"}:
+            raise ValueError(f"owned artifact entry is malformed: {rel!r}")
+        digest = entry.get("sha256")
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in digest)
+        ):
+            raise ValueError(f"owned artifact digest is malformed: {rel!r}")
+        owned.append((rel, digest))
+    if lock_entries != 1:
+        raise ValueError("ownership inventory must contain the target lock exactly once")
+    return owned
+
+
+def verify_owned_artifacts(
+    project_path: str,
+    lock_data: object,
+    lock_relative_path: str,
+    *,
+    require_all: bool,
+) -> List[str]:
+    """Return existing owned paths after validating every present artifact digest."""
+    existing: List[str] = []
+    for rel, expected_digest in validate_artifact_ownership(
+        lock_data, lock_relative_path
+    ):
+        path = os.path.join(project_path, rel)
+        if not os.path.isfile(path):
+            if os.path.lexists(path):
+                raise ValueError(f"owned artifact is no longer a regular file: {rel}")
+            if require_all:
+                raise ValueError(f"owned artifact is missing: {rel}")
+            continue
+        try:
+            with open(path, "rb") as fh:
+                actual_digest = _sha256_bytes(fh.read())
+        except OSError as exc:
+            raise ValueError(f"cannot read owned artifact {rel}: {exc}") from exc
+        if actual_digest != expected_digest:
+            raise ValueError(f"owned artifact was modified: {rel}")
+        existing.append(path)
+    return existing
+
+
+def preflight_artifact_write(
+    project_path: str,
+    planned: List[Tuple[str, str]],
+    lock_relative_path: str,
+    *,
+    recompose: bool,
+) -> List[str]:
+    """Refuse collisions or unproven overwrites before a backend writes anything."""
+    lock_rel = _validate_relative_artifact_path(lock_relative_path)
+    planned_paths = [os.path.join(project_path, rel) for rel, _content in planned]
+    if recompose:
+        with open(os.path.join(project_path, lock_rel), "r", encoding="utf-8") as fh:
+            lock_data = json.load(fh)
+        owned_paths = verify_owned_artifacts(
+            project_path, lock_data, lock_rel, require_all=True
+        )
+        owned = {os.path.relpath(path, project_path) for path in owned_paths}
+        collisions = [
+            rel
+            for rel, _content in planned
+            if rel != lock_rel
+            and os.path.lexists(os.path.join(project_path, rel))
+            and rel not in owned
+        ]
+    else:
+        collisions = [
+            rel
+            for rel, _content in planned
+            if os.path.lexists(os.path.join(project_path, rel))
+        ]
+    if collisions:
+        raise FileExistsError(
+            "refusing to overwrite pre-existing project artifact(s): "
+            + ", ".join(collisions)
+        )
+    return planned_paths
 
 
 def lock_sources_outside_project(sources: List[str], project_path: str) -> List[dict]:
