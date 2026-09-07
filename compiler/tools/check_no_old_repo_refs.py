@@ -27,8 +27,6 @@ SKIP_DIRS = frozenset({
 ALLOWLIST = (
     # Historical changelogs (any depth): they record the old-repo world by design.
     "CHANGELOG.md",
-    # Historical specification archive.
-    "spec/",
     # Compiler specification archive.
     "compiler/spec/",
     # Frozen outputs contain historical absolute source paths.
