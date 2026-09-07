@@ -92,13 +92,10 @@ def _assert_value_error_without_mutation(test_case, operation, root):
 
 def _assert_uninstall_refusal_without_mutation(test_case, operation, root):
     before = _tree_fingerprint(root)
-    try:
-        result = operation()
-    except ValueError:
-        pass
-    else:
-        test_case.assertTrue(result.errors, "uninstall accepted a poisoned lock")
+    result = operation()
+    test_case.assertTrue(result.errors, "uninstall accepted a poisoned lock")
     test_case.assertEqual(before, _tree_fingerprint(root))
+    return result
 
 
 class ClaudeEmitLockSafetyTest(unittest.TestCase):
@@ -305,8 +302,16 @@ class ClaudeUninstallLockSafetyTest(unittest.TestCase):
                     )
 
     def test_uninstall_refuses_symlinked_overlay_and_agent_selectors(self):
-        for selector_kind in ("overlay", "agent", "cached-agent"):
-            with self.subTest(selector_kind=selector_kind):
+        cases = (
+            ("overlay", False),
+            ("agent", False),
+            ("cached-agent", False),
+            ("cached-agent", True),
+        )
+        for selector_kind, multi_overlay in cases:
+            with self.subTest(
+                selector_kind=selector_kind, multi_overlay=multi_overlay
+            ):
                 with tempfile.TemporaryDirectory(
                     prefix="claude-uninstall-link-"
                 ) as root:
@@ -316,6 +321,12 @@ class ClaudeUninstallLockSafetyTest(unittest.TestCase):
                     os.mkdir(project)
                     os.mkdir(external)
                     lock_data = _valid_lock()
+                    if multi_overlay:
+                        lock_data["overlays"].append({
+                            "name": "anchorfile",
+                            "version": "1.0.0",
+                            "source_path": matrix.ANCHORFILE,
+                        })
 
                     overlay_dir = os.path.join(
                         project, ".system2", "overlays", "test-overlay"
@@ -346,13 +357,43 @@ class ClaudeUninstallLockSafetyTest(unittest.TestCase):
                                 fh.write(b"deployed agent")
 
                     _write_lock(project, lock_data)
-                    _assert_uninstall_refusal_without_mutation(
+                    result = _assert_uninstall_refusal_without_mutation(
                         self,
-                        lambda: ClaudeCodeBackend(base_path=_BASE).uninstall(
-                            project, "test-overlay"
-                        ),
+                        lambda: ClaudeCodeBackend(
+                            base_path=_BASE, compose_fn=ir.compose
+                        ).uninstall(project, "test-overlay"),
                         root,
                     )
+
+                    if selector_kind == "cached-agent":
+                        expected_error = (
+                            "Lock file is malformed: project artifact path "
+                            "contains a symlink: .system2/overlays/test-overlay/"
+                            "agents/test-scout.md"
+                        )
+                        self.assertEqual([expected_error], result.errors)
+
+                        before_cli = _tree_fingerprint(root)
+                        stdout = io.StringIO()
+                        stderr = io.StringIO()
+                        with contextlib.redirect_stdout(
+                            stdout
+                        ), contextlib.redirect_stderr(stderr):
+                            exit_code = cli.main([
+                                "uninstall", "--target", "claude-code",
+                                "--base", _BASE, "--project", project,
+                                "--name", "test-overlay", "--format", "text",
+                            ])
+                        self.assertNotEqual(0, exit_code)
+                        self.assertNotIn(
+                            "Traceback", stdout.getvalue() + stderr.getvalue()
+                        )
+                        self.assertIn(
+                            f"ERROR: {expected_error}", stderr.getvalue()
+                        )
+                        self.assertEqual(before_cli, _tree_fingerprint(root))
+                        with open(external_agent, "rb") as fh:
+                            self.assertEqual(b"external agent", fh.read())
 
 
 class ClaudeValidLockControlsTest(unittest.TestCase):

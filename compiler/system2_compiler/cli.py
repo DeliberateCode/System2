@@ -479,6 +479,9 @@ def _do_uninstall(args, target: str) -> int:
     except OSError as exc:
         _emit_error(f"I/O error during uninstall: {exc}", fmt)
         return 3
+    except ValueError as exc:
+        _emit_error(f"Lock file is malformed: {exc}", fmt)
+        return 3
 
     if result.errors:
         return _emit_refusal(result.errors, {}, fmt)

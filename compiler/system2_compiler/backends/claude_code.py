@@ -1630,9 +1630,12 @@ class ClaudeCodeBackend:
             allow_newer_schema=allow_newer_schema,
         )
 
-        artifacts_removed = _compute_stale_artifacts(
-            project_path, overlay_name, lock_data,
-        )
+        try:
+            artifacts_removed = _compute_stale_artifacts(
+                project_path, overlay_name, lock_data,
+            )
+        except ValueError as exc:
+            return _err([f"Lock file is malformed: {exc}"])
         remaining_meta = [
             {"name": ov["name"], "version": ov.get("version", "")}
             for ov in remaining
@@ -1706,9 +1709,16 @@ class ClaudeCodeBackend:
             )
 
         # 2. Compute artifacts to remove.
-        artifacts_to_remove = _compute_stale_artifacts(
-            project_path, overlay_name, lock_data
-        )
+        try:
+            artifacts_to_remove = _compute_stale_artifacts(
+                project_path, overlay_name, lock_data
+            )
+        except ValueError as exc:
+            return UninstallResult(
+                removed={}, remaining=[], artifacts_removed=[], files_written=[],
+                is_last_overlay=True, injection_warnings=[], preview="",
+                errors=[f"Lock file is malformed: {exc}"],
+            )
 
         files_to_write = [os.path.join(project_path, "CLAUDE.md")]
         files_to_remove = [
