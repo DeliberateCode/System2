@@ -44,8 +44,8 @@ _CORRECTNESS_FIELDS = frozenset({
 # are therefore the ONLY files allowed to differ between two deterministic regens.
 _PROVENANCE_BASENAMES = frozenset({"PROVENANCE.json", "BUNDLE.json"})
 
-# Active builders for which this module has an ACKNOWLEDGED coverage review.
-_COVERED_ACTIVE = frozenset({"bundle", "codex", "pi"})
+# Registered builders for which this module has an acknowledged coverage review.
+_COVERED_BUILDERS = frozenset({"bundle", "codex", "pi"})
 
 # The real committed bundle subtree; hashed at import (before any test writes) so
 # ``tearDownModule`` can prove the run left the real tree untouched.
@@ -187,32 +187,12 @@ class RegenGuardContractTest(unittest.TestCase):
                 )
             )
 
-    def test_registry_coverage_and_placeholder_slots(self):
-        """Every active builder is acknowledged-covered; every placeholder RAISES the
-        not-yet-implemented error on ``--only`` (both regen and --check)."""
-        active = {a.name for a in regen_all.REGISTRY if a.builder is not None}
-        placeholders = [a for a in regen_all.REGISTRY if a.builder is None]
-
-        # Every active builder must have explicit coverage.
-        uncovered = active - _COVERED_ACTIVE
-        self.assertEqual(
-            uncovered, set(),
-            f"active builder(s) {sorted(uncovered)} are registered without acknowledged "
-            f"coverage; the divergence/determinism legs iterate REGISTRY and will now "
-            f"exercise them — add the name to _COVERED_ACTIVE after confirming.",
-        )
-        # And the acknowledgement list may not name a builder that is not registered.
-        self.assertLessEqual(_COVERED_ACTIVE, {a.name for a in regen_all.REGISTRY})
-
-        # Every REGISTRY slot is currently active (no placeholder remains), so this loop
-        for art in placeholders:
-            self.assertIsNone(art.builder)
-            self.assertTrue(art.todo_task, f"{art.name} placeholder lacks a todo_task")
-            for extra in ([], ["--check"]):
-                rc, _out, err = _capture(regen_all.main, ["--only", art.name] + extra)
-                self.assertEqual(rc, 1, f"--only {art.name} {extra} should error")
-                self.assertIn(art.name, err)
-                self.assertIn(art.todo_task, err)
+    def test_registry_coverage_is_exact(self):
+        """Every registered builder has acknowledged regen coverage."""
+        registered = {art.name for art in regen_all.REGISTRY}
+        self.assertEqual(registered, _COVERED_BUILDERS)
+        for art in regen_all.REGISTRY:
+            self.assertTrue(callable(art.builder), art.name)
 
 
 class RegenInducedDivergenceTest(unittest.TestCase):
@@ -342,19 +322,19 @@ class RegenInducedDivergenceTest(unittest.TestCase):
                     self.assertEqual(rc, 1, f"{mutation} must make regen --check RED")
                     self.assertIn(regen_all.stale_message(art.name), err)
 
-    def test_induced_divergence_for_every_active_builder(self):
-        active = [a for a in regen_all.REGISTRY if a.builder is not None]
-        self.assertTrue(active, "REGISTRY has no active builder to guard")
+    def test_induced_divergence_for_every_registered_builder(self):
+        registered = list(regen_all.REGISTRY)
+        self.assertTrue(registered, "REGISTRY has no builder to guard")
         exercised = 0
-        for art in active:
+        for art in registered:
             with self.subTest(artifact=art.name):
                 if art.bundle_oracle:
                     self._divergence_bundle(art)
                 else:
                     self._divergence_distribution(art)
                 exercised += 1
-        # No active builder may be silently skipped by the loop.
-        self.assertEqual(exercised, len(active))
+        # No registered builder may be silently skipped by the loop.
+        self.assertEqual(exercised, len(registered))
 
 
 class RegenDeterminismTest(unittest.TestCase):
@@ -419,15 +399,15 @@ class RegenDeterminismTest(unittest.TestCase):
                     f"{art.name}/{rel}: provenance carried no correctness field to pin",
                 )
 
-    def test_determinism_for_every_active_builder(self):
-        active = [a for a in regen_all.REGISTRY if a.builder is not None]
-        self.assertTrue(active, "REGISTRY has no active builder to check for determinism")
+    def test_determinism_for_every_registered_builder(self):
+        registered = list(regen_all.REGISTRY)
+        self.assertTrue(registered, "REGISTRY has no builder to check for determinism")
         exercised = 0
-        for art in active:
+        for art in registered:
             with self.subTest(artifact=art.name):
                 self._assert_deterministic(art)
                 exercised += 1
-        self.assertEqual(exercised, len(active))
+        self.assertEqual(exercised, len(registered))
 
 
 if __name__ == "__main__":

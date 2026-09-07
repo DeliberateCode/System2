@@ -22,18 +22,6 @@ __all__ = ["main"]
 _TARGETS = ("claude-code", "pi", "codex")
 _VERBS = ("compile", "uninstall", "doctor", "from-lock", "profile")
 
-# Default backends serve IR-only emission; lifecycle commands use _backend_for.
-_BACKENDS = {
-    "claude-code": ClaudeCodeBackend(),
-    "pi": PiBackend(),
-    "codex": CodexBackend(),
-}
-
-
-def _select_backend(target: str) -> Backend:
-    """Return the registered default backend for *target*."""
-    return _BACKENDS[target]
-
 # These declared contribution types are deferred by the CLI report.
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 

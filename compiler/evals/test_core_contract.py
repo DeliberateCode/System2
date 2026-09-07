@@ -135,9 +135,10 @@ class BackendProvenanceTest(unittest.TestCase):
         "read_lock_overlay_sources",
     )
 
-    def test_all_registered_backends_implement_the_complete_protocol(self):
-        self.assertEqual(set(cli._BACKENDS), {"claude-code", "codex", "pi"})
-        for name, backend in cli._BACKENDS.items():
+    def test_all_cli_backends_implement_the_complete_protocol(self):
+        self.assertEqual(set(cli._TARGETS), {"claude-code", "codex", "pi"})
+        for name in cli._TARGETS:
+            backend = cli._backend_for(name, _BASE)
             with self.subTest(backend=name):
                 self.assertIsInstance(backend, Backend)
                 for method in self._LIFECYCLE_METHODS:

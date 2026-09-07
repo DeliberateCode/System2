@@ -345,8 +345,7 @@ class _Artifact:
     name: str
     dest_rel: str        # dir the builder writes into, relative to repo_root
     content_rel: str     # subpath under dest_rel that IS the artifact tree ("" = all)
-    builder: Optional[Callable[[str, _Context], None]]
-    todo_task: str = ""  # describes an inactive placeholder
+    builder: Callable[[str, _Context], None]
     # Bundle manifests contain volatile metadata, so compare their source hash.
     bundle_oracle: bool = False
 
@@ -365,13 +364,6 @@ REGISTRY: List[_Artifact] = [
 def stale_message(artifact: str) -> str:
     """Name the stale artifact and its regeneration command."""
     return f"{artifact} is stale: regenerate via {_REGEN_COMMAND}"
-
-
-def _placeholder_message(art: _Artifact) -> str:
-    return (
-        f"{art.name} builder is not yet implemented — see {art.todo_task}; "
-        f"regen_all registers it as a placeholder slot"
-    )
 
 
 def _read_json(path: str, *, trusted_root=None) -> dict:
@@ -544,7 +536,7 @@ def _trees_match(
 
 # Drivers
 
-def _regen(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
+def _regen(selected: List[_Artifact], ctx: _Context) -> int:
     selected_names = {art.name for art in selected}
     if "bundle" in selected_names and "codex" not in selected_names:
         if not _package_data_matches_current_codex_emission(ctx):
@@ -555,12 +547,6 @@ def _regen(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
             )
             return 1
     for art in selected:
-        if art.builder is None:
-            if explicit:
-                sys.stderr.write(_placeholder_message(art) + "\n")
-                return 1
-            sys.stdout.write(f"skip {art.name}: {_placeholder_message(art)}\n")
-            continue
         dest_abs = os.path.join(ctx.repo_root, art.dest_rel)
         art.builder(dest_abs, ctx)
         if art.name == "codex":
@@ -585,14 +571,6 @@ def _bundle_is_fresh(ctx: _Context, committed_root: str) -> bool:
 
 def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
     for art in selected:
-        if art.builder is None:
-            if explicit:
-                sys.stderr.write(_placeholder_message(art) + "\n")
-                return 1
-            sys.stdout.write(
-                f"skip {art.name}: not yet implemented ({art.todo_task})\n"
-            )
-            continue
         committed_root = os.path.join(ctx.repo_root, art.dest_rel, art.content_rel)
         if not _is_regular_directory(
             committed_root, trusted_root=ctx.repo_root
@@ -684,7 +662,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     explicit = args.only is not None
     if args.check:
         return _check(selected, ctx, explicit)
-    return _regen(selected, ctx, explicit)
+    return _regen(selected, ctx)
 
 
 if __name__ == "__main__":

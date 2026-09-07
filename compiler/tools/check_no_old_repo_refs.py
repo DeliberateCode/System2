@@ -31,14 +31,10 @@ ALLOWLIST = (
     "spec/",
     # Compiler specification archive.
     "compiler/spec/",
-    # Historical planning doc: records the pre-consolidation single-repo decision.
-    "compiler/PLAN.md",
     # Frozen outputs contain historical absolute source paths.
     "compiler/evals/goldens/",
     # Compiler documentation with migration history.
     "compiler/README.md",
-    # Example documentation with migration history.
-    "compiler/examples/README.md",
     # Migration guide names the former standalone utility repository.
     "docs/installation/claude-code.md",
     # Product name, not a source-repository reference.
