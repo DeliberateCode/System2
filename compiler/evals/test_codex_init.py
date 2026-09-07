@@ -444,6 +444,33 @@ class CodexInitSymlinkGuard(unittest.TestCase):
 
 
 class CodexInitTransactionalFailures(unittest.TestCase):
+    def test_forced_install_failure_before_each_commit_restores_exact_tree(self):
+        # Original-config backup, three scripts, hooks.json, then state.
+        for fail_before in range(1, len(_GUARDS) + 4):
+            with self.subTest(fail_before=fail_before), tempfile.TemporaryDirectory() as home:
+                with open(os.path.join(home, "hooks.json"), "wb") as fh:
+                    fh.write(b"foreign config\n")
+                before = _tree_snapshot(home)
+                real_replace = os.replace
+                commits = 0
+
+                def fail_before_replace(src, dst):
+                    nonlocal commits
+                    commits += 1
+                    if commits == fail_before:
+                        raise OSError(f"injected forced failure before commit {fail_before}")
+                    real_replace(src, dst)
+
+                with mock.patch.object(codex_init, "_atomic_replace", fail_before_replace):
+                    with self.assertRaisesRegex(OSError, "injected forced failure"):
+                        codex_init.codex_init(
+                            codex_home=home, reference_dir=_REFERENCE, force=True,
+                        )
+                self.assertEqual(
+                    _tree_snapshot(home), before,
+                    f"pre-rename forced boundary {fail_before} left filesystem residue",
+                )
+
     def test_forced_install_failure_also_rolls_back_backup_boundary(self):
         # Original-config backup, three scripts, hooks.json, then state.
         for fail_after in range(1, len(_GUARDS) + 4):
@@ -467,6 +494,31 @@ class CodexInitTransactionalFailures(unittest.TestCase):
                             codex_home=home, reference_dir=_REFERENCE, force=True,
                         )
                 self.assertEqual(_tree_snapshot(home), before)
+
+    def test_failure_before_each_commit_boundary_restores_exact_tree(self):
+        # Three scripts, hooks.json, then state (committed last).
+        for fail_before in range(1, len(_GUARDS) + 3):
+            with self.subTest(fail_before=fail_before), tempfile.TemporaryDirectory() as home:
+                before = _tree_snapshot(home)
+                real_replace = os.replace
+                commits = 0
+
+                def fail_before_replace(src, dst):
+                    nonlocal commits
+                    commits += 1
+                    if commits == fail_before:
+                        raise OSError(f"injected failure before commit {fail_before}")
+                    real_replace(src, dst)
+
+                with mock.patch.object(codex_init, "_atomic_replace", fail_before_replace):
+                    with self.assertRaisesRegex(OSError, "injected failure"):
+                        codex_init.codex_init(
+                            codex_home=home, reference_dir=_REFERENCE,
+                        )
+                self.assertEqual(
+                    _tree_snapshot(home), before,
+                    f"pre-rename boundary {fail_before} left temp or directory residue",
+                )
 
     def test_failure_after_each_commit_boundary_restores_exact_tree(self):
         # Three scripts, hooks.json, then state (committed last).
@@ -495,6 +547,34 @@ class CodexInitTransactionalFailures(unittest.TestCase):
 
 
 class CodexUninstallTransactionalFailures(unittest.TestCase):
+    def test_failure_before_each_commit_boundary_restores_installed_tree(self):
+        # hooks.json is removed first, then three scripts, then state last.
+        for fail_before in range(1, len(_GUARDS) + 3):
+            with self.subTest(fail_before=fail_before), tempfile.TemporaryDirectory() as home:
+                with open(os.path.join(home, "hooks.json"), "wb") as fh:
+                    fh.write(b"foreign config\n")
+                codex_init.codex_init(
+                    codex_home=home, reference_dir=_REFERENCE, force=True,
+                )
+                before = _tree_snapshot(home)
+                real_replace = os.replace
+                commits = 0
+
+                def fail_before_replace(src, dst):
+                    nonlocal commits
+                    commits += 1
+                    if commits == fail_before:
+                        raise OSError(f"injected uninstall failure before commit {fail_before}")
+                    real_replace(src, dst)
+
+                with mock.patch.object(codex_init, "_atomic_replace", fail_before_replace):
+                    with self.assertRaisesRegex(OSError, "injected uninstall failure"):
+                        codex_init.codex_uninstall(codex_home=home)
+                self.assertEqual(
+                    _tree_snapshot(home), before,
+                    f"pre-rename uninstall boundary {fail_before} left filesystem residue",
+                )
+
     def test_failure_after_each_commit_boundary_restores_installed_tree(self):
         # hooks.json is removed first, then three scripts, then state last.
         for fail_after in range(1, len(_GUARDS) + 3):

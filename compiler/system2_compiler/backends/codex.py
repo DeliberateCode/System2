@@ -1311,7 +1311,8 @@ def _apply_file_transaction(
                 tombstones.append(tomb)
                 _atomic_replace(path, tomb)
             else:
-                _atomic_replace(staged.pop(path), path)
+                _atomic_replace(staged[path], path)
+                staged.pop(path, None)
         for tomb in tombstones:
             if os.path.lexists(tomb):
                 os.unlink(tomb)
