@@ -25,28 +25,60 @@ _BUNDLE_COMPANIONS = (("tools/_freshness.py", "_freshness.py"),)
 _BUNDLE_DIRNAME = "_system2_compiler"
 
 
-def _require_type(path: str, predicate, description: str) -> None:
-    """Reject links and special files without dereferencing them."""
+def _path_mode(path: str, description: str, trusted_root: str) -> int:
+    """Return ``path``'s no-follow mode after validating components below root."""
+    path = os.path.abspath(path)
+    trusted_root = os.path.abspath(trusted_root)
     try:
-        mode = os.lstat(path).st_mode
+        if os.path.commonpath((trusted_root, path)) != trusted_root:
+            raise ValueError(f"{description} escapes trusted root: {path}")
+    except ValueError:
+        raise ValueError(f"{description} escapes trusted root: {path}") from None
+
+    relative = os.path.relpath(path, trusted_root)
+    components = [] if relative == os.curdir else relative.split(os.sep)
+    current = trusted_root
+    try:
+        if components:
+            root_mode = os.lstat(current).st_mode
+            if not stat.S_ISDIR(root_mode):
+                raise ValueError(
+                    f"{description} trusted root has an invalid file type: {current}"
+                )
+        for index, component in enumerate(components):
+            current = os.path.join(current, component)
+            mode = os.lstat(current).st_mode
+            if index < len(components) - 1 and not stat.S_ISDIR(mode):
+                raise ValueError(
+                    f"{description} has an invalid ancestor file type: {current}"
+                )
+        return os.lstat(path).st_mode if not components else mode
     except FileNotFoundError:
-        raise FileNotFoundError(f"{description} missing: {path}") from None
-    if not predicate(mode):
+        raise FileNotFoundError(f"{description} missing: {current}") from None
+
+
+def _require_type(
+    path: str, predicate, description: str, *, trusted_root: str
+) -> None:
+    """Reject links, special files, and invalid ancestors without dereferencing."""
+    if not predicate(_path_mode(path, description, trusted_root)):
         raise ValueError(f"{description} has an invalid file type: {path}")
 
 
-def _require_file(path: str, description: str) -> None:
-    _require_type(path, stat.S_ISREG, description)
+def _require_file(path: str, description: str, *, trusted_root: str) -> None:
+    _require_type(path, stat.S_ISREG, description, trusted_root=trusted_root)
 
 
-def _require_directory(path: str, description: str) -> None:
-    _require_type(path, stat.S_ISDIR, description)
+def _require_directory(path: str, description: str, *, trusted_root: str) -> None:
+    _require_type(path, stat.S_ISDIR, description, trusted_root=trusted_root)
 
 
 def _iter_source_files(compiler_root: str):
     """Yield ``(relpath, abspath)`` for every bundled source file, sorted."""
     compiler_root = os.path.abspath(compiler_root)
-    _require_directory(compiler_root, "compiler source root")
+    _require_directory(
+        compiler_root, "compiler source root", trusted_root=compiler_root
+    )
     out = []
     for member in _BUNDLE_MEMBERS:
         src = os.path.join(compiler_root, member)
@@ -64,17 +96,23 @@ def _iter_source_files(compiler_root: str):
                 f"bundle member is not a regular file or directory: {member}"
             )
         for dirpath, dirnames, filenames in os.walk(src):
-            _require_directory(dirpath, "bundle source directory")
+            _require_directory(
+                dirpath, "bundle source directory", trusted_root=compiler_root
+            )
             retained = []
             for dirname in sorted(dirnames):
                 child = os.path.join(dirpath, dirname)
-                _require_directory(child, "bundle source directory")
+                _require_directory(
+                    child, "bundle source directory", trusted_root=compiler_root
+                )
                 if dirname not in _EXCLUDE_DIRS:
                     retained.append(dirname)
             dirnames[:] = retained
             for fn in sorted(filenames):
                 abspath = os.path.join(dirpath, fn)
-                _require_file(abspath, "bundle source file")
+                _require_file(
+                    abspath, "bundle source file", trusted_root=compiler_root
+                )
                 if fn.endswith(".pyc"):
                     continue
                 rel = os.path.relpath(abspath, compiler_root)
@@ -89,6 +127,9 @@ def compute_source_hash(compiler_root: str) -> str:
     for rel, abspath in _iter_source_files(compiler_root):
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
+        _require_file(
+            abspath, "bundle source file", trusted_root=os.path.abspath(compiler_root)
+        )
         with open(abspath, "rb") as fh:
             digest.update(fh.read())
         digest.update(b"\0")
@@ -100,6 +141,9 @@ def _copy_subtree(compiler_root: str, bundle_root: str) -> None:
     for rel, abspath in _iter_source_files(compiler_root):
         dest = os.path.join(bundle_root, rel.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
+        _require_file(
+            abspath, "bundle source file", trusted_root=os.path.abspath(compiler_root)
+        )
         shutil.copyfile(abspath, dest)
 
 
@@ -107,9 +151,14 @@ def _copy_companions(compiler_root: str, bundle_root: str) -> None:
     """Vendor each bundle companion into ``bundle_root`` (non-hashed, re-emitted)."""
     for src_rel, dest_rel in _BUNDLE_COMPANIONS:
         src = os.path.join(compiler_root, src_rel.replace("/", os.sep))
-        _require_file(src, f"bundle companion {src_rel}")
+        _require_file(
+            src, f"bundle companion {src_rel}", trusted_root=compiler_root
+        )
         dest = os.path.join(bundle_root, dest_rel.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
+        _require_file(
+            src, f"bundle companion {src_rel}", trusted_root=compiler_root
+        )
         shutil.copyfile(src, dest)
 
 
@@ -117,7 +166,9 @@ def _compiler_version(compiler_root: str) -> str:
     """Read the compiler version from ``pyproject.toml`` (``project.version``)."""
     path = os.path.join(compiler_root, "pyproject.toml")
     try:
-        _require_file(path, "compiler project metadata")
+        _require_file(
+            path, "compiler project metadata", trusted_root=compiler_root
+        )
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
                 stripped = line.strip()

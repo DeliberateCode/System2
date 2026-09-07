@@ -202,6 +202,59 @@ class BundleDriftTest(unittest.TestCase):
                     f"symlinked {name} must fail the guard",
                 )
 
+    def test_guard_rejects_bundle_through_symlinked_repository_parent(self):
+        repository = os.path.join(self._tmp, "repository")
+        plugin = os.path.join(repository, "plugin")
+        dest = os.path.join(plugin, "scripts")
+        os.makedirs(plugin)
+        build_bundle.build_bundle(_COMPILER_ROOT, dest)
+        self.assertEqual(
+            _check_bundle_fresh_mod.check_bundle_fresh(
+                _COMPILER_ROOT, dest, target_trusted_root=repository
+            ),
+            0,
+        )
+
+        external = os.path.join(self._tmp, "external-plugin")
+        os.rename(plugin, external)
+        os.symlink(external, plugin)
+        self.assertNotEqual(
+            _check_bundle_fresh_mod.check_bundle_fresh(
+                _COMPILER_ROOT, dest, target_trusted_root=repository
+            ),
+            0,
+            "bundle and emitted companion below a symlinked parent must fail",
+        )
+
+    def test_guard_rejects_canonical_companion_through_symlinked_tools(self):
+        compiler_root = os.path.join(self._tmp, "compiler")
+        shutil.copytree(
+            _COMPILER_ROOT,
+            compiler_root,
+            ignore=shutil.ignore_patterns(
+                "__pycache__", ".pytest_cache", ".ruff_cache", ".git"
+            ),
+        )
+        dest = os.path.join(self._tmp, "canonical-parent")
+        build_bundle.build_bundle(compiler_root, dest)
+        self.assertEqual(
+            check_bundle_fresh.check_bundle_fresh(compiler_root, dest), 0
+        )
+
+        tools = os.path.join(compiler_root, "tools")
+        external = os.path.join(self._tmp, "external-tools")
+        os.rename(tools, external)
+        os.symlink(external, tools)
+        self.assertNotEqual(
+            check_bundle_fresh.check_bundle_fresh(compiler_root, dest),
+            0,
+            "canonical _freshness.py below symlinked tools/ must fail",
+        )
+        with self.assertRaisesRegex(ValueError, "invalid ancestor"):
+            build_bundle.build_bundle(
+                compiler_root, os.path.join(self._tmp, "canonical-parent-rebuild")
+            )
+
     # --- the guard FAILS on a one-byte mutation (teeth) -----------------------
 
     def test_guard_fails_on_mutated_vendored_byte(self):

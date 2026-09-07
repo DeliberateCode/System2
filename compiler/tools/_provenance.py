@@ -32,37 +32,74 @@ _ARTIFACT_EXCLUDE_DIRS = frozenset(
 )
 
 
-def _require_type(path: str, predicate, description: str) -> None:
-    """Reject links and special files without dereferencing them."""
+def _path_mode(path: str, description: str, trusted_root: str) -> int:
+    """Return ``path``'s no-follow mode after validating components below root."""
+    path = os.path.abspath(path)
+    trusted_root = os.path.abspath(trusted_root)
     try:
-        mode = os.lstat(path).st_mode
+        if os.path.commonpath((trusted_root, path)) != trusted_root:
+            raise ValueError(f"{description} escapes trusted root: {path}")
+    except ValueError:
+        raise ValueError(f"{description} escapes trusted root: {path}") from None
+
+    relative = os.path.relpath(path, trusted_root)
+    components = [] if relative == os.curdir else relative.split(os.sep)
+    current = trusted_root
+    try:
+        if components:
+            root_mode = os.lstat(current).st_mode
+            if not stat.S_ISDIR(root_mode):
+                raise ValueError(
+                    f"{description} trusted root has an invalid file type: {current}"
+                )
+        for index, component in enumerate(components):
+            current = os.path.join(current, component)
+            mode = os.lstat(current).st_mode
+            if index < len(components) - 1 and not stat.S_ISDIR(mode):
+                raise ValueError(
+                    f"{description} has an invalid ancestor file type: {current}"
+                )
+        return os.lstat(path).st_mode if not components else mode
     except FileNotFoundError:
-        raise FileNotFoundError(f"{description} missing: {path}") from None
-    if not predicate(mode):
+        raise FileNotFoundError(f"{description} missing: {current}") from None
+
+
+def _require_type(
+    path: str, predicate, description: str, *, trusted_root: str
+) -> None:
+    """Reject links, special files, and invalid ancestors without dereferencing."""
+    if not predicate(_path_mode(path, description, trusted_root)):
         raise ValueError(f"{description} has an invalid file type: {path}")
 
 
-def _require_file(path: str, description: str) -> None:
-    _require_type(path, stat.S_ISREG, description)
+def _require_file(path: str, description: str, *, trusted_root: str) -> None:
+    _require_type(path, stat.S_ISREG, description, trusted_root=trusted_root)
 
 
-def _require_directory(path: str, description: str) -> None:
-    _require_type(path, stat.S_ISDIR, description)
+def _require_directory(path: str, description: str, *, trusted_root: str) -> None:
+    _require_type(path, stat.S_ISDIR, description, trusted_root=trusted_root)
 
 
 def _iter_input_files(roots):
     """Yield ``(relpath, abspath)`` over every input file, sorted by relpath."""
     out = []
-    for label, path in roots:
+    for entry in roots:
+        if len(entry) == 3:
+            label, path, trusted_root = entry
+        else:
+            label, path = entry
+            path = os.path.abspath(path)
+            trusted_root = path if os.path.isdir(path) else os.path.dirname(path)
         path = os.path.abspath(path)
+        trusted_root = os.path.abspath(trusted_root)
         try:
-            mode = os.lstat(path).st_mode
+            mode = _path_mode(path, "provenance input", trusted_root)
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"provenance input missing: {label} ({path})"
             ) from None
         if stat.S_ISREG(mode):
-            out.append((label, path))
+            out.append((label, path, trusted_root))
             continue
         if not stat.S_ISDIR(mode):
             raise ValueError(
@@ -70,23 +107,29 @@ def _iter_input_files(roots):
                 f"{label} ({path})"
             )
         for dirpath, dirnames, filenames in os.walk(path):
-            _require_directory(dirpath, "provenance input directory")
+            _require_directory(
+                dirpath, "provenance input directory", trusted_root=trusted_root
+            )
             retained = []
             for dirname in sorted(dirnames):
                 child = os.path.join(dirpath, dirname)
-                _require_directory(child, "provenance input directory")
+                _require_directory(
+                    child, "provenance input directory", trusted_root=trusted_root
+                )
                 if dirname not in _EXCLUDE_DIRS:
                     retained.append(dirname)
             dirnames[:] = retained
             for fn in sorted(filenames):
                 abspath = os.path.join(dirpath, fn)
-                _require_file(abspath, "provenance input file")
+                _require_file(
+                    abspath, "provenance input file", trusted_root=trusted_root
+                )
                 if fn.endswith(".pyc"):
                     continue
                 rel = os.path.relpath(abspath, path).replace(os.sep, "/")
-                out.append((f"{label}/{rel}", abspath))
-    out.sort(key=lambda pair: pair[0])
-    labels = [label for label, _path in out]
+                out.append((f"{label}/{rel}", abspath, trusted_root))
+    out.sort(key=lambda entry: entry[0])
+    labels = [label for label, _path, _root in out]
     if len(labels) != len(set(labels)):
         raise ValueError("provenance input labels must be unique")
     return out
@@ -95,32 +138,40 @@ def _iter_input_files(roots):
 def source_sha256(roots) -> str:
     """Return the sha256 over the sorted ``(relpath, bytes)`` of the generator inputs."""
     digest = hashlib.sha256()
-    for rel, abspath in _iter_input_files(roots):
+    for rel, abspath, trusted_root in _iter_input_files(roots):
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
+        _require_file(abspath, "provenance input file", trusted_root=trusted_root)
         with open(abspath, "rb") as fh:
             digest.update(fh.read())
         digest.update(b"\0")
     return digest.hexdigest()
 
 
-def artifact_inventory(dest_dir: str):
+def artifact_inventory(dest_dir: str, *, trusted_root=None):
     """Return the exact sorted artifact-file inventory, excluding provenance itself."""
     root = os.path.abspath(dest_dir)
-    _require_directory(root, "artifact root directory")
+    trusted_root = os.path.abspath(trusted_root or root)
+    _require_directory(
+        root, "artifact root directory", trusted_root=trusted_root
+    )
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
-        _require_directory(dirpath, "artifact directory")
+        _require_directory(
+            dirpath, "artifact directory", trusted_root=trusted_root
+        )
         retained = []
         for dirname in sorted(dirnames):
             child = os.path.join(dirpath, dirname)
-            _require_directory(child, "artifact directory")
+            _require_directory(
+                child, "artifact directory", trusted_root=trusted_root
+            )
             if dirname not in _ARTIFACT_EXCLUDE_DIRS:
                 retained.append(dirname)
         dirnames[:] = retained
         for fn in sorted(filenames):
             abspath = os.path.join(dirpath, fn)
-            _require_file(abspath, "artifact file")
+            _require_file(abspath, "artifact file", trusted_root=trusted_root)
             if fn.endswith(".pyc"):
                 continue
             rel = os.path.relpath(abspath, root).replace(os.sep, "/")
@@ -130,33 +181,42 @@ def artifact_inventory(dest_dir: str):
     return sorted(out)
 
 
-def artifact_sha256(dest_dir: str, inventory=None) -> str:
+def artifact_sha256(dest_dir: str, inventory=None, *, trusted_root=None) -> str:
     """Hash the sorted ``(artifact relpath, bytes)`` without self-reference."""
     dest_dir = os.path.abspath(dest_dir)
-    inventory = artifact_inventory(dest_dir) if inventory is None else inventory
+    trusted_root = os.path.abspath(trusted_root or dest_dir)
+    inventory = (
+        artifact_inventory(dest_dir, trusted_root=trusted_root)
+        if inventory is None else inventory
+    )
     digest = hashlib.sha256()
     for rel in inventory:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
         path = os.path.join(dest_dir, rel.replace("/", os.sep))
-        _require_file(path, "artifact file")
+        _require_file(path, "artifact file", trusted_root=trusted_root)
         with open(path, "rb") as fh:
             digest.update(fh.read())
         digest.update(b"\0")
     return digest.hexdigest()
 
 
-def artifacts_match(dest_dir: str, provenance=None) -> bool:
+def artifacts_match(dest_dir: str, provenance=None, *, trusted_root=None) -> bool:
     """Fail closed unless provenance pins the exact current artifact set and bytes."""
     dest_dir = os.path.abspath(dest_dir)
+    trusted_root = os.path.abspath(trusted_root or dest_dir)
     try:
-        _require_directory(dest_dir, "artifact root directory")
+        _require_directory(
+            dest_dir, "artifact root directory", trusted_root=trusted_root
+        )
     except (OSError, ValueError):
         return False
     if provenance is None:
         try:
             provenance_path = os.path.join(dest_dir, PROVENANCE_FILENAME)
-            _require_file(provenance_path, "provenance file")
+            _require_file(
+                provenance_path, "provenance file", trusted_root=trusted_root
+            )
             with open(provenance_path, "r", encoding="utf-8") as fh:
                 provenance = json.load(fh)
         except (OSError, ValueError):
@@ -175,10 +235,14 @@ def artifacts_match(dest_dir: str, provenance=None) -> bool:
     ):
         return False
     try:
-        current_inventory = artifact_inventory(dest_dir)
+        current_inventory = artifact_inventory(
+            dest_dir, trusted_root=trusted_root
+        )
         if recorded_inventory != current_inventory:
             return False
-        return artifact_sha256(dest_dir, current_inventory) == recorded_digest
+        return artifact_sha256(
+            dest_dir, current_inventory, trusted_root=trusted_root
+        ) == recorded_digest
     except (OSError, ValueError):
         return False
 

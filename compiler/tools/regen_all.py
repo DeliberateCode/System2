@@ -93,27 +93,27 @@ def _plugin_graph_inputs(ctx: _Context):
     """Return only the canonical plugin files consumed by graph construction."""
     schema_path = os.path.join(ctx.plugin_root, "schemas", "overlay.schema.json")
     anchor_map_path = os.path.join(ctx.plugin_root, "schemas", "anchor-map.json")
-    anchor_map = _read_json(anchor_map_path)
+    anchor_map = _read_json(anchor_map_path, trusted_root=ctx.plugin_root)
     inputs = [
         ("base/plugin_metadata", os.path.join(
             ctx.plugin_root, ".claude-plugin", "plugin.json"
-        )),
+        ), ctx.plugin_root),
         ("base/init_template", os.path.join(
             ctx.plugin_root, "skills", "init", "SKILL.md"
-        )),
-        ("base/schema/overlay", schema_path),
-        ("base/schema/anchor_map", anchor_map_path),
+        ), ctx.plugin_root),
+        ("base/schema/overlay", schema_path, ctx.plugin_root),
+        ("base/schema/anchor_map", anchor_map_path, ctx.plugin_root),
     ]
     inputs.extend(
         (f"base/agent/{name}", os.path.join(
             ctx.plugin_root, "agents", f"{name}.md"
-        ))
+        ), ctx.plugin_root)
         for name in sorted(anchor_map.get("agents", {}))
     )
     inputs.extend(
         (f"base/allowlist/{role}", os.path.join(
             ctx.plugin_root, "allowlists", filename
-        ))
+        ), ctx.plugin_root)
         for role, filename in sorted(ir_build._ROLE_ALLOWLISTS.items())
     )
     return inputs
@@ -123,23 +123,11 @@ def _overlay_graph_inputs(index: int, overlay_path: str, ctx: _Context):
     """Return a manifest and only the overlay files it actually references."""
     manifest_path = os.path.join(overlay_path, "system2.overlay.json")
     try:
-        manifest = ir_manifest.read_manifest(overlay_path)
+        manifest = _read_json(manifest_path, trusted_root=overlay_path)
     except FileNotFoundError:
         raise FileNotFoundError(
             f"provenance overlay manifest missing: {manifest_path}"
         ) from None
-
-    validation = ir_manifest.validate_manifest(
-        manifest,
-        _read_json(os.path.join(ctx.plugin_root, "schemas", "overlay.schema.json")),
-        overlay_path,
-        _read_json(os.path.join(ctx.plugin_root, "schemas", "anchor-map.json")),
-    )
-    if not validation.valid:
-        raise ValueError(
-            f"invalid provenance overlay {overlay_path!r}: "
-            + "; ".join(validation.errors)
-        )
 
     references = []
     ir_manifest._collect_content_files_from_manifest(manifest, references)
@@ -150,15 +138,49 @@ def _overlay_graph_inputs(index: int, overlay_path: str, ctx: _Context):
         for hook in agent.get("hooks", []):
             if isinstance(hook, dict) and isinstance(hook.get("command"), str):
                 references.append(hook["command"])
+    for reference in references:
+        components = reference.replace("\\", "/").split("/")
+        if os.path.isabs(reference) or ".." in components:
+            continue  # Preserve validate_manifest's established diagnostics.
+        try:
+            _require_file(
+                os.path.join(overlay_path, reference),
+                "provenance overlay source",
+                trusted_root=overlay_path,
+            )
+        except FileNotFoundError:
+            pass  # Preserve validate_manifest's established missing-file diagnostic.
+
+    validation = ir_manifest.validate_manifest(
+        manifest,
+        _read_json(
+            os.path.join(ctx.plugin_root, "schemas", "overlay.schema.json"),
+            trusted_root=ctx.plugin_root,
+        ),
+        overlay_path,
+        _read_json(
+            os.path.join(ctx.plugin_root, "schemas", "anchor-map.json"),
+            trusted_root=ctx.plugin_root,
+        ),
+    )
+    if not validation.valid:
+        raise ValueError(
+            f"invalid provenance overlay {overlay_path!r}: "
+            + "; ".join(validation.errors)
+        )
 
     prefix = f"overlay/{index:04d}"
-    inputs = [(f"{prefix}/manifest", manifest_path)]
+    inputs = [(f"{prefix}/manifest", manifest_path, overlay_path)]
     normalized = {
         os.path.normpath(reference).replace(os.sep, "/"): reference
         for reference in references
     }
     inputs.extend(
-        (f"{prefix}/reference/{label}", os.path.join(overlay_path, reference))
+        (
+            f"{prefix}/reference/{label}",
+            os.path.join(overlay_path, reference),
+            overlay_path,
+        )
         for label, reference in sorted(normalized.items())
     )
     return inputs
@@ -169,42 +191,62 @@ def _distribution_inputs(channel: str, ctx: _Context):
     package_root = os.path.join(ctx.compiler_root, "system2_compiler")
     backend_root = os.path.join(package_root, "backends")
     inputs = _plugin_graph_inputs(ctx) + [
-        ("lowering/ir", os.path.join(package_root, "ir")),
-        ("lowering/system2_compiler_init", os.path.join(package_root, "__init__.py")),
-        ("backend/base", os.path.join(backend_root, "base.py")),
-        ("backend/degradation", os.path.join(backend_root, "_degradation.py")),
-        ("backend/enforcement", os.path.join(backend_root, "_enforcement.py")),
-        ("backend/yaml", os.path.join(backend_root, "_yaml.py")),
-        ("generator/regen_all", os.path.join(ctx.compiler_root, "tools", "regen_all.py")),
-        ("generator/provenance", os.path.join(ctx.compiler_root, "tools", "_provenance.py")),
+        ("lowering/ir", os.path.join(package_root, "ir"), ctx.compiler_root),
+        ("lowering/system2_compiler_init", os.path.join(
+            package_root, "__init__.py"
+        ), ctx.compiler_root),
+        ("backend/base", os.path.join(backend_root, "base.py"), ctx.compiler_root),
+        ("backend/degradation", os.path.join(
+            backend_root, "_degradation.py"
+        ), ctx.compiler_root),
+        ("backend/enforcement", os.path.join(
+            backend_root, "_enforcement.py"
+        ), ctx.compiler_root),
+        ("backend/yaml", os.path.join(backend_root, "_yaml.py"), ctx.compiler_root),
+        ("generator/regen_all", os.path.join(
+            ctx.compiler_root, "tools", "regen_all.py"
+        ), ctx.compiler_root),
+        ("generator/provenance", os.path.join(
+            ctx.compiler_root, "tools", "_provenance.py"
+        ), ctx.compiler_root),
         ("generator/build_bundle_helpers", os.path.join(
             ctx.compiler_root, "tools", "build_bundle.py"
-        )),
-        ("metadata/channel_version", os.path.join(package_root, "channel_version.py")),
-        ("metadata/compiler_project", os.path.join(ctx.compiler_root, "pyproject.toml")),
+        ), ctx.compiler_root),
+        ("metadata/channel_version", os.path.join(
+            package_root, "channel_version.py"
+        ), ctx.compiler_root),
+        ("metadata/compiler_project", os.path.join(
+            ctx.compiler_root, "pyproject.toml"
+        ), ctx.compiler_root),
     ]
     if channel == "codex":
         inputs.extend([
-            ("backend/codex", os.path.join(backend_root, "codex.py")),
+            ("backend/codex", os.path.join(
+                backend_root, "codex.py"
+            ), ctx.compiler_root),
             ("backend/capabilities/codex", os.path.join(
                 backend_root, "capabilities", "codex.json"
-            )),
+            ), ctx.compiler_root),
         ])
         for index, overlay in enumerate(ctx.codex_overlays):
             inputs.extend(_overlay_graph_inputs(index, overlay, ctx))
     elif channel == "pi":
         inputs.extend([
-            ("backend/pi", os.path.join(backend_root, "pi.py")),
+            ("backend/pi", os.path.join(
+                backend_root, "pi.py"
+            ), ctx.compiler_root),
             ("backend/capabilities/pi", os.path.join(
                 backend_root, "capabilities", "pi.json"
-            )),
+            ), ctx.compiler_root),
             ("package/pi_builder", os.path.join(
                 ctx.compiler_root, "tools", "build_pi_package.py"
-            )),
+            ), ctx.compiler_root),
             ("package/pi_templates", os.path.join(
                 ctx.compiler_root, "tools", "templates"
-            )),
-            ("metadata/license", os.path.join(build_pi_package._REPO_ROOT, "LICENSE")),
+            ), ctx.compiler_root),
+            ("metadata/license", os.path.join(
+                build_pi_package._REPO_ROOT, "LICENSE"
+            ), build_pi_package._REPO_ROOT),
         ])
     else:
         raise ValueError(f"unknown distribution channel: {channel!r}")
@@ -231,7 +273,10 @@ def _build_codex(dest_abs: str, ctx: _Context) -> None:
         raise RuntimeError(f"codex compose refused: {result.errors!r}")
     CodexBackend(overlay_sources=list(ctx.codex_overlays)).emit(result.graph, dest_abs)
 
-    manifest = _read_json(os.path.join(dest_abs, ".codex-plugin", "plugin.json"))
+    manifest = _read_json(
+        os.path.join(dest_abs, ".codex-plugin", "plugin.json"),
+        trusted_root=dest_abs,
+    )
     emitted_version = str(manifest.get("version", ""))
     _require_channel_version("codex", emitted_version)
     _provenance.write_provenance(
@@ -262,8 +307,13 @@ def _package_data_matches_current_codex_emission(ctx: _Context) -> bool:
     mirror = os.path.join(ctx.compiler_root, _PACKAGED_USER_HOOKS_REL)
     with tempfile.TemporaryDirectory(prefix="system2-codex-package-data-") as tmp:
         _build_codex(tmp, ctx)
-        return _is_regular_directory(mirror) and _trees_match(
-            os.path.join(tmp, "user-hooks"), mirror
+        return _is_regular_directory(
+            mirror, trusted_root=ctx.compiler_root
+        ) and _trees_match(
+            os.path.join(tmp, "user-hooks"),
+            mirror,
+            committed_trusted_root=tmp,
+            regen_trusted_root=ctx.compiler_root,
         )
 
 
@@ -276,7 +326,9 @@ def _build_pi(dest_abs: str, ctx: _Context) -> None:
         PiBackend(overlay_sources=[]).emit(result.graph, staging)
         build_pi_package.build(staging, dest_abs, build_pi_package.PACKAGE_VERSION)
 
-    package = _read_json(os.path.join(dest_abs, "package.json"))
+    package = _read_json(
+        os.path.join(dest_abs, "package.json"), trusted_root=dest_abs
+    )
     emitted_version = str(package.get("version", ""))
     _require_channel_version("pi", emitted_version)
     _provenance.write_provenance(
@@ -322,96 +374,168 @@ def _placeholder_message(art: _Artifact) -> str:
     )
 
 
-def _read_json(path: str) -> dict:
+def _read_json(path: str, *, trusted_root=None) -> dict:
+    trusted_root = os.path.abspath(trusted_root or os.path.dirname(path))
+    _require_file(path, "JSON file", trusted_root=trusted_root)
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
 # check tree comparison
 
-def _require_type(path: str, predicate, description: str) -> None:
-    """Reject links and special files without dereferencing them."""
+def _path_mode(path: str, description: str, trusted_root: str) -> int:
+    """Return ``path``'s no-follow mode after validating components below root."""
+    path = os.path.abspath(path)
+    trusted_root = os.path.abspath(trusted_root)
     try:
-        mode = os.lstat(path).st_mode
+        if os.path.commonpath((trusted_root, path)) != trusted_root:
+            raise ValueError(f"{description} escapes trusted root: {path}")
+    except ValueError:
+        raise ValueError(f"{description} escapes trusted root: {path}") from None
+
+    relative = os.path.relpath(path, trusted_root)
+    components = [] if relative == os.curdir else relative.split(os.sep)
+    current = trusted_root
+    try:
+        if components:
+            root_mode = os.lstat(current).st_mode
+            if not stat.S_ISDIR(root_mode):
+                raise ValueError(
+                    f"{description} trusted root has an invalid file type: {current}"
+                )
+        for index, component in enumerate(components):
+            current = os.path.join(current, component)
+            mode = os.lstat(current).st_mode
+            if index < len(components) - 1 and not stat.S_ISDIR(mode):
+                raise ValueError(
+                    f"{description} has an invalid ancestor file type: {current}"
+                )
+        return os.lstat(path).st_mode if not components else mode
     except FileNotFoundError:
-        raise FileNotFoundError(f"{description} missing: {path}") from None
-    if not predicate(mode):
+        raise FileNotFoundError(f"{description} missing: {current}") from None
+
+
+def _require_type(
+    path: str, predicate, description: str, *, trusted_root: str
+) -> None:
+    """Reject links, special files, and invalid ancestors without dereferencing."""
+    if not predicate(_path_mode(path, description, trusted_root)):
         raise ValueError(f"{description} has an invalid file type: {path}")
 
 
-def _require_file(path: str, description: str) -> None:
-    _require_type(path, stat.S_ISREG, description)
+def _require_file(path: str, description: str, *, trusted_root: str) -> None:
+    _require_type(path, stat.S_ISREG, description, trusted_root=trusted_root)
 
 
-def _require_directory(path: str, description: str) -> None:
-    _require_type(path, stat.S_ISDIR, description)
+def _require_directory(path: str, description: str, *, trusted_root: str) -> None:
+    _require_type(path, stat.S_ISDIR, description, trusted_root=trusted_root)
 
 
-def _is_regular_directory(path: str) -> bool:
+def _is_regular_directory(path: str, *, trusted_root=None) -> bool:
     try:
-        _require_directory(path, "artifact root")
+        _require_directory(
+            path, "artifact root", trusted_root=trusted_root or path
+        )
     except (OSError, ValueError):
         return False
     return True
 
 
-def _relfiles(root: str):
+def _relfiles(root: str, *, trusted_root=None):
     """Return the set of POSIX relpaths under *root*, excluding build/test detritus."""
     root = os.path.abspath(root)
-    _require_directory(root, "artifact root")
+    trusted_root = os.path.abspath(trusted_root or root)
+    _require_directory(root, "artifact root", trusted_root=trusted_root)
     out = set()
     for dirpath, dirnames, filenames in os.walk(root):
-        _require_directory(dirpath, "artifact directory")
+        _require_directory(
+            dirpath, "artifact directory", trusted_root=trusted_root
+        )
         retained = []
         for dirname in sorted(dirnames):
             child = os.path.join(dirpath, dirname)
-            _require_directory(child, "artifact directory")
+            _require_directory(
+                child, "artifact directory", trusted_root=trusted_root
+            )
             if dirname not in _WALK_EXCLUDE_DIRS:
                 retained.append(dirname)
         dirnames[:] = retained
         for fn in sorted(filenames):
             abspath = os.path.join(dirpath, fn)
-            _require_file(abspath, "artifact file")
+            _require_file(abspath, "artifact file", trusted_root=trusted_root)
             if fn.endswith(".pyc"):
                 continue
             out.add(os.path.relpath(abspath, root).replace(os.sep, "/"))
     return out
 
 
-def _provenance_equivalent(committed_path: str, regen_path: str) -> bool:
+def _provenance_equivalent(
+    committed_path: str,
+    regen_path: str,
+    *,
+    committed_trusted_root: str,
+    regen_trusted_root: str,
+) -> bool:
     """Compare two provenance JSON files field-wise, ignoring volatile breadcrumbs."""
     try:
-        a = _read_json(committed_path)
-        b = _read_json(regen_path)
+        a = _read_json(committed_path, trusted_root=committed_trusted_root)
+        b = _read_json(regen_path, trusted_root=regen_trusted_root)
     except (OSError, json.JSONDecodeError):
-        return _bytes_equal(committed_path, regen_path)
+        return _bytes_equal(
+            committed_path,
+            regen_path,
+            a_trusted_root=committed_trusted_root,
+            b_trusted_root=regen_trusted_root,
+        )
     if not isinstance(a, dict) or not isinstance(b, dict):
         return False
     strip = lambda d: {k: v for k, v in d.items() if k not in IGNORED_PROVENANCE_FIELDS}
     return strip(a) == strip(b)
 
 
-def _bytes_equal(a: str, b: str) -> bool:
-    _require_file(a, "committed artifact")
-    _require_file(b, "regenerated artifact")
+def _bytes_equal(
+    a: str, b: str, *, a_trusted_root: str, b_trusted_root: str
+) -> bool:
+    _require_file(a, "committed artifact", trusted_root=a_trusted_root)
+    _require_file(b, "regenerated artifact", trusted_root=b_trusted_root)
     with open(a, "rb") as fa, open(b, "rb") as fb:
         return fa.read() == fb.read()
 
 
-def _trees_match(committed_root: str, regen_root: str) -> bool:
+def _trees_match(
+    committed_root: str,
+    regen_root: str,
+    *,
+    committed_trusted_root=None,
+    regen_trusted_root=None,
+) -> bool:
     """Return True iff the two trees are byte-identical modulo provenance timestamps."""
+    committed_trusted_root = committed_trusted_root or committed_root
+    regen_trusted_root = regen_trusted_root or regen_root
     try:
-        committed_files = _relfiles(committed_root)
-        regen_files = _relfiles(regen_root)
+        committed_files = _relfiles(
+            committed_root, trusted_root=committed_trusted_root
+        )
+        regen_files = _relfiles(regen_root, trusted_root=regen_trusted_root)
         if committed_files != regen_files:
             return False
         for rel in committed_files:
             committed_path = os.path.join(committed_root, rel)
             regen_path = os.path.join(regen_root, rel)
             if os.path.basename(rel) in _PROVENANCE_FILENAMES:
-                if not _provenance_equivalent(committed_path, regen_path):
+                if not _provenance_equivalent(
+                    committed_path,
+                    regen_path,
+                    committed_trusted_root=committed_trusted_root,
+                    regen_trusted_root=regen_trusted_root,
+                ):
                     return False
-            elif not _bytes_equal(committed_path, regen_path):
+            elif not _bytes_equal(
+                committed_path,
+                regen_path,
+                a_trusted_root=committed_trusted_root,
+                b_trusted_root=regen_trusted_root,
+            ):
                 return False
     except (OSError, ValueError):
         return False
@@ -450,7 +574,12 @@ def _bundle_is_fresh(ctx: _Context, committed_root: str) -> bool:
     """Delegate bundle freshness to check_bundle_fresh.py's authoritative criterion."""
     sink = io.StringIO()
     with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-        rc = check_bundle_fresh.check_bundle_fresh(ctx.compiler_root, committed_root)
+        rc = check_bundle_fresh.check_bundle_fresh(
+            ctx.compiler_root,
+            committed_root,
+            compiler_trusted_root=ctx.compiler_root,
+            target_trusted_root=ctx.repo_root,
+        )
     return rc == 0
 
 
@@ -465,7 +594,9 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
             )
             continue
         committed_root = os.path.join(ctx.repo_root, art.dest_rel, art.content_rel)
-        if not _is_regular_directory(committed_root):
+        if not _is_regular_directory(
+            committed_root, trusted_root=ctx.repo_root
+        ):
             if explicit:
                 sys.stderr.write(
                     f"{art.name}: no committed tree at {art.dest_rel} yet\n"
@@ -486,9 +617,18 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
             art.builder(dest_abs, ctx)
             regen_root = os.path.join(dest_abs, art.content_rel)
             if (
-                not _provenance.artifacts_match(committed_root)
-                or not _provenance.artifacts_match(regen_root)
-                or not _trees_match(committed_root, regen_root)
+                not _provenance.artifacts_match(
+                    committed_root, trusted_root=ctx.repo_root
+                )
+                or not _provenance.artifacts_match(
+                    regen_root, trusted_root=tmp
+                )
+                or not _trees_match(
+                    committed_root,
+                    regen_root,
+                    committed_trusted_root=ctx.repo_root,
+                    regen_trusted_root=tmp,
+                )
             ):
                 sys.stderr.write(stale_message(art.name) + "\n")
                 return 1
@@ -498,8 +638,13 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
                 ctx.compiler_root, _PACKAGED_USER_HOOKS_REL
             )
             user_hooks_committed = os.path.join(committed_root, "user-hooks")
-            if not _is_regular_directory(mirror_root) or not _trees_match(
-                user_hooks_committed, mirror_root
+            if not _is_regular_directory(
+                mirror_root, trusted_root=ctx.compiler_root
+            ) or not _trees_match(
+                user_hooks_committed,
+                mirror_root,
+                committed_trusted_root=ctx.repo_root,
+                regen_trusted_root=ctx.compiler_root,
             ):
                 sys.stderr.write(
                     "codex: package-data mirror "

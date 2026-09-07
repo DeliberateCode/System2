@@ -156,6 +156,37 @@ class RegenGuardContractTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "artifact directory"):
                 regen_all._relfiles(committed)
 
+    def test_tree_comparison_rejects_distribution_through_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as root:
+            repository = os.path.join(root, "repository")
+            distributions = os.path.join(repository, "distributions")
+            committed = os.path.join(distributions, "codex")
+            regenerated = os.path.join(root, "regenerated")
+            for tree in (committed, regenerated):
+                os.makedirs(os.path.join(tree, "nested"))
+                with open(os.path.join(tree, "nested", "artifact.txt"), "wb") as fh:
+                    fh.write(b"same bytes")
+            self.assertTrue(
+                regen_all._trees_match(
+                    committed,
+                    regenerated,
+                    committed_trusted_root=repository,
+                    regen_trusted_root=root,
+                )
+            )
+
+            external = os.path.join(root, "external-distributions")
+            os.rename(distributions, external)
+            os.symlink(external, distributions)
+            self.assertFalse(
+                regen_all._trees_match(
+                    committed,
+                    regenerated,
+                    committed_trusted_root=repository,
+                    regen_trusted_root=root,
+                )
+            )
+
     def test_registry_coverage_and_placeholder_slots(self):
         """Every active builder is acknowledged-covered; every placeholder RAISES the
         not-yet-implemented error on ``--only`` (both regen and --check)."""

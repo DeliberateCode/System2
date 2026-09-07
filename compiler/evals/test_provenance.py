@@ -156,8 +156,8 @@ class SourceDigestTest(unittest.TestCase):
         ctx = regen_all._context()
         codex = regen_all._distribution_inputs("codex", ctx)
         pi = regen_all._distribution_inputs("pi", ctx)
-        codex_labels = {label for label, _path in codex}
-        pi_labels = {label for label, _path in pi}
+        codex_labels = {label for label, _path, _root in codex}
+        pi_labels = {label for label, _path, _root in pi}
 
         common = {
             "base/plugin_metadata", "base/init_template",
@@ -187,7 +187,7 @@ class SourceDigestTest(unittest.TestCase):
     def test_base_inputs_name_only_canonical_agents_and_allowlists(self):
         ctx = regen_all._context()
         labels = {
-            label for label, _path in regen_all._plugin_graph_inputs(ctx)
+            label for label, _path, _root in regen_all._plugin_graph_inputs(ctx)
         }
         with open(
             os.path.join(ctx.plugin_root, "schemas", "anchor-map.json"),
@@ -219,12 +219,17 @@ class SourceDigestTest(unittest.TestCase):
                 plugin_root=base.plugin_root,
                 codex_overlays=[overlay],
             )
-            inputs = dict(regen_all._distribution_inputs("codex", ctx))
-            self.assertEqual(inputs["overlay/0000/manifest"], manifest_path)
+            inputs = {
+                label: (path, root)
+                for label, path, root in regen_all._distribution_inputs("codex", ctx)
+            }
+            self.assertEqual(
+                inputs["overlay/0000/manifest"], (manifest_path, overlay)
+            )
             for relative in paths:
                 self.assertEqual(
                     inputs[f"overlay/0000/reference/{relative}"],
-                    os.path.join(overlay, relative),
+                    (os.path.join(overlay, relative), overlay),
                 )
             self.assertFalse(any("unrelated" in label for label in inputs))
 
@@ -347,6 +352,24 @@ class SourceDigestTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "provenance input directory"):
                 provenance.source_sha256([("source", source)])
 
+    def test_source_file_through_symlinked_parent_below_trusted_root_fails_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            trusted = os.path.join(root, "plugin")
+            source_parent = os.path.join(trusted, "schemas")
+            os.makedirs(source_parent)
+            source = os.path.join(source_parent, "overlay.schema.json")
+            with open(source, "wb") as fh:
+                fh.write(b"same bytes")
+            inputs = [("schema", source, trusted)]
+            regular_hash = provenance.source_sha256(inputs)
+            self.assertEqual(regular_hash, provenance.source_sha256(inputs))
+
+            external_parent = os.path.join(root, "external-schemas")
+            os.rename(source_parent, external_parent)
+            os.symlink(external_parent, source_parent)
+            with self.assertRaisesRegex(ValueError, "invalid ancestor"):
+                provenance.source_sha256(inputs)
+
     def test_effective_base_backend_and_package_mutations_change_hash(self):
         ctx = regen_all._context()
         cases = (
@@ -366,9 +389,9 @@ class SourceDigestTest(unittest.TestCase):
                 inputs = regen_all._distribution_inputs(channel, ctx)
                 before = provenance.source_sha256(inputs)
                 mutated = []
-                for entry_label, path in inputs:
+                for entry_label, path, trusted_root in inputs:
                     if entry_label != label:
-                        mutated.append((entry_label, path))
+                        mutated.append((entry_label, path, trusted_root))
                         continue
                     copy = os.path.join(tmp, "input")
                     if os.path.isdir(path):
@@ -383,7 +406,7 @@ class SourceDigestTest(unittest.TestCase):
                         shutil.copyfile(path, copy)
                         with open(copy, "a", encoding="utf-8") as fh:
                             fh.write(addition)
-                    mutated.append((entry_label, copy))
+                    mutated.append((entry_label, copy, tmp))
                 self.assertNotEqual(before, provenance.source_sha256(mutated))
 
     def test_unrelated_plugin_bytes_leave_digests_and_artifacts_unchanged(self):
@@ -591,6 +614,32 @@ class ArtifactDigestTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "artifact directory"):
                 provenance.artifact_inventory(regular_tree)
 
+    def test_artifact_root_through_symlinked_repository_parent_fails_closed(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            repository = os.path.join(workspace, "repository")
+            distributions = os.path.join(repository, "distributions")
+            artifact = os.path.join(distributions, "codex")
+            os.makedirs(distributions)
+            shutil.copytree(self.root, artifact)
+            self.assertTrue(
+                provenance.artifacts_match(
+                    artifact, self.prov, trusted_root=repository
+                )
+            )
+
+            external = os.path.join(workspace, "external-distributions")
+            os.rename(distributions, external)
+            os.symlink(external, distributions)
+            self.assertFalse(
+                provenance.artifacts_match(
+                    artifact, self.prov, trusted_root=repository
+                )
+            )
+            with self.assertRaisesRegex(ValueError, "invalid ancestor"):
+                provenance.artifact_inventory(
+                    artifact, trusted_root=repository
+                )
+
     def test_non_regular_artifact_fails_closed(self):
         if not hasattr(os, "mkfifo"):
             self.skipTest("mkfifo is unavailable")
@@ -633,12 +682,26 @@ class ChannelVersionTest(unittest.TestCase):
 
     def test_swapped_channel_generator_inputs_are_detectable(self):
         ctx = regen_all._context()
-        codex = dict(regen_all._distribution_inputs("codex", ctx))
-        pi = dict(regen_all._distribution_inputs("pi", ctx))
-        normal = provenance.source_sha256(sorted(codex.items()))
+        codex = {
+            label: (path, root)
+            for label, path, root in regen_all._distribution_inputs("codex", ctx)
+        }
+        pi = {
+            label: (path, root)
+            for label, path, root in regen_all._distribution_inputs("pi", ctx)
+        }
+        normal = provenance.source_sha256(
+            [(label, path, root) for label, (path, root) in sorted(codex.items())]
+        )
         swapped = dict(codex)
         swapped["backend/codex"] = pi["backend/pi"]
-        self.assertNotEqual(normal, provenance.source_sha256(sorted(swapped.items())))
+        self.assertNotEqual(
+            normal,
+            provenance.source_sha256([
+                (label, path, root)
+                for label, (path, root) in sorted(swapped.items())
+            ]),
+        )
 
 
 if __name__ == "__main__":
