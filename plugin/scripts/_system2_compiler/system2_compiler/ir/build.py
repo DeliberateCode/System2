@@ -30,9 +30,6 @@ from .graph import (
 
 SCHEMA_VERSION = "system2-graph/1.0.0"
 
-# Deferred contribution types are rendered but not listed as applied.
-_DEFERRED_SUFFIXES = (".tools", ".hooks")
-
 _SECTION_RE = re.compile(r"^## (.+)$")
 _GATE_CHECKLIST_RE = re.compile(r"^- Gate (\d+) \(([^)]+)\): (.+)$")
 _DELEGATION_RE = re.compile(r"^\d+\) (?:system2:)?([a-z0-9-]+):")

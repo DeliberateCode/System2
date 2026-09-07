@@ -22,18 +22,6 @@ __all__ = ["main"]
 _TARGETS = ("claude-code", "pi", "codex")
 _VERBS = ("compile", "uninstall", "doctor", "from-lock", "profile")
 
-# Default backends serve IR-only emission; lifecycle commands use _backend_for.
-_BACKENDS = {
-    "claude-code": ClaudeCodeBackend(),
-    "pi": PiBackend(),
-    "codex": CodexBackend(),
-}
-
-
-def _select_backend(target: str) -> Backend:
-    """Return the registered default backend for *target*."""
-    return _BACKENDS[target]
-
 # These declared contribution types are deferred by the CLI report.
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
@@ -212,6 +200,9 @@ def _resolve_overlay_paths(
             return None, 1
         except (OSError, json.JSONDecodeError) as exc:
             _emit_error(f"Cannot read lock file: {exc}", fmt)
+            return None, 1
+        except ValueError as exc:
+            _emit_error(str(exc), fmt)
             return None, 1
         if not paths:
             _emit_error("Lock file contains no overlay source paths", fmt)

@@ -1009,6 +1009,21 @@ def _write_outputs(
 
 # Lifecycle helpers
 
+def _validated_lock_overlay_sources(lock_data: object) -> List[str]:
+    """Return validated Codex overlay source paths from a decoded lock."""
+    if not isinstance(lock_data, dict):
+        raise ValueError("Lock file is malformed: expected a JSON object")
+    sources = lock_data.get("overlay_sources")
+    if not isinstance(sources, list):
+        raise ValueError("Lock file is malformed: 'overlay_sources' is not a list")
+    if any(not isinstance(source, str) or not source for source in sources):
+        raise ValueError(
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths"
+        )
+    return list(sources)
+
+
 def _overlay_name_of(source_path: str) -> str:
     """Derive an overlay name from its source directory basename (boundary-safe)."""
     return os.path.basename(os.path.normpath(source_path))
@@ -1781,7 +1796,7 @@ class CodexBackend:
         lp = validate_project_target(project_path, _CODEX_LOCK)
         with open(lp, "r", encoding="utf-8") as fh:
             lock_data = json.load(fh)
-        return [s for s in lock_data.get("overlay_sources", []) if s]
+        return _validated_lock_overlay_sources(lock_data)
 
     # Lifecycle: recompose from lock
 
@@ -1834,9 +1849,10 @@ class CodexBackend:
         except OSError as exc:
             return _err([f"Cannot read lock file: {exc}"])
 
-        sources = lock_data.get("overlay_sources", [])
-        if not isinstance(sources, list):
-            return _err(["Lock file is malformed: 'overlay_sources' is not a list"])
+        try:
+            sources = _validated_lock_overlay_sources(lock_data)
+        except ValueError as exc:
+            return _err([str(exc)])
 
         try:
             owned_artifacts = verify_owned_artifacts(
