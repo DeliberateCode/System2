@@ -142,6 +142,117 @@ def _assert_dry_run_unchanged(test_case, backend_cls, project, edited_relative):
 
 
 class LifecycleOwnershipTest(unittest.TestCase):
+    _MALFORMED_CODEX_LOCKS = (
+        ("list-root", [], "Lock file is malformed: expected a JSON object"),
+        ("null-root", None, "Lock file is malformed: expected a JSON object"),
+        ("boolean-root", True, "Lock file is malformed: expected a JSON object"),
+        ("numeric-root", 1, "Lock file is malformed: expected a JSON object"),
+        ("string-root", "lock", "Lock file is malformed: expected a JSON object"),
+        (
+            "string-sources",
+            {"overlay_sources": _TEST_OVERLAY},
+            "Lock file is malformed: 'overlay_sources' is not a list",
+        ),
+        (
+            "empty-source",
+            {"overlay_sources": [""]},
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths",
+        ),
+        (
+            "null-source",
+            {"overlay_sources": [None]},
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths",
+        ),
+        (
+            "numeric-source",
+            {"overlay_sources": [1]},
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths",
+        ),
+        (
+            "boolean-source",
+            {"overlay_sources": [True]},
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths",
+        ),
+        (
+            "object-source",
+            {"overlay_sources": [{}]},
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths",
+        ),
+        (
+            "list-source",
+            {"overlay_sources": [[]]},
+            "Lock file is malformed: 'overlay_sources' must contain only "
+            "non-empty string paths",
+        ),
+    )
+
+    def test_codex_backend_refuses_malformed_lock_sources_without_mutation(self):
+        for label, lock, expected in self._MALFORMED_CODEX_LOCKS:
+            with self.subTest(lock_shape=label):
+                with tempfile.TemporaryDirectory(
+                    prefix="codex-malformed-lock-backend-"
+                ) as project:
+                    backend = CodexBackend(base_path=_BASE, compose_fn=ir.compose)
+                    with open(backend.lock_path(project), "w", encoding="utf-8") as fh:
+                        json.dump(lock, fh)
+                    before = _tree_fingerprint(project)
+
+                    with self.assertRaises(ValueError) as raised:
+                        backend.read_lock_overlay_sources(project)
+                    self.assertEqual(str(raised.exception), expected)
+                    self.assertEqual(_tree_fingerprint(project), before)
+
+                    result = backend.uninstall(project, "test-overlay")
+                    self.assertEqual(result.errors, [expected])
+                    self.assertEqual(_tree_fingerprint(project), before)
+
+    def test_codex_cli_refuses_malformed_lock_sources_without_mutation(self):
+        operations = (
+            ("compile-from-lock", ["compile", "--from-lock"]),
+            ("from-lock", ["from-lock"]),
+            ("uninstall", ["uninstall", "--name", "test-overlay"]),
+        )
+        for label, lock, expected in self._MALFORMED_CODEX_LOCKS:
+            for operation, prefix in operations:
+                for fmt in ("json", "text"):
+                    with self.subTest(
+                        lock_shape=label, operation=operation, format=fmt
+                    ):
+                        with tempfile.TemporaryDirectory(
+                            prefix="codex-malformed-lock-cli-"
+                        ) as project:
+                            lock_path = CodexBackend().lock_path(project)
+                            with open(lock_path, "w", encoding="utf-8") as fh:
+                                json.dump(lock, fh)
+                            before = _tree_fingerprint(project)
+                            argv = prefix + [
+                                "--target", "codex", "--base", _BASE,
+                                "--project", project, "--format", fmt,
+                            ]
+
+                            code, stdout, stderr = _run_cli(argv)
+
+                            self.assertEqual(code, 1, (stdout, stderr))
+                            self.assertNotIn("Traceback", stdout + stderr)
+                            if fmt == "json":
+                                self.assertEqual(stderr, "")
+                                payload = json.loads(stdout)
+                                self.assertEqual(payload["status"], "error")
+                                if operation == "uninstall":
+                                    self.assertEqual(payload["errors"], [expected])
+                                    self.assertEqual(payload["report"], {})
+                                else:
+                                    self.assertEqual(payload["message"], expected)
+                            else:
+                                self.assertEqual(stdout, "")
+                                self.assertEqual(stderr, f"ERROR: {expected}\n")
+                            self.assertEqual(_tree_fingerprint(project), before)
+
     def test_codex_emit_preserves_caller_owned_readme(self):
         with tempfile.TemporaryDirectory(prefix="codex-owned-readme-") as project:
             readme = os.path.join(project, "README.md")

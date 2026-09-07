@@ -201,6 +201,9 @@ def _resolve_overlay_paths(
         except (OSError, json.JSONDecodeError) as exc:
             _emit_error(f"Cannot read lock file: {exc}", fmt)
             return None, 1
+        except ValueError as exc:
+            _emit_error(str(exc), fmt)
+            return None, 1
         if not paths:
             _emit_error("Lock file contains no overlay source paths", fmt)
             return None, 1
