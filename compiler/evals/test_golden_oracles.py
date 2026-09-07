@@ -93,6 +93,40 @@ class LockByteControlTest(unittest.TestCase):
 
 
 class CaptureNormalizationControlTest(unittest.TestCase):
+    def test_nested_agents_are_captured_with_closed_world_relative_paths(self):
+        cell = matrix.get_cell("core+overlay")
+        with tempfile.TemporaryDirectory(prefix="nested-agent-source-") as project:
+            with tempfile.TemporaryDirectory(prefix="nested-agent-capture-") as cell_dir:
+                agents = os.path.join(project, ".claude", "agents")
+                files = {
+                    os.path.join(agents, "scout.md"): "root scout\n",
+                    os.path.join(agents, "team", "scout.md"): "nested scout\n",
+                    os.path.join(agents, "team", "notes.txt"): "not an agent\n",
+                }
+                for path, content in files.items():
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, "w", encoding="utf-8") as fh:
+                        fh.write(content)
+
+                capture._copy_artifacts(project, cell_dir, cell)
+                captured = {
+                    os.path.relpath(os.path.join(root, name), cell_dir)
+                    for root, _, names in os.walk(cell_dir)
+                    for name in names
+                }
+                self.assertEqual(
+                    captured,
+                    {
+                        os.path.join(".claude", "agents", "scout.md"),
+                        os.path.join(".claude", "agents", "team", "scout.md"),
+                    },
+                )
+                nested = os.path.join(
+                    cell_dir, ".claude", "agents", "team", "scout.md"
+                )
+                with open(nested, encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), "nested scout\n")
+
     def test_capture_emits_reproducible_repo_root_token(self):
         cell = matrix.get_cell("core+overlay")
         lock = {

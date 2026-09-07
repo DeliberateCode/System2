@@ -1,8 +1,56 @@
 """Pin ``backends/_yaml`` quoting, multiline, typing, and determinism behavior."""
 
+import json
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 from system2_compiler.backends import _yaml
+
+
+_NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
+_PI_PKG_SUBPATH = os.path.join(
+    "@earendil-works", "pi-coding-agent", "dist", "index.js"
+)
+
+
+def _resolve_pi_pkg_entry():
+    override = os.environ.get("PI_PKG_ENTRY")
+    if override:
+        return override
+    candidates = []
+    npm = os.environ.get("NPM_BIN") or shutil.which("npm")
+    if npm:
+        try:
+            result = subprocess.run(
+                [npm, "root", "-g"], capture_output=True, text=True, timeout=60
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+        else:
+            if result.returncode == 0 and result.stdout.strip():
+                candidates.append(os.path.join(result.stdout.strip(), _PI_PKG_SUBPATH))
+    pi_bin = shutil.which("pi")
+    if pi_bin:
+        package_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.realpath(pi_bin)))
+        )
+        candidates.append(os.path.join(package_root, "dist", "index.js"))
+    return next((path for path in candidates if os.path.isfile(path)), None)
+
+
+_PI_PKG_ENTRY = _resolve_pi_pkg_entry()
+_PI_YAML_TYPE_HARNESS = r'''
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const { parseFrontmatter } = await import(pathToFileURL(process.argv[2]).href);
+const value = parseFrontmatter(readFileSync(process.argv[3], "utf8")).frontmatter.k;
+if (typeof value !== "string" || value !== "0x10") {
+  throw new Error(`expected string 0x10, got ${typeof value} ${String(value)}`);
+}
+'''
 
 
 class YamlQuotingTest(unittest.TestCase):
@@ -51,13 +99,39 @@ class YamlQuotingTest(unittest.TestCase):
                 out = _yaml.dump({"k": word})
                 self.assertEqual(out, f'k: "{word}"\n')
 
-    def test_hexadecimal_string_round_trips_as_a_string(self):
-        import json
-
+    def test_hexadecimal_string_parses_as_string_with_pinned_pi_yaml(self):
         rendered = _yaml.dump({"k": "0x10"})
         self.assertEqual(rendered, 'k: "0x10"\n')
-        scalar = rendered.removeprefix("k: ").rstrip("\n")
-        self.assertEqual(json.loads(scalar), "0x10")
+        self.assertIsNotNone(_NODE_BIN, "Node is required for the pinned Pi YAML control")
+        self.assertTrue(
+            _PI_PKG_ENTRY and os.path.isfile(_PI_PKG_ENTRY),
+            f"pinned Pi package entry is required, got {_PI_PKG_ENTRY!r}",
+        )
+        package_json = os.path.join(
+            os.path.dirname(os.path.dirname(_PI_PKG_ENTRY)), "package.json"
+        )
+        with open(package_json, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["version"], "0.85.1")
+
+        with tempfile.TemporaryDirectory(prefix="pi-yaml-type-") as temp:
+            document = os.path.join(temp, "frontmatter.md")
+            harness = os.path.join(temp, "parse-frontmatter.mjs")
+            with open(document, "w", encoding="utf-8") as fh:
+                fh.write("---\n" + rendered + "---\n")
+            with open(harness, "w", encoding="utf-8") as fh:
+                fh.write(_PI_YAML_TYPE_HARNESS)
+            result = subprocess.run(
+                [_NODE_BIN, harness, _PI_PKG_ENTRY, document],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(
+            result.returncode,
+            0,
+            "Pi 0.85.1 YAML parser did not preserve 0x10 as a string:\n"
+            + result.stderr,
+        )
 
     def test_actual_integer_renders_bare(self):
         self.assertEqual(_yaml.dump({"timeout": 300}), "timeout: 300\n")

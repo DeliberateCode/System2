@@ -37,6 +37,10 @@ _FORBIDDEN_PLUGIN_MODULES = frozenset({
     "hook_security",
 })
 
+# Claude-only graph carriers that the Pi backend must never read.
+_PI_BACKEND_FILE = "system2_compiler/backends/pi.py"
+_FORBIDDEN_PI_GRAPH_CARRIERS = frozenset({"base_template", "overlay_inputs"})
+
 # Discover every production module, while pinning the inventory so additions require
 # an explicit boundary decision instead of silently escaping review.
 _EXPECTED_IR_FILES = frozenset({
@@ -86,6 +90,16 @@ def _abspath(rel: str) -> str:
 def _read(rel: str) -> str:
     with open(_abspath(rel), "r", encoding="utf-8") as fh:
         return fh.read()
+
+
+def _forbidden_pi_carrier_accesses(source: str, filename: str):
+    tree = ast.parse(source, filename=filename)
+    return [
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr in _FORBIDDEN_PI_GRAPH_CARRIERS
+    ]
 
 
 # Level-aware import extraction + external-dependency scan.
@@ -185,6 +199,19 @@ class BackendIsolationTest(unittest.TestCase):
                     f"{sorted(offenders)}"
                 ),
             )
+
+    def test_pi_never_reads_claude_only_graph_carriers(self):
+        offenders = _forbidden_pi_carrier_accesses(
+            _read(_PI_BACKEND_FILE), _PI_BACKEND_FILE
+        )
+        self.assertEqual(
+            [],
+            offenders,
+            msg=(
+                f"{_PI_BACKEND_FILE} references Claude-only graph carrier(s) "
+                f"{sorted(set(offenders))}; Pi must render from structured IR fields"
+            ),
+        )
 
 
 class IrNeutralityTest(unittest.TestCase):
@@ -301,6 +328,16 @@ class NegativeControlTest(unittest.TestCase):
         )
         self.assertIn("system2_compiler.ir.manifest", imported)
         self.assertTrue(imported & _FORBIDDEN_IR_LOADERS)
+
+    def test_claude_only_graph_carrier_access_is_detected(self):
+        bad = (
+            "def render(graph):\n"
+            "    return graph.base_template, graph.overlay_inputs\n"
+        )
+        self.assertEqual(
+            _forbidden_pi_carrier_accesses(bad, "<synthetic-pi-backend>"),
+            ["base_template", "overlay_inputs"],
+        )
 
     def test_third_party_import_is_detected(self):
         # A synthetic third-party absolute import must be flagged as external

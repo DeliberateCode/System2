@@ -1,5 +1,6 @@
 """CLI-contract goldens: the compiler ``system2`` CLI vs the FROZEN oracle."""
 
+import datetime
 import json
 import os
 import re
@@ -7,10 +8,19 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
-# The dry-run preview embeds a live UTC ``<!-- Composed at: … -->`` timestamp (no prior lock exists to reuse it), the one genuinely non-deterministic byte in the CLI contract.
-_COMPOSED_AT_RE = re.compile(r"<!-- Composed at: [0-9TZ:-]+ -->")
+# The dry-run preview embeds a live UTC ``<!-- Composed at: … -->`` timestamp
+# (no prior lock exists to reuse it), the one genuinely non-deterministic byte
+# in the CLI contract.  Match only the canonical UTC shape; calendar validity,
+# capture-time proximity, and cross-stream consistency are checked separately.
+_COMPOSED_AT_RE = re.compile(
+    r"<!-- Composed at: (?P<timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    r"[0-9]{2}:[0-9]{2}:[0-9]{2}Z) -->"
+)
+_TIMESTAMP_TOKEN = "<!-- Composed at: <TS> -->"
+_TIMESTAMP_CAPTURE_SLOP_SECONDS = 5
 
 _OVERLAY_TOKEN = "<OVERLAY>"
 
@@ -46,8 +56,40 @@ def _hermetic_env(home_dir):
     return env
 
 
-def _normalize(text, project_dir, home_dir):
-    """Normalize only exact runtime roots, never a suffix-matching lookalike."""
+def _validated_runtime_timestamp(texts, capture_started, capture_finished):
+    """Return one valid, near-capture timestamp shared by all output streams."""
+    timestamps = [
+        match.group("timestamp")
+        for text in texts
+        for match in _COMPOSED_AT_RE.finditer(text)
+    ]
+    if not timestamps:
+        return None
+    if len(set(timestamps)) != 1:
+        raise AssertionError(
+            f"runtime timestamps are internally inconsistent: {timestamps!r}"
+        )
+
+    timestamp = timestamps[0]
+    try:
+        instant = datetime.datetime.strptime(
+            timestamp, "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=datetime.timezone.utc).timestamp()
+    except ValueError as exc:
+        raise AssertionError(f"invalid canonical UTC timestamp: {timestamp!r}") from exc
+
+    earliest = capture_started - _TIMESTAMP_CAPTURE_SLOP_SECONDS
+    latest = capture_finished + _TIMESTAMP_CAPTURE_SLOP_SECONDS
+    if not earliest <= instant <= latest:
+        raise AssertionError(
+            f"runtime timestamp {timestamp!r} is outside capture window "
+            f"[{capture_started!r}, {capture_finished!r}]"
+        )
+    return timestamp
+
+
+def _normalize(text, project_dir, home_dir, runtime_timestamp=None):
+    """Normalize exact runtime roots and one previously validated timestamp."""
     out = text.replace(project_dir, "<PROJECT>").replace(home_dir, "<HOME>")
     for path, token in (
         (TEST_OVERLAY, _OVERLAY_TOKEN),
@@ -55,7 +97,23 @@ def _normalize(text, project_dir, home_dir):
         (BASE, "<BASE>"),
     ):
         out = out.replace(path, token)
-    return _COMPOSED_AT_RE.sub("<!-- Composed at: <TS> -->", out)
+    if runtime_timestamp is not None:
+        exact = f"<!-- Composed at: {runtime_timestamp} -->"
+        out = out.replace(exact, _TIMESTAMP_TOKEN)
+    return out
+
+
+def _normalize_capture(
+    stdout, stderr, project_dir, home_dir, capture_started, capture_finished
+):
+    """Validate a subprocess timestamp jointly, then normalize both streams."""
+    runtime_timestamp = _validated_runtime_timestamp(
+        (stdout, stderr), capture_started, capture_finished
+    )
+    return (
+        _normalize(stdout, project_dir, home_dir, runtime_timestamp),
+        _normalize(stderr, project_dir, home_dir, runtime_timestamp),
+    )
 
 
 def _resolve_argv(argv, project, home):
@@ -259,16 +317,18 @@ def _capture_oracle(cell):
         for step in cell.setup:
             _run_oracle_setup(step, project, env)
         argv = _resolve_argv(cell.oracle_argv, project, home)
+        capture_started = time.time()
         completed = subprocess.run(
             [sys.executable, oracle.COMPOSER_PATH] + argv,
             capture_output=True, text=True, env=env,
             cwd=os.path.dirname(oracle.COMPOSER_PATH),
         )
-        return (
-            _normalize(completed.stdout, project, home),
-            _normalize(completed.stderr, project, home),
-            completed.returncode,
+        capture_finished = time.time()
+        stdout, stderr = _normalize_capture(
+            completed.stdout, completed.stderr, project, home,
+            capture_started, capture_finished,
         )
+        return stdout, stderr, completed.returncode
     finally:
         shutil.rmtree(home, ignore_errors=True)
         shutil.rmtree(project, ignore_errors=True)
@@ -284,17 +344,19 @@ def _capture_compiler(cell):
         for step in cell.setup:
             _run_oracle_setup(step, project, env)
         argv = _resolve_argv(cell.compiler_argv, project, home)
+        capture_started = time.time()
         completed = subprocess.run(
             [sys.executable, "-c",
              "import sys; sys.argv=['system2']+sys.argv[1:]; "
              "from system2_compiler import cli; raise SystemExit(cli.main())"] + argv,
             capture_output=True, text=True, env=env, cwd=_PKG_ROOT,
         )
-        return (
-            _normalize(completed.stdout, project, home),
-            _normalize(completed.stderr, project, home),
-            completed.returncode,
+        capture_finished = time.time()
+        stdout, stderr = _normalize_capture(
+            completed.stdout, completed.stderr, project, home,
+            capture_started, capture_finished,
         )
+        return stdout, stderr, completed.returncode
     finally:
         shutil.rmtree(home, ignore_errors=True)
         shutil.rmtree(project, ignore_errors=True)
@@ -371,6 +433,51 @@ class CliContractTest(unittest.TestCase):
         self.assertIn('{"path":"<OVERLAY>"}', normalized)
         self.assertIn(wrong, normalized)
         self.assertIn("<PROJECT>/file", normalized)
+
+    def test_timestamp_normalization_requires_valid_near_consistent_runtime_value(self):
+        capture_started = 2_000_000_000.0
+        capture_finished = capture_started + 1
+        timestamp = datetime.datetime.fromtimestamp(
+            capture_started, datetime.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        raw = f"preview\n<!-- Composed at: {timestamp} -->\n"
+        stdout, stderr = _normalize_capture(
+            raw, "", "/tmp/project", "/tmp/home",
+            capture_started, capture_finished,
+        )
+        self.assertEqual(stdout, "preview\n<!-- Composed at: <TS> -->\n")
+        self.assertEqual(stderr, "")
+
+        malformed = "preview\n<!-- Composed at: ---- -->\n"
+        malformed_actual = _normalize_capture(
+            malformed, "", "/tmp/project", "/tmp/home",
+            capture_started, capture_finished,
+        ) + (0,)
+        with self.assertRaises(AssertionError):
+            _compare_contract((stdout, stderr, 0), malformed_actual, "malformed-ts")
+
+        with self.assertRaisesRegex(AssertionError, "invalid canonical UTC"):
+            _normalize_capture(
+                "<!-- Composed at: 1999-99-99T99:99:99Z -->", "",
+                "/tmp/project", "/tmp/home", capture_started, capture_finished,
+            )
+        for wrong in ("1999-01-01T00:00:00Z", "2099-01-01T00:00:00Z"):
+            with self.subTest(wrong=wrong):
+                with self.assertRaisesRegex(AssertionError, "outside capture window"):
+                    _normalize_capture(
+                        f"<!-- Composed at: {wrong} -->", "",
+                        "/tmp/project", "/tmp/home",
+                        capture_started, capture_finished,
+                    )
+        other = datetime.datetime.fromtimestamp(
+            capture_started + 1, datetime.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self.assertRaisesRegex(AssertionError, "internally inconsistent"):
+            _normalize_capture(
+                raw, f"<!-- Composed at: {other} -->",
+                "/tmp/project", "/tmp/home",
+                capture_started, capture_finished,
+            )
 
     def test_real_comparator_rejects_each_mutated_channel(self):
         cell = next(cell for cell in _cells() if cell.name == "compose_text")

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 from evals import oracle
@@ -42,15 +43,17 @@ def _capture(engine_path, cell, env_extra):
             project if a == clic._PROJ else (home if a == clic._HOME else a)
             for a in cell.oracle_argv
         ]
+        capture_started = time.time()
         completed = subprocess.run(
             [sys.executable, engine_path] + argv,
             capture_output=True, text=True, env=env, cwd=SCRIPTS_DIR,
         )
-        return (
-            clic._normalize(completed.stdout, project, home),
-            clic._normalize(completed.stderr, project, home),
-            completed.returncode,
+        capture_finished = time.time()
+        stdout, stderr = clic._normalize_capture(
+            completed.stdout, completed.stderr, project, home,
+            capture_started, capture_finished,
         )
+        return stdout, stderr, completed.returncode
     finally:
         shutil.rmtree(home, ignore_errors=True)
         shutil.rmtree(project, ignore_errors=True)

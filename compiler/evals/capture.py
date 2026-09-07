@@ -110,11 +110,15 @@ def _copy_artifacts(project_dir: str, cell_dir: str, cell: "matrix.Cell") -> Non
 
     agents_src = os.path.join(project_dir, ".claude", "agents")
     if os.path.isdir(agents_src):
-        for name in sorted(os.listdir(agents_src)):
-            if name.endswith(".md"):
-                dst = os.path.join(cell_dir, ".claude", "agents", name)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copyfile(os.path.join(agents_src, name), dst)
+        for root, dirs, names in os.walk(agents_src):
+            dirs.sort()
+            for name in sorted(names):
+                if name.endswith(".md"):
+                    src = os.path.join(root, name)
+                    rel = os.path.relpath(src, agents_src)
+                    dst = os.path.join(cell_dir, ".claude", "agents", rel)
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copyfile(src, dst)
 
     # Overlay content copies (.system2/overlays/<name>/...): the anchor-filtered set the oracle actually copies.
     overlays_src = os.path.join(project_dir, ".system2", "overlays")
