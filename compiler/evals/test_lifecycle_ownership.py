@@ -424,6 +424,66 @@ class LifecycleOwnershipTest(unittest.TestCase):
 
                     self.assertEqual(_tree_fingerprint(project), before)
 
+    def test_write_rollback_continues_after_raced_validation_failure(self):
+        for backend_module in (codex, pi):
+            with self.subTest(backend=backend_module.__name__):
+                with tempfile.TemporaryDirectory(prefix="raced-rollback-") as project:
+                    first = os.path.join(project, "first.txt")
+                    second = os.path.join(project, "second.txt")
+                    third = os.path.join(project, "third.txt")
+                    _write(first, b"first before\n")
+                    _write(second, b"second before\n")
+                    real_replace = backend_module.os.replace
+                    real_validate = backend_module.validate_project_target
+                    rollback_started = False
+
+                    def fail_third_replace(source, destination):
+                        nonlocal rollback_started
+                        if destination == third:
+                            rollback_started = True
+                            raise OSError("synthetic original write failure")
+                        return real_replace(source, destination)
+
+                    def refuse_second_restore(project_path, relative_path):
+                        if rollback_started and relative_path == "second.txt":
+                            raise ValueError("synthetic raced unsafe path")
+                        return real_validate(project_path, relative_path)
+
+                    with mock.patch.object(
+                        backend_module,
+                        "validate_project_target",
+                        side_effect=refuse_second_restore,
+                    ), mock.patch.object(
+                        backend_module.os,
+                        "replace",
+                        side_effect=fail_third_replace,
+                    ):
+                        with self.assertRaisesRegex(
+                            OSError, "synthetic original write failure"
+                        ):
+                            backend_module._write_outputs(
+                                project,
+                                [
+                                    ("first.txt", "first after\n"),
+                                    ("second.txt", "second after\n"),
+                                    ("third.txt", "third after\n"),
+                                ],
+                            )
+
+                    with open(first, "rb") as fh:
+                        self.assertEqual(fh.read(), b"first before\n")
+                    with open(second, "rb") as fh:
+                        self.assertEqual(fh.read(), b"second after\n")
+                    self.assertFalse(os.path.exists(third))
+                    leftovers = sorted(os.listdir(project))
+                    self.assertFalse(
+                        any(name.startswith(".first.txt.") for name in leftovers)
+                    )
+                    self.assertTrue(
+                        any(name.startswith(".second.txt.") for name in leftovers),
+                        "an unsafe backup must be left untouched",
+                    )
+
     def test_recompose_rollback_restores_stale_owned_artifact(self):
         cases = ((CodexBackend, codex), (PiBackend, pi))
         for backend_cls, backend_module in cases:

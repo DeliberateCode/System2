@@ -71,14 +71,17 @@ class PiDoctorAdvisoryTest(unittest.TestCase):
         rpt = self._run(PiBackend, [_TEST_OVERLAY])
         self.assertIn("source_outside_project", _kinds(rpt))
 
-    def test_pi_inside_source_no_advisory(self):
+    def test_pi_inside_source_compose_refused(self):
         proj = tempfile.mkdtemp(prefix="c1-doctor-pi-in-")
         self.addCleanup(shutil.rmtree, proj, True)
         local = os.path.join(proj, "local-overlay")
         shutil.copytree(_TEST_OVERLAY, local)
-        backend = _emit(PiBackend, proj, [local])
-        rpt = backend.doctor(proj)
-        self.assertNotIn("source_outside_project", _kinds(rpt))
+
+        result = ir.compose(_BASE, [local], proj)
+
+        self.assertIsNone(result.graph)
+        self.assertEqual(result.files_to_write, [])
+        self.assertIn("overlap", "\n".join(result.errors).lower())
 
 
 class ClaudeDriftAdvisoryGateTest(unittest.TestCase):

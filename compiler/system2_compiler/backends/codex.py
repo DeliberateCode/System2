@@ -1005,20 +1005,26 @@ def _write_outputs(
             written.append(dst)
     except Exception:
         for orig, bak in reversed(backups):
-            if os.path.exists(bak):
-                validate_project_target(project_path, relative(orig))
-                validate_project_target(project_path, relative(bak))
-                shutil.copy2(bak, orig)
-                os.unlink(bak)
+            try:
+                if os.path.exists(bak):
+                    validate_project_target(project_path, relative(orig))
+                    validate_project_target(project_path, relative(bak))
+                    shutil.copy2(bak, orig)
+                    os.unlink(bak)
+            except Exception:
+                pass
         for created in newly_created:
-            if os.path.exists(created):
-                validate_project_target(project_path, relative(created))
-                os.unlink(created)
+            try:
+                if os.path.exists(created):
+                    validate_project_target(project_path, relative(created))
+                    os.unlink(created)
+            except Exception:
+                pass
         for d in dirs_created:
             try:
                 validate_project_target(project_path, relative(d))
                 os.rmdir(d)
-            except OSError:
+            except Exception:
                 pass
         raise
     for _orig, bak in backups:
@@ -1026,7 +1032,7 @@ def _write_outputs(
             if os.path.exists(bak):
                 validate_project_target(project_path, relative(bak))
                 os.unlink(bak)
-        except OSError:
+        except Exception:
             pass
     return written
 
@@ -1673,15 +1679,24 @@ class CodexBackend:
                 os.unlink(path)
         except Exception:
             for orig, bak in reversed(backups):
-                if os.path.exists(bak):
-                    validate_project_target(
-                        project_path,
-                        os.path.relpath(
-                            orig, os.path.abspath(project_path)
-                        ).replace(os.sep, "/"),
-                    )
-                    shutil.copy2(bak, orig)
-                    os.unlink(bak)
+                try:
+                    if os.path.exists(bak):
+                        validate_project_target(
+                            project_path,
+                            os.path.relpath(
+                                orig, os.path.abspath(project_path)
+                            ).replace(os.sep, "/"),
+                        )
+                        validate_project_target(
+                            project_path,
+                            os.path.relpath(
+                                bak, os.path.abspath(project_path)
+                            ).replace(os.sep, "/"),
+                        )
+                        shutil.copy2(bak, orig)
+                        os.unlink(bak)
+                except Exception:
+                    pass
             raise
 
         for _orig, bak in backups:
@@ -1694,7 +1709,7 @@ class CodexBackend:
                         ).replace(os.sep, "/"),
                     )
                     os.unlink(bak)
-            except OSError:
+            except Exception:
                 pass
 
         self._prune_empty_dirs(project_path)
