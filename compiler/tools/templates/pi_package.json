@@ -11,6 +11,9 @@
     "orchestration"
   ],
   "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "pi": {
     "extensions": ["./extensions"],
     "skills": ["./skills"],

@@ -35,34 +35,40 @@ _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "pi.json"
 )
 
-_PI_VERSION_ASSUMED = "0.80.2"
+_PI_VERSION_ASSUMED = "0.85.1"
 
 # Shared matcher order is semantic because the extension reports the first match.
 
-# Default role before /delegate selects another scope.
-_DEFAULT_ACTIVE_ROLE = "executor"
+# Missing or invalid session state must never broaden authorization.
+_READ_ONLY_FALLBACK_ROLE = "__system2-read-only__"
 
 _ADVISORY_LABEL = "ADVISORY — NOT ENFORCED ON PI (instruction only)"
 
 _CAPABILITY_NOTE = {
     "enforce-lease": (
-        "NATIVE on Pi: the generated extension's on(\"tool_call\") handler blocks a "
-        "write/edit outside your role's write scope before the tool runs. The path is "
-        "project-normalized and the scope is start-anchored (a ../ or absolute escape "
-        "fails closed). A role with an empty write scope (read-only) has EVERY write "
-        "blocked (fail-closed)."
+        "ADAPTED/PARTIAL on Pi: the generated extension hard-blocks off-scope "
+        "structured write/edit targets and supported literal shell redirection/tee "
+        "targets before execution. It is not a general shell-write gate; commands "
+        "such as touch, cp, mv, install, sed -i, interpreters, and build tools are "
+        "unsupported and must not be treated as lease-enforced. Escapes, symlink "
+        "escapes, malformed targets, and empty write scopes fail closed on supported "
+        "paths."
     ),
     "block-dangerous": (
-        "NATIVE on Pi: the generated extension's on(\"tool_call\") handler hard-blocks "
-        "a dangerous bash command before it runs."
+        "NATIVE but bounded on Pi: the generated extension hard-blocks commands "
+        "matching its declared literal dangerous-command regex set before execution. "
+        "It does not claim sound arbitrary-shell normalization."
     ),
     "protect-sensitive": (
-        "NATIVE on Pi: the generated extension's on(\"tool_call\") handler hard-blocks "
-        "any read/write/edit/bash touching a sensitive path before it runs."
+        "NATIVE but bounded on Pi: the generated extension hard-blocks sensitive "
+        "structured paths and ordinary literal shell tokens before execution. "
+        "Malformed/overflowing shell token extraction fails closed. Unknown custom "
+        "tool schemas, shell expansion, and arbitrary-shell interpretation are outside "
+        "this claim."
     ),
     "budget": (
-        "ADAPTED on Pi: the generated extension's on(\"agent_end\") handler REPORTS "
-        "your change budget at turn end — a report, not a block."
+        "ADVISORY on Pi: agent_end emits only a reminder to include change-budget "
+        "information in the completion summary. It computes no report and is not gated."
     ),
     "format": (
         f"[{_ADVISORY_LABEL}: format] Format every file you edit before finishing. "
@@ -215,8 +221,8 @@ def _enforcement_summary(ir: System2Graph) -> List[str]:
 
     lines: List[str] = ["## Enforcement on Pi (read this — it is MIXED)"]
     lines.append(
-        "Pi has no built-in permission system; the generated "
-        "`.pi/extensions/system2.ts` extension IS the gate."
+        "Pi has no built-in permission system; the generated or package-discovered "
+        "System2 extension provides the bounded gates described below."
     )
     lines.append("")
     if native:
@@ -224,7 +230,7 @@ def _enforcement_summary(ir: System2Graph) -> List[str]:
         lines.extend(native)
         lines.append("")
     if adapted:
-        lines.append("### ADAPTED — reported, not blocked")
+        lines.append("### ADAPTED — partial native coverage or reporting")
         lines.extend(adapted)
         lines.append("")
     if advisory:
@@ -311,7 +317,7 @@ def _role_capability_notes(ir: System2Graph, role_name: str) -> List[str]:
         for cap in native:
             lines.append(f"- {cap}: {_CAPABILITY_NOTE.get(cap, '')}")
     if adapted:
-        lines.append("Adapted (reported, not blocked):")
+        lines.append("Adapted (partial native coverage or reporting):")
         for cap in adapted:
             lines.append(f"- {cap}: {_CAPABILITY_NOTE.get(cap, '')}")
     if advisory:
@@ -334,14 +340,14 @@ def _build_role_prompt(ir: System2Graph, role) -> str:
     scope = (role.write_scope or "").strip()
     if scope:
         lines.append(
-            f"- Write scope (NATIVE lease — edits outside this are BLOCKED): "
-            f"`{scope}`"
+            f"- Write scope (PARTIAL native lease — structured writes and supported "
+            f"shell redirection/tee outside this are BLOCKED): `{scope}`"
         )
     else:
         lines.append(
             "- Write scope: none (read-only role). The lease gate FAILS CLOSED for "
-            "this role — any write/edit is BLOCKED before it runs. Produce review "
-            "output, not file edits."
+            "this role — any structured write/edit and supported shell redirection/tee "
+            "is BLOCKED before it runs. Produce review output, not file edits."
         )
     if role.model_hint:
         lines.append(f"- Model hint: {role.model_hint} (recorded; Pi model is session-level)")
@@ -396,13 +402,14 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "\n"
             "Set up the System2 workflow on Pi.\n"
             "\n"
-            "1. The `.pi/extensions/system2.ts` extension is auto-discovered by Pi "
-            "from `.pi/extensions/`; it installs the native safety gates "
-            "(enforce-lease, block-dangerous, protect-sensitive) and the budget "
-            "report.\n"
-            "2. Read `.pi/SYSTEM.md` for the orchestrator context and the MIXED "
-            "enforcement story.\n"
-            "3. Use `/delegate <role>` to dispatch to one of the 13 roles.\n"
+            "1. Confirm the System2 extension was discovered from this project or "
+            "from the installed Pi package; package discovery does not require a "
+            "project `.pi/extensions/system2.ts`.\n"
+            "2. Run `/system2-init` when using the package. It materializes only its "
+            "managed project payload, never replaces caller-owned `AGENTS.md`, and "
+            "reloads Pi after a successful write.\n"
+            "3. Read `.pi/SYSTEM.md` for the orchestrator context and MIXED "
+            "enforcement story, then use `/delegate <role>`.\n"
         )
     elif name == "compose":
         order = ", ".join(ir.delegation_contract.preferred_order)
@@ -424,13 +431,14 @@ def _build_skill(name: str, ir: System2Graph) -> str:
             "\n"
             "Verify the System2 extension loads and the gates are live.\n"
             "\n"
-            "1. Confirm Pi discovered `.pi/extensions/system2.ts` (no load error).\n"
-            "2. Confirm the `tool_call` handler is registered (the native gates).\n"
+            "1. Confirm Pi lists `/delegate` as an extension command; inspect its "
+            "command source information to distinguish project and package discovery.\n"
+            "2. Confirm the `tool_call` handler is registered (the bounded gates).\n"
             "3. The operator analogue of the proven-blocking test: a dangerous bash "
             "command and a sensitive-path read must be BLOCKED before they run; an "
             "off-scope write must be BLOCKED when the active role has a write scope.\n"
             "4. Read `system2.pi.lock.json` for the per-capability degradation "
-            "report and the FIDELITY banner.\n"
+            "report, unsupported shell-write disclosure, and FIDELITY banner.\n"
         )
     else:
         raise ValueError(f"unknown Pi skill name: {name!r}")
@@ -441,11 +449,12 @@ def _build_skill(name: str, ir: System2Graph) -> str:
 
 def _fidelity_banner(ir: System2Graph) -> str:
     banner = (
-        "On Pi, the safety gates (enforce-lease, block-dangerous, protect-sensitive) "
-        "are NATIVE: the generated extension's on(\"tool_call\") handler hard-blocks "
-        "before the tool runs. budget is ADAPTED (reported at agent_end, not "
-        "blocked). format/typecheck are ADVISORY (SYSTEM.md instruction only, not "
-        "enforced)."
+        "On Pi, block-dangerous and protect-sensitive are bounded NATIVE gates for "
+        "their declared literal patterns. enforce-lease is ADAPTED/PARTIAL: structured "
+        "write/edit and supported shell redirection/tee targets are gated, but other "
+        "shell write mechanisms are unsupported. budget is ADVISORY: agent_end emits "
+        "a reminder, not a computed report or gate. format/typecheck are ADVISORY "
+        "instructions only."
     )
     if _any_empty_write_scope(ir):
         banner += (
@@ -492,10 +501,12 @@ def _role_scope_entries(ir: System2Graph) -> List[Tuple[str, str]]:
 
 
 def _default_active_role(ir: System2Graph) -> str:
-    names = ir.delegation_contract.preferred_order
-    if _DEFAULT_ACTIVE_ROLE in names:
-        return _DEFAULT_ACTIVE_ROLE
-    return names[0] if names else _DEFAULT_ACTIVE_ROLE
+    """Select an explicit read-only fallback, never a broad executor role."""
+    scopes = dict(_role_scope_entries(ir))
+    for name in ir.delegation_contract.preferred_order:
+        if name in scopes and not scopes[name]:
+            return name
+    return _READ_ONLY_FALLBACK_ROLE
 
 
 def _build_extension_ts(ir: System2Graph) -> str:
@@ -522,7 +533,10 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("// Generated by the System2 compiler. Do not edit by hand.")
     lines.append("// The tool_call handler blocks unsafe operations before execution.")
     lines.append("")
-    lines.append('import type { ExtensionAPI, ToolCallEvent, BashToolCallEvent } from "@earendil-works/pi-coding-agent";')
+    lines.append('import type { ExtensionAPI, ExtensionContext, ToolCallEvent, BashToolCallEvent } from "@earendil-works/pi-coding-agent";')
+    lines.append('import * as fs from "node:fs";')
+    lines.append('import * as path from "node:path";')
+    lines.append('import { fileURLToPath } from "node:url";')
     lines.append("")
     lines.append("// Dangerous-command matchers; order is semantic.")
     lines.append("const DANGEROUS_REGEXES: [RegExp, string][] = [")
@@ -548,7 +562,12 @@ def _build_extension_ts(ir: System2Graph) -> str:
     )
     lines.append("")
     lines.append(f"const VALID_ROLES: string[] = [{role_lits}];")
-    lines.append(f"let activeRole: string = {_ts_escape(default_role)};")
+    lines.append(f"const READ_ONLY_DEFAULT_ROLE = {_ts_escape(default_role)};")
+    lines.append('const ROLE_ENTRY_TYPE = "system2-role";')
+    lines.append("const HERE = path.dirname(fileURLToPath(import.meta.url));")
+    lines.append('const READ_ONLY_PROMPT = "System2 restrictive read-only fallback: no writes are authorized until /delegate selects a valid role.";')
+    lines.append("let activeRole: string = READ_ONLY_DEFAULT_ROLE;")
+    lines.append("let activeRolePrompt: string = READ_ONLY_PROMPT;")
     lines.append("")
     lines.append("// Extract every supported path alias before applying policy.")
     lines.append("const PATH_KEYS: string[] = [")
@@ -581,90 +600,189 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("  return undefined;")
     lines.append("}")
     lines.append("")
-    lines.append("// Normalize project-relative paths and return null on any escape.")
-    lines.append("function normalizeProjectPath(p: string): string | null {")
-    lines.append('  if (typeof p !== "string" || p.length === 0) return null;')
-    lines.append('  if (p === "~" || p.startsWith("~/")) return null; // home dir: outside project')
-    lines.append('  const slashed = p.replace(/\\\\/g, "/");')
-    lines.append('  if (slashed.startsWith("/")) return null; // absolute: cannot confirm in-project -> block')
-    lines.append("  const segs: string[] = [];")
-    lines.append('  for (const part of slashed.split("/")) {')
-    lines.append('    if (part === "" || part === ".") continue;')
-    lines.append('    if (part === "..") {')
-    lines.append("      if (segs.length === 0) return null; // escapes the project root -> block")
-    lines.append("      segs.pop();")
+    lines.append("type ShellToken = { value: string; operator: boolean };")
+    lines.append("function shellTokens(command: unknown): ShellToken[] | null {")
+    lines.append('  if (typeof command !== "string" || command.length > 65536) return null;')
+    lines.append('  if (command.includes("`") || command.includes("$(")) return null;')
+    lines.append("  const out: ShellToken[] = [];")
+    lines.append('  let current = "";')
+    lines.append('  let quote = "";')
+    lines.append("  let escaped = false;")
+    lines.append("  const pushWord = () => {")
+    lines.append('    if (current) out.push({ value: current, operator: false });')
+    lines.append('    current = "";')
+    lines.append("  };")
+    lines.append("  for (let i = 0; i < command.length; i++) {")
+    lines.append("    const ch = command[i];")
+    lines.append("    if (escaped) { current += ch; escaped = false; continue; }")
+    lines.append('    if (ch === "\\\\" && quote !== "\\\'") { escaped = true; continue; }')
+    lines.append("    if (quote) {")
+    lines.append("      if (ch === quote) quote = \"\"; else current += ch;")
     lines.append("      continue;")
     lines.append("    }")
-    lines.append("    segs.push(part);")
+    lines.append('    if (ch === "\\\'" || ch === \'"\') { quote = ch; continue; }')
+    lines.append("    if (/\\s/.test(ch)) { pushWord(); continue; }")
+    lines.append('    if ("<>|;&".includes(ch)) {')
+    lines.append("      pushWord();")
+    lines.append("      let op = ch;")
+    lines.append('      if (i + 1 < command.length && (command[i + 1] === ch || (ch === "&" && command[i + 1] === ">"))) op += command[++i];')
+    lines.append("      out.push({ value: op, operator: true });")
+    lines.append("    } else current += ch;")
+    lines.append("    if (out.length > 256) return null;")
     lines.append("  }")
-    lines.append('  return segs.join("/");')
+    lines.append("  if (escaped || quote) return null;")
+    lines.append("  pushWord();")
+    lines.append("  return out.length <= 256 ? out : null;")
     lines.append("}")
     lines.append("")
-    lines.append("function offLeasePath(event: ToolCallEvent): string | undefined {")
-    lines.append('  if (event.toolName !== "write" && event.toolName !== "edit") return undefined;')
-    lines.append("  const paths = pathsOf(event);")
+    lines.append("function shellWriteTargets(tokens: ShellToken[]): string[] | null {")
+    lines.append("  const targets: string[] = [];")
+    lines.append("  for (let i = 0; i < tokens.length; i++) {")
+    lines.append("    const token = tokens[i];")
+    lines.append('    if (token.operator && /^(?:>|>>|&>)$/.test(token.value)) {')
+    lines.append("      const target = tokens[++i];")
+    lines.append("      if (!target || target.operator) return null;")
+    lines.append("      targets.push(target.value);")
+    lines.append("      continue;")
+    lines.append("    }")
+    lines.append('    const commandPosition = i === 0 || (tokens[i - 1].operator && /^(?:\\||\\|\\||;|&&)$/.test(tokens[i - 1].value));')
+    lines.append('    if (commandPosition && !token.operator && /^(?:.*\\/)?tee$/.test(token.value)) {')
+    lines.append("      let sawTarget = false;")
+    lines.append("      for (let j = i + 1; j < tokens.length && !tokens[j].operator; j++) {")
+    lines.append("        const value = tokens[j].value;")
+    lines.append('        if (!sawTarget && value.startsWith("-")) continue;')
+    lines.append("        sawTarget = true;")
+    lines.append("        targets.push(value);")
+    lines.append("      }")
+    lines.append("      if (!sawTarget) return null;")
+    lines.append("    }")
+    lines.append("  }")
+    lines.append("  return targets;")
+    lines.append("}")
+    lines.append("")
+    lines.append("function loadRolePrompt(role: string): string | undefined {")
+    lines.append("  if (!VALID_ROLES.includes(role)) return undefined;")
+    lines.append('  const promptPath = path.resolve(HERE, "..", "prompts", `role-${role}.md`);')
+    lines.append("  try { return fs.readFileSync(promptPath, \"utf8\"); } catch { return undefined; }")
+    lines.append("}")
+    lines.append("")
+    lines.append("function resetReadOnly(): void {")
+    lines.append("  activeRole = READ_ONLY_DEFAULT_ROLE;")
+    lines.append("  activeRolePrompt = loadRolePrompt(activeRole) ?? READ_ONLY_PROMPT;")
+    lines.append("}")
+    lines.append("")
+    lines.append("function reconstructRole(ctx: ExtensionContext): void {")
+    lines.append("  resetReadOnly();")
+    lines.append("  const entries = ctx.sessionManager.getBranch().filter(")
+    lines.append('    (entry) => entry.type === "custom" && entry.customType === ROLE_ENTRY_TYPE,')
+    lines.append("  );")
+    lines.append("  if (entries.length === 0) return;")
+    lines.append("  const data = entries[entries.length - 1].data as { role?: unknown } | undefined;")
+    lines.append("  const role = data?.role;")
+    lines.append('  if (typeof role !== "string" || !VALID_ROLES.includes(role)) return;')
+    lines.append("  const prompt = loadRolePrompt(role);")
+    lines.append("  if (!prompt) return;")
+    lines.append("  activeRole = role;")
+    lines.append("  activeRolePrompt = prompt;")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Resolve project-relative targets, including existing symlink components.")
+    lines.append("function normalizeProjectPath(p: string, cwd: string): string | null {")
+    lines.append('  if (typeof p !== "string" || p.length === 0) return null;')
+    lines.append('  if (p === "~" || p.startsWith("~/") || path.isAbsolute(p)) return null;')
+    lines.append("  let root: string;")
+    lines.append("  try { root = fs.realpathSync(cwd); } catch { return null; }")
+    lines.append("  const parts = p.replace(/\\\\/g, \"/\").split(\"/\");")
+    lines.append("  let current = root;")
+    lines.append("  for (let i = 0; i < parts.length; i++) {")
+    lines.append("    const part = parts[i];")
+    lines.append('    if (!part || part === ".") continue;')
+    lines.append('    if (part === "..") { current = path.dirname(current); } else { current = path.join(current, part); }')
+    lines.append("    try {")
+    lines.append("      const stat = fs.lstatSync(current);")
+    lines.append("      if (stat.isSymbolicLink()) {")
+    lines.append("        try { current = fs.realpathSync(current); } catch { return null; }")
+    lines.append("      }")
+    lines.append("    } catch (error) {")
+    lines.append('      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;')
+    lines.append("    }")
+    lines.append("    const rel = path.relative(root, current);")
+    lines.append('    if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;')
+    lines.append("  }")
+    lines.append('  return path.relative(root, current).split(path.sep).join("/");')
+    lines.append("}")
+    lines.append("")
+    lines.append("function offLeasePath(paths: string[], cwd: string): string | undefined {")
     lines.append("  if (paths.length === 0) return undefined;")
-    lines.append("  // Unscoped roles cannot write.")
     lines.append("  const scope = ROLE_WRITE_SCOPES.get(activeRole);")
     lines.append("  if (!WRITEABLE_ROLES.has(activeRole) || !scope) return paths[0];")
     lines.append("  let re: RegExp;")
     lines.append("  try {")
     lines.append('    re = new RegExp("^(?:" + scope + ")");')
     lines.append("  } catch {")
-    lines.append("    return paths[0]; // an uncompilable scope fails closed, not open")
+    lines.append("    return paths[0];")
     lines.append("  }")
     lines.append("  for (const p of paths) {")
-    lines.append("    const norm = normalizeProjectPath(p);")
-    lines.append("    if (norm === null || !re.test(norm)) return p; // escape or off-scope -> block")
+    lines.append("    const norm = normalizeProjectPath(p, cwd);")
+    lines.append("    if (norm === null || !re.test(norm)) return p;")
     lines.append("  }")
     lines.append("  return undefined;")
     lines.append("}")
     lines.append("")
     lines.append("export default function (pi: ExtensionAPI) {")
-    lines.append("  // Block unsafe tool calls before execution.")
-    lines.append("  pi.on(\"tool_call\", (event) => {")
-    lines.append("    // block-dangerous: a bash command matching the ported regex set -> hard block.")
+    lines.append("  resetReadOnly();")
+    lines.append("  pi.on(\"session_start\", (_event, ctx) => reconstructRole(ctx));")
+    lines.append("  pi.on(\"session_tree\", (_event, ctx) => reconstructRole(ctx));")
+    lines.append("")
+    lines.append("  // Block the bounded, inspectable unsafe cases before execution.")
+    lines.append("  pi.on(\"tool_call\", (event, ctx) => {")
     lines.append('    if (event.toolName === "bash") {')
-    lines.append("      const command = (event as BashToolCallEvent).input.command;")
+    lines.append("      const command = (event as BashToolCallEvent).input?.command as unknown;")
+    lines.append('      if (typeof command !== "string") return { block: true, reason: "protect-sensitive: uninspectable bash command" };')
     lines.append("      const reason = dangerousReason(command);")
     lines.append("      if (reason) return { block: true, reason };")
-    lines.append("      const sBash = sensitiveHit(command);")
-    lines.append("      if (sBash) {")
-    lines.append("        return { block: true, reason: `protect-sensitive: ${sBash}` };")
+    lines.append("      const tokens = shellTokens(command);")
+    lines.append('      if (!tokens) return { block: true, reason: "protect-sensitive: shell token extraction failed or overflowed" };')
+    lines.append("      for (const token of tokens) {")
+    lines.append("        if (token.operator) continue;")
+    lines.append("        const hit = sensitiveHit(token.value);")
+    lines.append("        if (hit) return { block: true, reason: `protect-sensitive: ${hit}` };")
     lines.append("      }")
+    lines.append("      const targets = shellWriteTargets(tokens);")
+    lines.append('      if (targets === null) return { block: true, reason: "enforce-lease: supported shell write target is uninspectable" };')
+    lines.append("      const off = offLeasePath(targets, ctx.cwd);")
+    lines.append("      if (off) return { block: true, reason: `enforce-lease: ${off} is outside the write scope for role ${activeRole}` };")
     lines.append("      return;")
     lines.append("    }")
-    lines.append("    // protect-sensitive: any path-bearing input touching a sensitive path -> hard block.")
-    lines.append("    for (const p of pathsOf(event)) {")
-    lines.append("      const sPath = sensitiveHit(p);")
-    lines.append("      if (sPath) {")
-    lines.append("        return { block: true, reason: `protect-sensitive: ${sPath}` };")
-    lines.append("      }")
+    lines.append("    const eventPaths = pathsOf(event);")
+    lines.append('    if (["read", "write", "edit"].includes(event.toolName) && eventPaths.length === 0) {')
+    lines.append('      return { block: true, reason: "protect-sensitive: uninspectable path input" };')
     lines.append("    }")
-    lines.append("    // enforce-lease: a write/edit outside the active role's write scope -> hard block.")
-    lines.append("    const off = offLeasePath(event);")
-    lines.append("    if (off) {")
-    lines.append("      return { block: true, reason: `enforce-lease: ${off} is outside the write scope for role ${activeRole}` };")
+    lines.append("    for (const p of eventPaths) {")
+    lines.append("      const hit = sensitiveHit(p);")
+    lines.append("      if (hit) return { block: true, reason: `protect-sensitive: ${hit}` };")
     lines.append("    }")
-    lines.append("    return; // allow")
+    lines.append('    if (event.toolName === "write" || event.toolName === "edit") {')
+    lines.append("      const off = offLeasePath(eventPaths, ctx.cwd);")
+    lines.append("      if (off) return { block: true, reason: `enforce-lease: ${off} is outside the write scope for role ${activeRole}` };")
+    lines.append("    }")
+    lines.append("    return;")
     lines.append("  });")
     lines.append("")
-    lines.append("  // Report the budget after the agent ends; this does not block.")
+    lines.append("  // Advisory only: this reminder computes no budget report.")
     lines.append("  pi.on(\"agent_end\", (_event, ctx) => {")
     lines.append("    ctx.ui.notify(")
-    lines.append("      \"System2 budget: report files touched and lines added/removed in your completion summary.\",")
+    lines.append("      \"System2 budget reminder: include files touched and lines added/removed in your completion summary.\",")
     lines.append('      "info",')
     lines.append("    );")
     lines.append("  });")
     lines.append("")
-    lines.append("  // Inject the orchestrator context before the agent starts.")
     lines.append("  pi.on(\"before_agent_start\", (event) => ({")
-    lines.append("    systemPrompt: `${event.systemPrompt}\\n\\nSystem2 orchestrator context is in .pi/SYSTEM.md. Drive the gate graph 0 -> 5 and delegate via /delegate <role>.`,")
+    lines.append("    systemPrompt: `${event.systemPrompt}\\n\\nSystem2 orchestrator context is in .pi/SYSTEM.md.\\n\\n${activeRolePrompt}`,")
     lines.append("  }));")
     lines.append("")
-    lines.append("  // Limit /delegate to known roles.")
-    lines.append("  pi.registerCommand(\"/delegate\", {")
-    lines.append("    description: \"Delegate a sub-task to one of the 13 System2 roles.\",")
+    lines.append("  pi.registerCommand(\"delegate\", {")
+    lines.append("    description: \"Switch this session branch to one of the 13 System2 roles.\",")
     lines.append("    handler: async (args, ctx) => {")
     lines.append("      const role = args.trim();")
     lines.append("      if (!VALID_ROLES.includes(role)) {")
@@ -674,8 +792,16 @@ def _build_extension_ts(ir: System2Graph) -> str:
     lines.append("        );")
     lines.append("        return;")
     lines.append("      }")
-    lines.append("      activeRole = role; // role-switch: the lease gate now enforces this role's scope")
-    lines.append("      ctx.ui.notify(`Delegated to ${role}. Load .pi/prompts/role-${role}.md.`, \"info\");")
+    lines.append("      const prompt = loadRolePrompt(role);")
+    lines.append("      if (!prompt) {")
+    lines.append("        ctx.ui.notify(`Role prompt for ${role} is unavailable; remaining read-only.`, \"error\");")
+    lines.append("        resetReadOnly();")
+    lines.append("        return;")
+    lines.append("      }")
+    lines.append("      pi.appendEntry(ROLE_ENTRY_TYPE, { role });")
+    lines.append("      activeRole = role;")
+    lines.append("      activeRolePrompt = prompt;")
+    lines.append("      ctx.ui.notify(`Delegated in-session to ${role}; its role contract applies on the next agent turn.`, \"info\");")
     lines.append("    },")
     lines.append("  });")
     lines.append("}")
@@ -921,7 +1047,8 @@ def _resolve_pi_pkg_entry(pi_bin: Optional[str]) -> Optional[str]:
     )
     roots: List[str] = []
     if pi_bin:
-        prefix = os.path.dirname(os.path.dirname(os.path.realpath(pi_bin)))
+        # Keep the symlink path: realpath(pi) points inside the package, not its prefix.
+        prefix = os.path.dirname(os.path.dirname(os.path.abspath(pi_bin)))
         roots.append(os.path.join(prefix, "lib", "node_modules"))
         roots.append(os.path.join(prefix, "node_modules"))
     roots.append(
@@ -1342,7 +1469,7 @@ class PiBackend:
                 "kind": "validator_unavailable",
                 "message": (
                     "node/pi not available — extension load validation SKIPPED "
-                    "(not a silent pass). Install node v22 + pi v0.80.2 (or set "
+                    "(not a silent pass). Install node v22 + pi v0.85.1 (or set "
                     "NODE_BIN/PI_BIN/PI_PKG_ENTRY) to validate; structural checks ran."
                 ),
             })

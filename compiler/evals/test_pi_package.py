@@ -108,12 +108,14 @@ const mod = await import(pathToFileURL(modPath).href);
 
 const notes = [];
 const replaceSnapshots = {};
+let reloads = 0;
 let registeredName = null;
 let spec = null;
 const pi = { registerCommand: (name, s) => { registeredName = name; spec = s; } };
 mod.default(pi);
 
 const ctx = {
+  cwd: projectRoot,
   ui: {
     notify: (msg, level) => {
       notes.push({ level: level || null, msg });
@@ -128,6 +130,7 @@ const ctx = {
       }
     },
   },
+  reload: async () => { reloads += 1; },
 };
 
 if (!spec || typeof spec.handler !== "function") {
@@ -140,6 +143,7 @@ process.stdout.write(JSON.stringify({
   description: spec.description || null,
   notes,
   replaceSnapshots,
+  reloads,
 }));
 """
 
@@ -250,6 +254,11 @@ class PiPackagePolicyTest(unittest.TestCase):
             self.pkg.get("files"), list, "package must declare a files whitelist")
         self.assertTrue(self.pkg["files"], "the files whitelist must be non-empty")
         self.assertTrue(self.pkg.get("license"), "package must declare a license")
+        self.assertEqual(
+            self.pkg.get("peerDependencies"),
+            {"@earendil-works/pi-coding-agent": "*"},
+            "Pi packages importing the host API must declare its documented peer",
+        )
 
     def test_extension_sources_import_nothing_external(self):
         for name, src in self.ext_sources.items():
@@ -272,6 +281,20 @@ class PiPackagePolicyTest(unittest.TestCase):
                 f"{name} references unexpected packages: {sorted(set(bare))}",
             )
 
+    def test_package_wording_matches_discovery_and_advisory_budget(self):
+        with open(os.path.join(self.dest, "README.md"), encoding="utf-8") as fh:
+            readme = fh.read()
+        with open(
+            os.path.join(self.dest, "skills", "system2-doctor", "SKILL.md"),
+            encoding="utf-8",
+        ) as fh:
+            doctor = fh.read()
+        self.assertIn("package-discovered", readme)
+        self.assertIn("does not materialize or replace caller-owned `AGENTS.md`", readme)
+        self.assertIn("Budget is advisory", readme)
+        self.assertNotIn("`.pi/extensions/system2.ts`", doctor)
+        self.assertNotIn("pi install npm:", readme)
+
     def test_init_extension_guard_clauses_present(self):
         # Structural defense in depth for the fail-closed out-of-root guard:
         # rejection and package-relative payload anchor must be in the shipped source.
@@ -280,6 +303,8 @@ class PiPackagePolicyTest(unittest.TestCase):
         self.assertIn("path.isAbsolute(rel)", src)
         self.assertIn("import.meta.url", src, "payload anchor must be package-relative")
         self.assertIn("MANAGED_FILES", src)
+        self.assertIn("lstatSync", src, "target and parent symlinks must be rejected")
+        self.assertIn("renameSync", src, "managed writes must use atomic replacement")
 
     # ---- checker teeth: hostile fixtures must be flagged -----------------
 
@@ -369,12 +394,13 @@ class PiInitMaterializerTest(unittest.TestCase):
 
     def test_materialize_creates_all_managed_files(self):
         out = self.driver.run(self.init_mod, self.project)
-        self.assertEqual(out["command"], "/system2-init")
+        self.assertEqual(out["command"], "system2-init")
         counts = _summary_counts(out["notes"])
         self.assertEqual(counts["wrote"], len(self.managed))
         self.assertEqual(counts["skipped"], 0)
         self.assertEqual(counts["replaced"], 0)
         self.assertEqual(_rejected_from_notes(out["notes"]), set())
+        self.assertEqual(out["reloads"], 1, "successful materialization must reload Pi")
         # Every managed file exists with byte-identical payload content.
         for rel in self.managed:
             target = os.path.join(self.project, rel)
@@ -396,6 +422,7 @@ class PiInitMaterializerTest(unittest.TestCase):
         self.assertEqual(counts["wrote"], 0, "idempotent re-run must write nothing")
         self.assertEqual(counts["replaced"], 0)
         self.assertEqual(counts["skipped"], len(self.managed))
+        self.assertEqual(out["reloads"], 0, "an idempotent no-write run must not reload")
 
     def test_user_modified_file_left_untouched_without_force(self):
         rel = self.managed[0]
@@ -417,6 +444,17 @@ class PiInitMaterializerTest(unittest.TestCase):
             any(rel in n["msg"] and "left unchanged" in n["msg"] for n in out["notes"]),
             f"the untouched user-modified file {rel} was not reported: {out['notes']}",
         )
+
+    def test_caller_owned_agents_is_never_managed_or_replaced(self):
+        rel = "AGENTS.md"
+        self.assertNotIn(rel, self.managed)
+        target = os.path.join(self.project, rel)
+        user_bytes = b"CALLER OWNED AGENTS\n"
+        with open(target, "wb") as fh:
+            fh.write(user_bytes)
+        self.driver.run(self.init_mod, self.project, args="--force")
+        with open(target, "rb") as fh:
+            self.assertEqual(fh.read(), user_bytes)
 
     def test_force_overwrites_and_prints_replacing_before_write(self):
         rel = self.managed[0]
@@ -495,6 +533,24 @@ class PiInitMaterializerTest(unittest.TestCase):
         # The legitimate in-root entry still materialized (rejection is targeted, not
         # a blanket abort — the negative control that the guard discriminates).
         self.assertTrue(os.path.isfile(os.path.join(self.project, legit)))
+
+    def test_symlinked_parent_is_rejected_without_external_write(self):
+        external = tempfile.mkdtemp(prefix="pi-init-external-parent-")
+        self.addCleanup(shutil.rmtree, external, ignore_errors=True)
+        os.symlink(external, os.path.join(self.project, ".pi"))
+        out = self.driver.run(self.init_mod, self.project)
+        self.assertFalse(os.path.exists(os.path.join(external, "SYSTEM.md")))
+        self.assertIn(".pi/SYSTEM.md", _rejected_from_notes(out["notes"]))
+
+    def test_dangling_target_symlink_is_rejected_without_external_write(self):
+        external = tempfile.mkdtemp(prefix="pi-init-external-target-")
+        self.addCleanup(shutil.rmtree, external, ignore_errors=True)
+        outside = os.path.join(external, "SYSTEM.md")
+        os.makedirs(os.path.join(self.project, ".pi"))
+        os.symlink(outside, os.path.join(self.project, ".pi", "SYSTEM.md"))
+        out = self.driver.run(self.init_mod, self.project)
+        self.assertFalse(os.path.exists(outside))
+        self.assertIn(".pi/SYSTEM.md", _rejected_from_notes(out["notes"]))
 
     def test_unmanaged_files_are_never_touched(self):
         # An unrelated file the user owns must survive materialization untouched.

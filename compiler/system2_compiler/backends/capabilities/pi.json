@@ -3,16 +3,16 @@
   "backend": "pi",
   "capabilities": {
     "enforce-lease": {
-      "status": "native",
-      "mechanism": "generated Pi extension on(\"tool_call\") handler: a write/edit whose path is outside the active role's write_scope regex is hard-blocked (return { block: true, reason }) BEFORE the tool runs. Pi has no built-in permission system, so the handler IS the gate — a deterministic pre-execution block, native. The matcher is ported from the proven Claude hooks (validate-file-paths.py / _hook_utils.py): the path is project-normalized (./ collapsed, .. resolved, ~ / absolute rejected) and FAILS CLOSED on any escape, and the scope is start-anchored (new RegExp(\"^(?:\" + scope + \")\"), mirroring pattern.match). Scope is compiled from IR Role.write_scope, OR-joined from the role's allowlist exactly as _hook_utils.load_patterns does (multi-line allowlists become one alternation, not a bricked \\n-joined RegExp). HONESTY: a role with an EMPTY write_scope (a read-only role, e.g. code-reviewer) has EVERY write/edit BLOCKED (fail-closed — an unscoped role cannot write); the FIDELITY banner in system2.pi.lock.json says so loudly — never a silent vacuous claim, and never a silent allow."
+      "status": "adapted",
+      "mechanism": "ADAPTED/PARTIAL generated Pi tool_call gate: structured write/edit targets and supported literal shell redirection/tee targets are project-normalized, checked through existing symlink components, matched against the active role's start-anchored write_scope, and hard-blocked before execution when off-scope. Empty-scope roles, malformed supported targets, absolute/traversal escapes, and symlink escapes fail closed. This is not comprehensive shell-write enforcement: touch, cp, mv, install, sed -i, interpreters, build tools, shell expansion, and other unsupported command forms are not extracted and must not be claimed as lease-gated."
     },
     "block-dangerous": {
       "status": "native",
-      "mechanism": "generated Pi extension on(\"tool_call\") handler: a bash command matching the backend-owned dangerous-command set is hard-blocked (return { block: true, reason }) BEFORE execution. The matcher is the proven Claude dangerous-command-blocker.py ported VERBATIM as real RegExps (NOT substring includes): the _RM_RF_FLAGS flag-permutation helper (-rf / -fr / -r -f / --recursive --force, interior whitespace) and the DANGER_PATTERNS set (rm -rf at / . .. ~, sudo rm -rf, chmod 777, git reset --hard, git push --force/-f to main/master, DROP TABLE, DELETE FROM without WHERE) plus word-boundaried mkfs/dd-of=/shutdown/curl|sh. So rm -fr /, rm  -rf / (double space), rm --recursive --force / etc. all block, while benign ls -la / rm file.txt do not. Pi has no built-in permission system, so the handler IS the gate — a deterministic pre-execution block, native (distinct from an LLM-mediated approval)."
+      "mechanism": "Bounded native Pi tool_call gate: bash commands matching the declared dangerous-command regex corpus are hard-blocked before execution, while tested benign controls are allowed. This claim covers those literal matcher forms only; it does not claim sound arbitrary-shell parsing, quote concatenation, expansion, or command normalization."
     },
     "protect-sensitive": {
       "status": "native",
-      "mechanism": "generated Pi extension on(\"tool_call\") handler: a read/write/edit/bash touching a backend-owned sensitive path (e.g. .env, .env.*, .ssh/, .git/, .aws/, id_rsa, *.pem, *.key, credentials, secrets) is hard-blocked (return { block: true, reason }) BEFORE the tool runs. The matcher is ported from sensitive-file-protector.py as segment/basename-anchored RegExps (not a bare substring scan): dir markers anchor to a path segment ((^|/)\\.git(/|$)) so src/credentials_manager.py is the only reference-faithful residual (fail-safe-toward-block, matching the reference). Every path-bearing tool-input key (path/file_path/from/to/source/destination/old_path/new_path/...) is checked so a move/rename/patch shape cannot bypass. Pi has no built-in permission system, so the handler IS the gate — a deterministic pre-execution block, native."
+      "mechanism": "Bounded native Pi tool_call gate: declared sensitive structured path fields and ordinary literal shell tokens such as cat .env, cat .npmrc, and .ssh/config are hard-blocked before execution. Missing built-in path inputs, malformed shell quoting/substitution, non-string bash commands, and token overflow fail closed. Unknown custom tool schemas are explicitly outside this claim; the tokenizer does not expand variables or claim sound arbitrary-shell interpretation."
     },
     "format": {
       "status": "advisory",
@@ -23,8 +23,8 @@
       "mechanism": ".pi/SYSTEM.md + per-role prompt instruction block only, clearly labelled \"ADVISORY — NOT ENFORCED ON PI (instruction only)\": Pi has no post-edit type-check hook the compiler can wire deterministically, and the IR carries no per-language checker command, so type-checking is NOT enforced. The agent is instructed to type-check edited files. Making this native needs IR-enrichment deferred this cycle."
     },
     "budget": {
-      "status": "adapted",
-      "mechanism": "generated Pi extension on(\"agent_end\") handler: the change budget (files touched, lines added/removed) is reported at agent/turn end via ctx.ui.notify / an appended summary. This is a REPORT, not a block — the agent_end handler cannot retroactively prevent edits, so it is adapted (a gated report), NOT native enforcement."
+      "status": "advisory",
+      "mechanism": "ADVISORY only: agent_end emits a reminder to include files touched and lines added/removed in the completion summary. It computes no report, appends no model-visible result, and is not gated."
     }
   }
 }

@@ -111,9 +111,9 @@ def committed_pi_dist():
     ) else None
 
 
-def materialize_pi_project(project_dir):
-    """Populate *project_dir* with the loadable Pi layout under test; return the source."""
-    dist = committed_pi_dist()
+def materialize_pi_project(project_dir, *, prefer_committed=True):
+    """Populate *project_dir* with a loadable Pi layout; return its source."""
+    dist = committed_pi_dist() if prefer_committed else None
     if dist is None:
         _emit_core_overlay(project_dir)
         return "emitted"
@@ -285,9 +285,15 @@ class PiEmitArtifactSetTest(unittest.TestCase):
     def test_extension_registers_expected_seams_in_text(self):
         # Structural (text) confirmation; the live load leg proves it for real below.
         text = self.tree[_EXTENSION].decode("utf-8")
-        for seam in ('pi.on("tool_call"', 'pi.on("agent_end"', 'pi.on("before_agent_start"'):
+        for seam in (
+            'pi.on("tool_call"',
+            'pi.on("agent_end"',
+            'pi.on("before_agent_start"',
+            'pi.on("session_start"',
+        ):
             self.assertIn(seam, text, f"extension must register {seam!r}")
-        self.assertIn('pi.registerCommand("/delegate"', text)
+        self.assertIn('pi.registerCommand("delegate"', text)
+        self.assertNotIn('pi.registerCommand("/delegate"', text)
 
     def test_lock_is_valid_json_with_capabilities(self):
         report = json.loads(self.tree[_LOCK].decode("utf-8"))
@@ -484,15 +490,15 @@ class PiLoadValidityTest(unittest.TestCase):
                 f"{result['errors']}",
             )
             self.assertTrue(result["loaded"], "the extension was not loaded")
-            for event in ("tool_call", "agent_end", "before_agent_start"):
+            for event in ("tool_call", "agent_end", "before_agent_start", "session_start"):
                 self.assertIn(
                     event, result["handlers"],
                     f"extension did not register the {event!r} handler; "
                     f"registered: {result['handlers']}",
                 )
             self.assertIn(
-                "/delegate", result["commands"],
-                f"extension did not register the /delegate command; "
+                "delegate", result["commands"],
+                f"extension did not register the delegate command; "
                 f"registered: {result['commands']}",
             )
         finally:

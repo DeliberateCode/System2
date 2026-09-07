@@ -40,7 +40,7 @@ def _resolve_pi_pkg_entry():
             pass
     if _PI_BIN:
         # <prefix>/bin/pi  ->  <prefix>/lib/node_modules
-        prefix = os.path.dirname(os.path.dirname(os.path.realpath(_PI_BIN)))
+        prefix = os.path.dirname(os.path.dirname(os.path.abspath(_PI_BIN)))
         roots.append(os.path.join(prefix, "lib", "node_modules"))
         roots.append(os.path.join(prefix, "node_modules"))
 
@@ -61,6 +61,13 @@ _BLOCK_CASES = (
     ("off_scope_write", "write", {"path": "/etc/passwd", "content": "x"}, "enforce-lease"),
     ("dangerous_bash", "bash", {"command": "rm -rf /"}, "block-dangerous"),
     ("sensitive_read", "read", {"path": ".env"}, "protect-sensitive"),
+    ("sensitive_bash_env", "bash", {"command": "cat .env"}, "protect-sensitive"),
+    ("sensitive_bash_npmrc", "bash", {"command": "cat .npmrc"}, "protect-sensitive"),
+    ("sensitive_bash_ssh", "bash", {"command": "cat .ssh/config"}, "protect-sensitive"),
+    ("uninspectable_bash", "bash", {"command": 7}, "protect-sensitive"),
+    ("malformed_shell", "bash", {"command": "printf 'unterminated"}, "protect-sensitive"),
+    ("shell_token_overflow", "bash", {"command": "x " * 257}, "protect-sensitive"),
+    ("off_scope_redirect", "bash", {"command": "printf x > /tmp/off-scope"}, "enforce-lease"),
     # Dangerous-command flag and whitespace variants.
     ("danger_rm_fr", "bash", {"command": "rm -fr /"}, "block-dangerous"),
     ("danger_rm_double_space", "bash", {"command": "rm  -rf /"}, "block-dangerous"),
@@ -74,17 +81,24 @@ _BLOCK_CASES = (
     ("traversal_py_write", "write", {"path": "../secret.py", "content": "x"}, "enforce-lease"),
 )
 _ALLOW_CASES = (
-    ("in_scope_write", "write", {"path": "src/main.py", "content": "x"}),
     ("benign_bash", "bash", {"command": "ls -la"}),
     ("ordinary_read", "read", {"path": "README.md"}),
     ("benign_rm_file", "bash", {"command": "rm file.txt"}),
+    ("benign_sensitive_word", "bash", {"command": "printf environment"}),
+    ("unknown_custom_schema", "custom-tool", {"resource": ".env"}),
 )
 
 # Role-switched cases: /delegate to a role, then fire a write.
 _ROLE_CASES = (
+    ("executor", "executor_in_scope", "write", {"path": "src/main.py", "content": "x"}, False),
+    ("executor", "executor_redirect_in_scope", "bash", {"command": "printf x > src/main.py"}, False),
+    ("executor", "executor_tee_in_scope", "bash", {"command": "printf x | tee src/main.py"}, False),
+    ("executor", "executor_symlink_escape", "write", {"path": "src/lease-link.py", "content": "x"}, True),
     ("design-architect", "da_in_scope", "write", {"path": "spec/design.md", "content": "x"}, False),
     ("design-architect", "da_off_scope", "write", {"path": "src/x.py", "content": "x"}, True),
     ("code-reviewer", "reviewer_write_fail_closed", "write", {"path": "src/x.py", "content": "x"}, True),
+    ("code-reviewer", "reviewer_redirect_fail_closed", "bash", {"command": "printf x > src/x.py"}, True),
+    ("design-architect", "da_tee_off_scope", "bash", {"command": "printf x | tee src/x.py"}, True),
 )
 
 
@@ -124,9 +138,11 @@ const roleCases = JSON.parse(process.argv[6]);
 
 const pkg = await import(PKG);
 const { discoverAndLoadExtensions } = pkg;
-const { extensions, errors } = await discoverAndLoadExtensions(
+const { extensions, errors, runtime } = await discoverAndLoadExtensions(
   [], projectRoot, projectRoot,
 );
+const appended = [];
+runtime.appendEntry = (customType, data) => appended.push({ customType, data });
 const loadErrors = (errors || []).map(
   (e) => (e && e.message) ? e.message : String(e),
 );
@@ -134,7 +150,7 @@ const ext = (extensions || []).find(
   (e) => e.path && e.path.endsWith("system2.ts"),
 ) || extensions[0];
 
-const out = { loadErrors, blocks: {}, allows: {}, roleBlocks: {}, delegate: {}, seams: {} };
+const out = { loadErrors, blocks: {}, allows: {}, roleBlocks: {}, delegate: {}, appended, seams: {} };
 
 if (!ext) {
   out.fatal = "extension did not load";
@@ -147,9 +163,10 @@ const toolCall = toolCallList[0];
 out.seams.toolCallRegistered = !!toolCall;
 out.seams.agentEndRegistered = (ext.handlers.get("agent_end") || []).length > 0;
 
+const toolCtx = { cwd: projectRoot };
 // Fire the blocking cases.
 for (const c of blockCases) {
-  const r = await toolCall({ toolName: c.toolName, input: c.input });
+  const r = await toolCall({ toolName: c.toolName, input: c.input }, toolCtx);
   out.blocks[c.name] = {
     block: !!(r && r.block),
     reason: (r && r.reason) || null,
@@ -157,16 +174,20 @@ for (const c of blockCases) {
 }
 // Fire the allowed cases (the negative control).
 for (const c of allowCases) {
-  const r = await toolCall({ toolName: c.toolName, input: c.input });
+  const r = await toolCall({ toolName: c.toolName, input: c.input }, toolCtx);
   out.allows[c.name] = { block: !!(r && r.block), raw: r === undefined ? null : r };
 }
 
 // /delegate dispatcher: valid + unknown role.
-const delegate = ext.commands.get("/delegate");
+const delegate = ext.commands.get("delegate");
 out.seams.delegateRegistered = !!(delegate && delegate.handler);
 if (delegate && delegate.handler) {
   let notes = [];
-  const ctx = { ui: { notify: (msg, level) => notes.push({ level, msg }) } };
+  const ctx = {
+    cwd: projectRoot,
+    sessionManager: { getBranch: () => appended.map((e) => ({ type: "custom", ...e })) },
+    ui: { notify: (msg, level) => notes.push({ level, msg }) },
+  };
   await delegate.handler("executor", ctx);
   out.delegate.valid = notes.slice();
   notes = [];
@@ -179,7 +200,7 @@ if (delegate && delegate.handler) {
   // and that an empty-scope (read-only) role's write fails closed.
   for (const c of roleCases) {
     await delegate.handler(c.role, ctx);
-    const r = await toolCall({ toolName: c.toolName, input: c.input });
+    const r = await toolCall({ toolName: c.toolName, input: c.input }, toolCtx);
     out.roleBlocks[c.name] = {
       block: !!(r && r.block),
       reason: (r && r.reason) || null,
@@ -192,7 +213,10 @@ if (delegate && delegate.handler) {
 // The before_agent_start injection seam survives and augments the prompt.
 const basList = ext.handlers.get("before_agent_start") || [];
 if (basList.length) {
-  const r = await basList[0]({ systemPrompt: "ORIGINAL_PROMPT" });
+  const r = await basList[0]({ systemPrompt: "ORIGINAL_PROMPT" }, {
+    cwd: projectRoot,
+    sessionManager: { getBranch: () => appended.map((e) => ({ type: "custom", ...e })) },
+  });
   out.seams.beforeAgentStart = (r && typeof r.systemPrompt === "string")
     ? r.systemPrompt : null;
 }
@@ -222,8 +246,15 @@ class PiProvenBlockingTest(unittest.TestCase):
         cls._had_pi = os.path.isdir(_REAL_PI)
         cls.project = tempfile.mkdtemp(prefix="pi-block-")
         cls.home = tempfile.mkdtemp(prefix="pi-block-home-")
+        os.makedirs(os.path.join(cls.project, "src"), exist_ok=True)
+        os.symlink(
+            os.path.join(cls.home, "off-scope.py"),
+            os.path.join(cls.project, "src", "lease-link.py"),
+        )
         # Drive the corpus through the SHIPPED gate: reconstruct the project from the
-        cls.project_source = materialize_pi_project(cls.project)
+        cls.project_source = materialize_pi_project(
+            cls.project, prefer_committed=False
+        )
 
         block_arg = json.dumps([
             {"name": n, "toolName": t, "input": i} for (n, t, i, _r) in _BLOCK_CASES
@@ -300,9 +331,32 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertTrue(case["block"], "a `.env` read was NOT blocked")
         self.assertIn("protect-sensitive", case["reason"])
 
+    def test_ordinary_sensitive_shell_tokens_are_blocked(self):
+        for name in (
+            "sensitive_bash_env",
+            "sensitive_bash_npmrc",
+            "sensitive_bash_ssh",
+            "uninspectable_bash",
+            "malformed_shell",
+            "shell_token_overflow",
+        ):
+            case = self.result["blocks"][name]
+            self.assertTrue(case["block"], f"{name} was NOT blocked")
+            self.assertIn("protect-sensitive", case["reason"])
+
+    def test_off_scope_shell_redirection_is_blocked(self):
+        case = self.result["blocks"]["off_scope_redirect"]
+        self.assertTrue(case["block"])
+        self.assertIn("enforce-lease", case["reason"])
+
     def test_allowed_cases_are_not_blocked(self):
         # The negative control: if the gate blocked everything these would FAIL.
-        for name in ("in_scope_write", "benign_bash", "ordinary_read"):
+        for name in (
+            "benign_bash",
+            "ordinary_read",
+            "benign_sensitive_word",
+            "unknown_custom_schema",
+        ):
             case = self.result["allows"][name]
             self.assertFalse(
                 case["block"],
@@ -351,6 +405,19 @@ class PiProvenBlockingTest(unittest.TestCase):
             )
             self.assertIn("enforce-lease", case["reason"])
 
+    def test_executor_allows_supported_in_scope_writes(self):
+        for name in (
+            "executor_in_scope",
+            "executor_redirect_in_scope",
+            "executor_tee_in_scope",
+        ):
+            self.assertFalse(self.result["roleBlocks"][name]["block"], name)
+
+    def test_structured_symlink_escape_is_blocked(self):
+        case = self.result["roleBlocks"]["executor_symlink_escape"]
+        self.assertTrue(case["block"])
+        self.assertIn("enforce-lease", case["reason"])
+
     def test_multiline_scope_role_allows_in_scope_blocks_off_scope(self):
         # Multiline scopes allow matching paths and block non-matches.
         in_scope = self.result["roleBlocks"]["da_in_scope"]
@@ -366,14 +433,21 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertIn("enforce-lease", off_scope["reason"])
 
     def test_empty_scope_role_write_fails_closed(self):
-        # a write by a read-only role (code-reviewer, empty write_scope) must be
-        # BLOCKED (fail-closed), not allowed.
-        case = self.result["roleBlocks"]["reviewer_write_fail_closed"]
-        self.assertTrue(
-            case["block"],
-            "an empty-scope (read-only) role's write was NOT blocked — the lease "
-            "must fail CLOSED for unscoped writers",
-        )
+        # Structured and supported shell writes both fail closed for read-only roles.
+        for name in (
+            "reviewer_write_fail_closed",
+            "reviewer_redirect_fail_closed",
+        ):
+            case = self.result["roleBlocks"][name]
+            self.assertTrue(
+                case["block"],
+                "an empty-scope (read-only) role's write was NOT blocked",
+            )
+            self.assertIn("enforce-lease", case["reason"])
+
+    def test_tee_write_obeys_role_scope(self):
+        case = self.result["roleBlocks"]["da_tee_off_scope"]
+        self.assertTrue(case["block"])
         self.assertIn("enforce-lease", case["reason"])
 
     def test_delegate_accepts_valid_role(self):
@@ -381,6 +455,11 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertTrue(notes, "/delegate to a valid role produced no notification")
         self.assertEqual(notes[0]["level"], "info")
         self.assertIn("executor", notes[0]["msg"])
+        self.assertTrue(
+            any(e["customType"] == "system2-role" and e["data"] == {"role": "executor"}
+                for e in self.result["appended"]),
+            "a valid role switch must persist session state via appendEntry",
+        )
 
     def test_delegate_rejects_unknown_role(self):
         notes = self.result["delegate"]["unknown"]
@@ -397,6 +476,10 @@ class PiProvenBlockingTest(unittest.TestCase):
         self.assertIsNotNone(augmented, "before_agent_start did not augment the prompt")
         self.assertIn("ORIGINAL_PROMPT", augmented, "the seam dropped the base prompt")
         self.assertIn(".pi/SYSTEM.md", augmented, "the seam did not inject System2 context")
+        self.assertIn(
+            "System2 role: executor", augmented,
+            "the seam did not inject the active role contract",
+        )
 
     def test_subagent_isolation_reported_honestly(self):
         # /delegate is an in-session role switch, not an isolated sub-session, so the honest report value is `adapted`.
