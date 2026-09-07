@@ -51,6 +51,12 @@ _MANIFEST_REL = os.path.join(".codex-plugin", "plugin.json")
 _ORCH_REL = os.path.join("skills", "system2", "SKILL.md")
 _LOCK_REL = "system2.codex.lock.json"
 _README_REL = "README.md"
+_MARKETPLACE_REL = os.path.join(".agents", "plugins", "marketplace.json")
+_MARKETPLACE_DESCRIPTION = (
+    "System2 workflows for Codex. Bundled hooks are unverified candidate artifacts; "
+    "native event routing, trust, and deny semantics remain pending acceptance, so all "
+    "capabilities remain advisory."
+)
 
 
 # Emission-root resolution (path-parameterized) + surface readers
@@ -210,6 +216,18 @@ class CodexHonestyTest(unittest.TestCase):
             _COVERAGE_GAP, _REQUIRED_COVERAGE_CLAUSE,
             "backends.codex._COVERAGE_GAP diverged from the required coverage statement",
         )
+
+    def test_marketplace_does_not_claim_hook_trust_enables_enforcement(self):
+        path = os.path.join(_repo_root(), _MARKETPLACE_REL)
+        with open(path, encoding="utf-8") as fh:
+            marketplace = json.load(fh)
+        plugins = marketplace.get("plugins", [])
+        self.assertEqual(len(plugins), 1, "marketplace must contain exactly one plugin")
+        description = plugins[0].get("description", "")
+        self.assertEqual(description, _MARKETPLACE_DESCRIPTION)
+        self.assertNotIn("until hooks are trusted", description.lower())
+        self.assertIn("native event routing, trust, and deny semantics", description)
+        self.assertIn("all capabilities remain advisory", description)
 
     def test_trust_oneliner_present_in_all_three_surfaces(self):
         violations = advisory_surface_violations(self.root)

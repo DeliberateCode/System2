@@ -342,6 +342,33 @@ class PiPackagePolicyTest(unittest.TestCase):
         self.assertNotIn("`.pi/extensions/system2.ts`", doctor)
         self.assertNotIn("pi install npm:", readme)
 
+    def test_package_description_separates_native_and_adapted_safety_gates(self):
+        description = self.pkg.get("description", "")
+        native_clause = (
+            "bounded native dangerous-command and sensitive-path gates for declared "
+            "patterns (block-dangerous, protect-sensitive)"
+        )
+        adapted_clause = (
+            "adapted/partial write-scope gating for supported structured edits and "
+            "literal shell redirection/tee targets (enforce-lease)"
+        )
+        self.assertIn(native_clause, description)
+        self.assertIn(adapted_clause, description)
+        self.assertEqual(description.count("native"), 1)
+        self.assertEqual(description.count("enforce-lease"), 1)
+        self.assertLess(
+            description.index(native_clause), description.index(adapted_clause)
+        )
+        self.assertIn(
+            "; adapted/partial",
+            description,
+            "the adapted enforce-lease claim must be separate from the native gates",
+        )
+        self.assertNotIn(
+            "native safety gate (block-dangerous, protect-sensitive, enforce-lease)",
+            description,
+        )
+
     def test_init_extension_guard_clauses_present(self):
         # Structural defense in depth for the fail-closed out-of-root guard:
         # rejection and package-relative payload anchor must be in the shipped source.
