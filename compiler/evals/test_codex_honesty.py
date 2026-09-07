@@ -21,14 +21,14 @@ _COVERAGE_GAP = codex_backend._COVERAGE_GAP
 # Pin imported constants to the approved behavior: retaining a symbol while dropping
 # the advisory or coverage clause must fail.
 _REQUIRED_ADVISORY_CLAUSE = (
-    "safety enforcement is INACTIVE until you review and trust the bundled hooks "
-    "via /hooks; until then System2 runs advisory-only"
+    "bundled hooks are unverified candidate artifacts, not a release enforcement "
+    "guarantee; Codex safety capabilities remain advisory-only pending native acceptance"
 )
 _REQUIRED_COVERAGE_CLAUSE = (
-    "Even with hooks trusted, Codex hooks intercept shell commands and "
-    "apply_patch-matched edits; they do NOT intercept WebSearch or other "
-    "non-shell, non-MCP tools. Enforcement on Codex is therefore ADAPTED, never "
-    "total."
+    "Candidate guards inspect command strings from recognized command keys, shell "
+    "redirection and limited tee targets, and explicit edit paths or apply-patch "
+    "headers. Other shell writes are not inspected. Synthetic corpus tests are not "
+    "native Codex acceptance."
 )
 
 # Stable surface labels — the mutation self-tests assert the failing predicate NAMES
@@ -37,7 +37,7 @@ _SURFACE_MANIFEST = "manifest description"
 _SURFACE_ORCH = "orchestrator-skill preamble"
 _SURFACE_LOCK_BANNER = "lock FIDELITY banner"
 
-# These three safety gates must be adapted and gated at rest.
+# These three safety gates remain advisory and ungated until native acceptance.
 _SAFETY_GATES = ("enforce-lease", "block-dangerous", "protect-sensitive")
 
 # Require the modern deny schema and reject obsolete forms.
@@ -135,7 +135,7 @@ def coverage_gap_violations(root):
 
 
 def lock_invariant_violations(root):
-    """Require no enforced/native claim at rest and adapted, gated safety checks."""
+    """Require no enforced/native claim and advisory, ungated safety checks."""
     violations = []
     caps = _lock(root).get("capabilities", {})
     for name, rec in caps.items():
@@ -148,10 +148,10 @@ def lock_invariant_violations(root):
         if rec is None:
             violations.append((gate, "required safety gate missing from the lock"))
             continue
-        if rec.get("status") != "adapted":
-            violations.append((gate, f"safety gate status is {rec.get('status')!r}, not 'adapted'"))
-        if rec.get("gated") is not True:
-            violations.append((gate, "safety gate is not gated:true"))
+        if rec.get("status") != "advisory":
+            violations.append((gate, f"safety gate status is {rec.get('status')!r}, not 'advisory'"))
+        if rec.get("gated") is not False:
+            violations.append((gate, "safety gate is not gated:false"))
     return violations
 
 
@@ -275,7 +275,7 @@ class CodexHonestyTest(unittest.TestCase):
         self.assertEqual(
             violations, [],
             "standing Codex lock invariants violated: nothing may be "
-            f"enforced:true / native at rest and every safety gate must be adapted+gated; "
+            f"enforced:true / native at rest and every safety gate must be advisory+ungated; "
             f"violations: {violations}",
         )
 
@@ -295,18 +295,18 @@ class CodexHonestyTest(unittest.TestCase):
             f"no Codex capability may be classified native; offenders: {offenders}",
         )
 
-    def test_every_safety_gate_is_adapted_and_gated(self):
+    def test_every_safety_gate_is_advisory_and_ungated(self):
         caps = _lock(self.root).get("capabilities", {})
         for gate in _SAFETY_GATES:
             self.assertIn(gate, caps, f"safety gate {gate!r} missing from the lock")
             rec = caps[gate]
             self.assertEqual(
-                rec.get("status"), "adapted",
-                f"safety gate {gate!r} must be 'adapted', got {rec.get('status')!r}",
+                rec.get("status"), "advisory",
+                f"safety gate {gate!r} must be 'advisory', got {rec.get('status')!r}",
             )
             self.assertIs(
-                rec.get("gated"), True,
-                f"safety gate {gate!r} must be gated:true",
+                rec.get("gated"), False,
+                f"safety gate {gate!r} must be gated:false",
             )
             self.assertIs(
                 rec.get("enforced"), False,
@@ -315,9 +315,8 @@ class CodexHonestyTest(unittest.TestCase):
 
     # -- (b') mechanism/delivery schema honesty  ---
 
-    def test_lock_mechanism_describes_modern_deny_schema(self):
-        # Each safety gate's mechanism must describe the MODERN Codex deny schema
-        # (hookSpecificOutput.permissionDecision=deny), not the obsoleted stdout form.
+    def test_lock_mechanism_describes_candidate_deny_schema_without_release_claim(self):
+        # Candidate artifacts describe what they emit without claiming native acceptance.
         caps = _lock(self.root).get("capabilities", {})
         for gate in _SAFETY_GATES:
             rec = caps.get(gate) or {}
@@ -331,8 +330,10 @@ class CodexHonestyTest(unittest.TestCase):
             for token in _MODERN_DENY_TOKENS:
                 self.assertIn(
                     token, mech,
-                    f"{gate}: mechanism must describe the modern {token!r} deny schema",
+                    f"{gate}: mechanism must describe the candidate {token!r} deny schema",
                 )
+            self.assertIn("unverified", mech.lower())
+            self.assertIn("not a release guarantee", mech.lower())
 
     def test_lock_free_of_legacy_block_schema_and_delivery(self):
         text = _lock_mechanism_text(self.root)
@@ -495,6 +496,26 @@ class CodexHonestyTest(unittest.TestCase):
         self.assertEqual(advisory_surface_violations(self.root), [])
         self.assertEqual(coverage_gap_violations(self.root), [])
         self.assertEqual(lock_invariant_violations(self.root), [])
+
+
+class CodexRoleStateHonestyTest(unittest.TestCase):
+    def test_skills_do_not_claim_child_shell_role_state_updates_hooks(self):
+        with tempfile.TemporaryDirectory(prefix="codex-role-honesty-") as root:
+            _emit_to(root)
+            skill_paths = [os.path.join(root, _ORCH_REL)]
+            roles_root = os.path.join(root, "skills")
+            skill_paths.extend(
+                os.path.join(roles_root, name, "SKILL.md")
+                for name in os.listdir(roles_root)
+                if name.startswith("system2-role-")
+            )
+            for path in skill_paths:
+                with self.subTest(skill=os.path.relpath(path, root)):
+                    with open(path, encoding="utf-8") as fh:
+                        text = fh.read()
+                    self.assertNotIn("SYSTEM2_ACTIVE_ROLE", text)
+                    self.assertIn("role-aware hook authorization is unsupported", text)
+                    self.assertIn("same session", text.lower())
 
 
 # _skill_frontmatter() (backends.codex) emits

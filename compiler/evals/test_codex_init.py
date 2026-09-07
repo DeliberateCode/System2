@@ -1,4 +1,4 @@
-"""``system2 codex init`` — single global user-scope enforcement install."""
+"""``system2 codex init`` — global user-scope candidate-hook lifecycle."""
 
 import io
 import json
@@ -7,12 +7,30 @@ import shlex
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 from system2_compiler import cli
 from system2_compiler.backends import codex as codex_init
 
 _REFERENCE = codex_init.user_hooks_reference()
 _GUARDS = ("system2-shell-guard.js", "system2-edit-guard.js", "system2-budget.js")
+
+
+def _tree_snapshot(root):
+    snapshot = {}
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in sorted(dirnames + filenames):
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, root)
+            mode = os.lstat(path).st_mode & 0o7777
+            if os.path.islink(path):
+                snapshot[rel] = ("link", os.readlink(path), mode)
+            elif os.path.isdir(path):
+                snapshot[rel] = ("dir", mode)
+            else:
+                with open(path, "rb") as fh:
+                    snapshot[rel] = ("file", fh.read(), mode)
+    return snapshot
 
 
 def _run_cli(argv):
@@ -57,7 +75,8 @@ class CodexInitFreshInstall(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             self.assertIn("/hooks", out)
-            self.assertIn("advisory-only", out)
+            self.assertIn("remain advisory", out)
+            self.assertIn("unverified", out)
 
 
 class CodexInitIdempotent(unittest.TestCase):
@@ -116,7 +135,7 @@ class CodexInitModifiedSinceWrite(unittest.TestCase):
             with open(hooks_json, "rb") as fh:
                 self.assertEqual(fh.read(), fresh)
 
-    def test_legacy_state_without_digest_allows_untouched_rerun(self):
+    def test_legacy_state_without_digest_is_recovered_only_from_exact_live_bytes(self):
         with tempfile.TemporaryDirectory() as home:
             result = codex_init.codex_init(
                 codex_home=home, reference_dir=_REFERENCE,
@@ -135,6 +154,7 @@ class CodexInitModifiedSinceWrite(unittest.TestCase):
             )
             self.assertEqual(rerun["status"], "installed")
             self.assertEqual(rerun["hooks_json"], result["hooks_json"])
+            self.assertTrue(any("state" in warning.lower() for warning in rerun["warnings"]))
 
 
 class CodexInitPreexistingForeign(unittest.TestCase):
@@ -175,6 +195,69 @@ class CodexInitPreexistingForeign(unittest.TestCase):
                           open(os.path.join(_REFERENCE, "hooks.json.tmpl")).read())
             self.assertNotIn("userAuthored",
                              open(foreign, encoding="utf-8").read())
+
+
+class CodexInitOwnershipRegressions(unittest.TestCase):
+    def test_signature_spoof_with_foreign_hooks_is_refused(self):
+        with tempfile.TemporaryDirectory() as home:
+            hooks_json = os.path.join(home, "hooks.json")
+            spoof = {
+                "hooks": {
+                    "ForeignEvent": [{"command": "echo system2-shell-guard.js"}],
+                    "PreToolUse": [{"userAuthored": True}],
+                }
+            }
+            with open(hooks_json, "w", encoding="utf-8") as fh:
+                json.dump(spoof, fh)
+            before = _tree_snapshot(home)
+
+            result = codex_init.codex_init(codex_home=home, reference_dir=_REFERENCE)
+
+            self.assertEqual(result["status"], "refused")
+            self.assertEqual(_tree_snapshot(home), before)
+
+    def test_force_reinstall_preserves_original_foreign_restore_point(self):
+        with tempfile.TemporaryDirectory() as home:
+            hooks_json = os.path.join(home, "hooks.json")
+            original = b'{"original":"foreign"}\n'
+            with open(hooks_json, "wb") as fh:
+                fh.write(original)
+            first = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE, force=True,
+            )
+            original_backup = first["backup_path"]
+
+            with open(hooks_json, "wb") as fh:
+                fh.write(b'{"customized":"after-install"}\n')
+            second = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE, force=True,
+            )
+            self.assertNotEqual(second["backup_path"], original_backup)
+            self.assertTrue(os.path.isfile(original_backup))
+
+            result = codex_init.codex_uninstall(codex_home=home)
+            self.assertEqual(result["status"], "uninstalled")
+            with open(hooks_json, "rb") as fh:
+                self.assertEqual(fh.read(), original)
+
+    def test_backup_name_collision_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as home:
+            hooks_json = os.path.join(home, "hooks.json")
+            with open(hooks_json, "wb") as fh:
+                fh.write(b"foreign\n")
+            collision = hooks_json + ".system2-original.bak"
+            with open(collision, "wb") as fh:
+                fh.write(b"keep collision\n")
+
+            result = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE, force=True,
+            )
+
+            self.assertNotEqual(result["backup_path"], collision)
+            with open(collision, "rb") as fh:
+                self.assertEqual(fh.read(), b"keep collision\n")
+            with open(result["backup_path"], "rb") as fh:
+                self.assertEqual(fh.read(), b"foreign\n")
 
 
 class CodexInitUninstall(unittest.TestCase):
@@ -231,6 +314,27 @@ class CodexInitUninstall(unittest.TestCase):
             self.assertTrue(all(os.path.isfile(path) for path in installed["hook_files"]))
             with open(hooks_json, "rb") as fh:
                 self.assertEqual(fh.read(), customized)
+
+    def test_uninstall_refuses_modified_or_missing_scripts(self):
+        for mutation in ("modified", "missing"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as home:
+                installed = codex_init.codex_init(
+                    codex_home=home, reference_dir=_REFERENCE,
+                )
+                victim = installed["hook_files"][0]
+                if mutation == "modified":
+                    with open(victim, "ab") as fh:
+                        fh.write(b"// user change\n")
+                else:
+                    os.unlink(victim)
+                before = _tree_snapshot(home)
+
+                result = codex_init.codex_uninstall(codex_home=home)
+
+                self.assertEqual(result["status"], "refused")
+                self.assertEqual(result["removed"], [])
+                self.assertEqual(_tree_snapshot(home), before)
+                self.assertIn("script", result["message"].lower())
 
     def test_uninstall_noop_when_nothing_installed(self):
         with tempfile.TemporaryDirectory() as home:
@@ -339,6 +443,83 @@ class CodexInitSymlinkGuard(unittest.TestCase):
             self.assertIn("system2", open(link).read())
 
 
+class CodexInitTransactionalFailures(unittest.TestCase):
+    def test_forced_install_failure_also_rolls_back_backup_boundary(self):
+        # Original-config backup, three scripts, hooks.json, then state.
+        for fail_after in range(1, len(_GUARDS) + 4):
+            with self.subTest(fail_after=fail_after), tempfile.TemporaryDirectory() as home:
+                with open(os.path.join(home, "hooks.json"), "wb") as fh:
+                    fh.write(b"foreign config\n")
+                before = _tree_snapshot(home)
+                real_replace = os.replace
+                commits = 0
+
+                def fail_after_replace(src, dst):
+                    nonlocal commits
+                    real_replace(src, dst)
+                    commits += 1
+                    if commits == fail_after:
+                        raise OSError(f"injected forced failure after commit {fail_after}")
+
+                with mock.patch.object(codex_init, "_atomic_replace", fail_after_replace):
+                    with self.assertRaisesRegex(OSError, "injected forced failure"):
+                        codex_init.codex_init(
+                            codex_home=home, reference_dir=_REFERENCE, force=True,
+                        )
+                self.assertEqual(_tree_snapshot(home), before)
+
+    def test_failure_after_each_commit_boundary_restores_exact_tree(self):
+        # Three scripts, hooks.json, then state (committed last).
+        for fail_after in range(1, len(_GUARDS) + 3):
+            with self.subTest(fail_after=fail_after), tempfile.TemporaryDirectory() as home:
+                before = _tree_snapshot(home)
+                real_replace = os.replace
+                commits = 0
+
+                def fail_after_replace(src, dst):
+                    nonlocal commits
+                    real_replace(src, dst)
+                    commits += 1
+                    if commits == fail_after:
+                        raise OSError(f"injected failure after commit {fail_after}")
+
+                with mock.patch.object(codex_init, "_atomic_replace", fail_after_replace):
+                    with self.assertRaisesRegex(OSError, "injected failure"):
+                        codex_init.codex_init(
+                            codex_home=home, reference_dir=_REFERENCE,
+                        )
+                self.assertEqual(
+                    _tree_snapshot(home), before,
+                    f"commit boundary {fail_after} left filesystem mutations",
+                )
+
+
+class CodexUninstallTransactionalFailures(unittest.TestCase):
+    def test_failure_after_each_commit_boundary_restores_installed_tree(self):
+        # hooks.json is removed first, then three scripts, then state last.
+        for fail_after in range(1, len(_GUARDS) + 3):
+            with self.subTest(fail_after=fail_after), tempfile.TemporaryDirectory() as home:
+                codex_init.codex_init(codex_home=home, reference_dir=_REFERENCE)
+                before = _tree_snapshot(home)
+                real_replace = os.replace
+                commits = 0
+
+                def fail_after_replace(src, dst):
+                    nonlocal commits
+                    real_replace(src, dst)
+                    commits += 1
+                    if commits == fail_after:
+                        raise OSError(f"injected uninstall failure after commit {fail_after}")
+
+                with mock.patch.object(codex_init, "_atomic_replace", fail_after_replace):
+                    with self.assertRaisesRegex(OSError, "injected uninstall failure"):
+                        codex_init.codex_uninstall(codex_home=home)
+                self.assertEqual(
+                    _tree_snapshot(home), before,
+                    f"uninstall boundary {fail_after} left filesystem mutations",
+                )
+
+
 class CodexInitDryRunWritesNothing(unittest.TestCase):
     """S-Tests: --dry-run must create nothing under the codex home."""
 
@@ -359,6 +540,26 @@ class CodexInitDryRunWritesNothing(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(os.listdir(home), [])
 
+    def test_force_dry_run_reports_collision_safe_backup_without_mutation(self):
+        with tempfile.TemporaryDirectory() as home:
+            hooks_json = os.path.join(home, "hooks.json")
+            with open(hooks_json, "wb") as fh:
+                fh.write(b"foreign\n")
+            with open(hooks_json + ".system2-original.bak", "wb") as fh:
+                fh.write(b"collision\n")
+            before = _tree_snapshot(home)
+
+            plan = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE, force=True, dry_run=True,
+            )
+
+            self.assertEqual(plan["status"], "dry_run")
+            self.assertEqual(_tree_snapshot(home), before)
+            actual = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE, force=True,
+            )
+            self.assertEqual(actual["backup_path"], plan["backup_path"])
+
 
 class CodexInitBadReference(unittest.TestCase):
     """a missing/invalid --reference is a clean CLI error, not a traceback."""
@@ -375,10 +576,79 @@ class CodexInitBadReference(unittest.TestCase):
             self.assertEqual(os.listdir(home), [])
 
 
+class CodexInstallStateValidation(unittest.TestCase):
+    def test_missing_original_restore_backup_refuses_reinstall(self):
+        with tempfile.TemporaryDirectory() as home:
+            hooks_json = os.path.join(home, "hooks.json")
+            with open(hooks_json, "wb") as fh:
+                fh.write(b"foreign\n")
+            installed = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE, force=True,
+            )
+            os.unlink(installed["backup_path"])
+            before = _tree_snapshot(home)
+
+            result = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE,
+            )
+
+            self.assertEqual(result["status"], "refused")
+            self.assertIn("restore", result["message"].lower())
+            self.assertEqual(_tree_snapshot(home), before)
+
+    def test_array_and_scalar_state_fail_safe_without_traceback(self):
+        for malformed in ([], "state", 7, None):
+            with self.subTest(shape=type(malformed).__name__), tempfile.TemporaryDirectory() as home:
+                state_dir = os.path.join(home, "system2")
+                os.makedirs(state_dir)
+                state_path = os.path.join(state_dir, "system2-install.json")
+                with open(state_path, "w", encoding="utf-8") as fh:
+                    json.dump(malformed, fh)
+                before = _tree_snapshot(home)
+
+                result = codex_init.codex_uninstall(codex_home=home)
+
+                self.assertEqual(result["status"], "refused")
+                self.assertIn("state", result["message"].lower())
+                self.assertEqual(_tree_snapshot(home), before)
+
+
 class CodexUninstallHardening(unittest.TestCase):
-    """uninstall refuses path-traversal hook_files and out-of-home backups."""
+    """Uninstall refuses path-traversal hook_files and out-of-home backups."""
+
+    def test_versioned_state_with_external_restore_path_touches_nothing(self):
+        with tempfile.TemporaryDirectory() as base:
+            home = os.path.join(base, "home")
+            os.makedirs(home)
+            installed = codex_init.codex_init(
+                codex_home=home, reference_dir=_REFERENCE,
+            )
+            state_path = os.path.join(home, "system2", "system2-install.json")
+            with open(state_path, encoding="utf-8") as fh:
+                state = json.load(fh)
+            outside = os.path.join(base, "foreign-hooks.json")
+            with open(outside, "wb") as fh:
+                fh.write(b"do not touch\n")
+            state["restore_backup"] = outside
+            state["restore_backup_sha256"] = "0" * 64
+            with open(state_path, "w", encoding="utf-8") as fh:
+                json.dump(state, fh, indent=2)
+                fh.write("\n")
+            home_before = _tree_snapshot(home)
+            with open(outside, "rb") as fh:
+                outside_before = fh.read()
+
+            result = codex_init.codex_uninstall(codex_home=home)
+
+            self.assertEqual(result["status"], "refused")
+            self.assertIn("state", result["message"].lower())
+            self.assertEqual(_tree_snapshot(home), home_before)
+            with open(outside, "rb") as fh:
+                self.assertEqual(fh.read(), outside_before)
+            self.assertTrue(all(os.path.isfile(path) for path in installed["hook_files"]))
 
     def _write_state(self, home, hook_files, backup_path):
+        # Deliberately legacy/malformed state: lifecycle must refuse it safely.
         state_dir = os.path.join(home, "system2")
         os.makedirs(state_dir, exist_ok=True)
         with open(os.path.join(state_dir, "system2-install.json"), "w") as fh:
@@ -393,11 +663,13 @@ class CodexUninstallHardening(unittest.TestCase):
             # A tampered state pointing hook_files up-and-out of hooks_dir.
             self._write_state(home, ["../../outside-secret", "system2-shell-guard.js"],
                               backup_path=None)
+            before = _tree_snapshot(home)
             result = codex_init.codex_uninstall(codex_home=home)
-            self.assertEqual(result["status"], "uninstalled")
-            # The traversal target was NOT removed.
+            self.assertEqual(result["status"], "refused")
+            self.assertIn("state", result["message"].lower())
+            # The traversal target was NOT removed and malformed state was untouched.
             self.assertTrue(os.path.isfile(outside))
-            self.assertNotIn(outside, result["removed"])
+            self.assertEqual(_tree_snapshot(home), before)
 
     def test_out_of_home_backup_is_not_restored(self):
         with tempfile.TemporaryDirectory() as base:
@@ -413,12 +685,15 @@ class CodexUninstallHardening(unittest.TestCase):
                           '"node /home/.codex/system2/hooks/system2-shell-guard.js"}]}]}}\n')
             self._write_state(home, ["system2-shell-guard.js"], backup_path=evil_backup)
 
+            home_before = _tree_snapshot(home)
+            outside_before = open(evil_backup, "rb").read()
             result = codex_init.codex_uninstall(codex_home=home)
-            self.assertEqual(result["status"], "uninstalled")
-            self.assertIsNone(result["restored_backup"])
-            # The out-of-home backup was left in place, not moved into the home.
-            self.assertTrue(os.path.isfile(evil_backup))
-            self.assertFalse(os.path.isfile(os.path.join(home, "hooks.json")))
+            self.assertEqual(result["status"], "refused")
+            self.assertIn("state", result["message"].lower())
+            # No in-home or external file is touched for malformed state.
+            self.assertEqual(_tree_snapshot(home), home_before)
+            with open(evil_backup, "rb") as fh:
+                self.assertEqual(fh.read(), outside_before)
 
 
 if __name__ == "__main__":

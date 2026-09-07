@@ -40,8 +40,8 @@ _MAX_INPUT_BYTES = 1048576
 _WATCHDOG_MS = 2000
 
 
-# The CAPTURED codex-cli 0.142.5 PreToolUse event envelope (verbatim shape).
-_CODEX_0_142_5_ENVELOPE = {
+# Synthetic candidate envelope. This is not a native Codex capture or acceptance seam.
+_SYNTHETIC_CODEX_ENVELOPE = {
     "session_id": "sess_00000000",
     "turn_id": "turn_00000000",
     "transcript_path": "/tmp/codex-transcript.jsonl",
@@ -55,8 +55,8 @@ _CODEX_0_142_5_ENVELOPE = {
 
 
 def _codex_event(case_event):
-    """Wrap a corpus event in the captured 0.142.5 PreToolUse envelope (case wins)."""
-    return {**_CODEX_0_142_5_ENVELOPE, **case_event}
+    """Wrap a corpus event in the synthetic candidate envelope (case wins)."""
+    return {**_SYNTHETIC_CODEX_ENVELOPE, **case_event}
 
 
 def _load_corpus():
@@ -82,16 +82,12 @@ def _resolve_hooks_dir(tmp_project):
     candidates = []
     if override:
         candidates.append(os.path.join(override, "user-hooks", "hooks"))
-    # repo-root/distributions/codex/user-hooks/hooks (compiler/ -> repo root is one up).
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    repo_root = os.path.dirname(repo_root)
-    candidates.append(
-        os.path.join(repo_root, "distributions", "codex", "user-hooks", "hooks")
-    )
     for cand in candidates:
         if os.path.isfile(os.path.join(cand, _SHELL_HOOK)):
-            return cand, "committed"
+            return cand, "override"
 
+    # Generated distributions intentionally remain stale until their later canonical
+    # regeneration owner runs. Exercise a fresh canonical backend emission here.
     result = ir.compose(_BASE, [_TEST_OVERLAY], tmp_project)
     if result.graph is None:
         raise AssertionError(
@@ -130,7 +126,7 @@ def _deny_of(obj):
 
 
 def _classify(returncode, stdout):
-    """Map (exit code, stdout) to a decision: 'block' | 'allow' | 'error'."""
+    """Locally classify candidate output; this does not model native Codex acceptance."""
     if returncode == 2:
         return "block", None
     if returncode == 0:
@@ -149,7 +145,7 @@ def _classify(returncode, stdout):
 
 
 class CodexProvenBlockingTest(unittest.TestCase):
-    """End-to-end: the generated Node hooks block the whole bypass corpus."""
+    """Synthetic corpus: execute generated candidates directly, never via native Codex."""
 
     @classmethod
     def setUpClass(cls):
@@ -216,7 +212,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
 
     def test_all_block_cases_block(self):
         """Every corpus block case is blocked (decision block OR exit-2 fail-closed),
-        with the expected reason class — driven end-to-end through the real hook."""
+        with the expected reason class — driven directly through the candidate script."""
         offenders = []
         for case in self._cases(lambda c: c["expect"] == "block"):
             res = self.results[case["name"]]
@@ -357,7 +353,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             )
 
     def test_sensitive_path_corpus_blocks(self):
-        """protect-sensitive fires end-to-end for .env, .ssh/, id_rsa, *.pem, and
+        """The candidate matcher fires for .env, .ssh/, id_rsa, *.pem, and
         credentials via the edit guard, and for a slash-anchored .env via the shell
         guard."""
         for name in ("sens_env", "sens_ssh", "sens_id_rsa", "sens_pem",
@@ -370,7 +366,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         self.assertIn("protect-sensitive", shell["reason"] or "")
 
     def test_lease_enforcement_corpus(self):
-        """enforce-lease end-to-end: off-scope (absolute + off-extension) blocked, in-scope allowed, `../` traversal fails closed, and an empty-scope (read-only) role's write fails closed."""
+        """Synthetic lease cases distinguish off-scope, in-scope, traversal, and empty-scope inputs."""
         for name in ("off_scope_write", "lease_offscope_ext", "traversal_write",
                      "traversal_py_write", "shell_write_redirect_offscope"):
             res = self.results[name]
@@ -399,8 +395,8 @@ class CodexProvenBlockingTest(unittest.TestCase):
             self.results["patch_unified_secrets"]["reason"] or "",
         )
 
-    def test_role_switch_lease(self):
-        """Changing SYSTEM2_ACTIVE_ROLE updates the enforced write scope."""
+    def test_injected_role_environment_changes_candidate_scope_only(self):
+        """Direct env injection exercises candidate logic, not same-session role switching."""
         self.assertEqual(
             self.results["da_in_scope"]["decision"], "allow",
             "design-architect's in-scope write (spec/design.md) was blocked — the "
@@ -435,7 +431,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             f"{sorted(uncovered)}",
         )
         # And each covered Pi case's Codex counterpart(s) must actually have been
-        # exercised end-to-end (present in the results), not merely declared.
+        # exercised directly through the candidate script, not merely declared.
         for case in self.corpus:
             if case.get("pi_parity"):
                 self.assertIn(
@@ -458,7 +454,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             + "\n".join(f"  {n} [{h}]: {json.dumps(e)}" for n, h, e in bypasses),
         )
 
-    # --  fault cases (end-to-end, fail-closed) --------------------------
+    # -- candidate-script fault cases (synthetic, fail-closed) ------------
 
     def test_oversized_command_is_capped_and_decided(self):
         """a command longer than the match cap is CAPPED and STILL DECIDED — it
@@ -526,6 +522,50 @@ class CodexProvenBlockingTest(unittest.TestCase):
             )
             self._assert_not_allow(out, f"malformed JSON ({hook_kind})")
             self.assertIn("system2-hook-error", err or "")
+
+    def test_uninspectable_routed_events_fail_closed(self):
+        cases = (
+            ("shell", {"tool_input": {"script": "echo unrecognized"}}),
+            ("edit", {"tool_input": {"content": "not a patch envelope"}}),
+        )
+        for hook_kind, event in cases:
+            with self.subTest(hook=hook_kind):
+                rc, out, err = _run_hook(
+                    self.hooks_dir, hook_kind, json.dumps(_codex_event(event)),
+                )
+                decision, reason = _classify(rc, out)
+                self.assertEqual(decision, "block", (rc, out, err))
+                self.assertIn("uninspectable", reason or err)
+
+    def test_257th_shell_target_overflow_fails_closed(self):
+        command = " ; ".join(
+            [f"echo ok > spec/in-scope-{index}.md" for index in range(256)]
+            + ["echo no > src/off-scope.py"]
+        )
+        rc, out, err = _run_hook(
+            self.hooks_dir,
+            "shell",
+            json.dumps(_codex_event({"tool_input": {"command": command}})),
+            {"SYSTEM2_ACTIVE_ROLE": "design-architect"},
+        )
+        decision, reason = _classify(rc, out)
+        self.assertEqual(decision, "block", (rc, out, err))
+        self.assertIn("extraction limit", reason or err)
+
+    def test_513th_patch_path_overflow_fails_closed(self):
+        patch = "\n".join(
+            [f"*** Update File: spec/in-scope-{index}.md" for index in range(512)]
+            + ["*** Update File: src/off-scope.py"]
+        )
+        rc, out, err = _run_hook(
+            self.hooks_dir,
+            "edit",
+            json.dumps(_codex_event({"tool_input": {"patch": patch}})),
+            {"SYSTEM2_ACTIVE_ROLE": "design-architect"},
+        )
+        decision, reason = _classify(rc, out)
+        self.assertEqual(decision, "block", (rc, out, err))
+        self.assertIn("extraction limit", reason or err)
 
     def test_hooks_under_test_are_the_generated_node_scripts(self):
         """Sanity: the shell and edit guards exist as generated Node scripts at the

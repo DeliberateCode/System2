@@ -3,16 +3,16 @@
   "backend": "codex",
   "capabilities": {
     "enforce-lease": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (PreToolUse on apply_patch/Edit/Write and shell write-redirections): a write outside the active role's write_scope regex is hard-blocked (modern Codex deny schema on stdout: {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":R}}) BEFORE the tool runs — deterministic pre-execution block IFF the guard is active: materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks. It is ADAPTED, never native: enforcement is gated on the Codex trust model (untrusted or admin-disabled hooks never run, so System2 is advisory-only until trusted), and tool coverage is PARTIAL (shell + apply_patch/Edit/Write only — NOT WebSearch or other non-shell, non-MCP tools). The matcher is the proven lease algorithm from backends/_enforcement.build_lease_gate_source: path project-normalized (./ collapsed, .. resolved, ~/absolute rejected) and FAILS CLOSED on any escape, scope start-anchored (new RegExp(\"^(?:\" + scope + \")\")), OR-joined from the role allowlist; a role with an empty write_scope (read-only, e.g. code-reviewer) has EVERY write BLOCKED (fail-closed). The active role is read from SYSTEM2_ACTIVE_ROLE (in-session role-switch, adapted) and falls back to the default role. enforced:false, gated:true."
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested recognized edit paths, apply-patch headers, shell redirection targets, and limited tee targets. Other shell writes are not inspected, and same-session prompt/skill role adoption cannot update hook authorization. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false."
     },
     "block-dangerous": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (PreToolUse on shell): a command matching the backend-owned dangerous-command set is hard-blocked (modern Codex deny schema on stdout: {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":R}}) BEFORE execution — deterministic pre-execution block IFF the guard is active: materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks; advisory-only until trusted; partial tool coverage (shell only, not WebSearch/other). The matcher is the proven Claude dangerous-command set ported VERBATIM via backends/_enforcement.build_dangerous_command_patterns (flag-permutation _RM_RF_FLAGS: -rf/-fr/-r -f/--recursive --force, interior whitespace; rm -rf at / . .. ~, sudo rm -rf, chmod 777, git reset --hard, git push --force/-f to main/master, DROP TABLE, DELETE FROM without WHERE, mkfs, dd of=, shutdown, curl|sh). The command length is capped before matching and any internal error/timeout fails closed (exit 2). It is ADAPTED, never native: gated on the Codex trust model. enforced:false, gated:true."
+      "status": "advisory",
+      "mechanism": "An unverified candidate Node shell guard emits hookSpecificOutput.permissionDecision=deny when recognized command strings match the backend-owned dangerous-command regex corpus. Uninspectable routed shapes and extraction/resource overflows fail closed inside the candidate. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false."
     },
     "protect-sensitive": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (PreToolUse on shell and on apply_patch/Edit/Write): an edit path or slash-delimited shell path touching a backend-owned sensitive path (.env, .env.*, .ssh/, .git/, .aws/, id_rsa, *.pem, *.key, credentials, secrets, .netrc/.npmrc/.pypirc) is hard-blocked; bare relative shell arguments (for example `cat .env`) are not parsed as paths and remain advisory (modern Codex deny schema on stdout: {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":R}}) BEFORE the tool runs — deterministic pre-execution block IFF the guard is active: materialized to ~/.codex/hooks.json by `system2 codex init` and reviewed+trusted via /hooks; advisory-only until trusted; partial tool coverage (shell + apply_patch/Edit/Write only, not WebSearch/other). The matcher is the proven sensitive-file set ported VERBATIM via backends/_enforcement.build_sensitive_path_patterns (segment/basename-anchored regexes). It is ADAPTED, never native: gated on the Codex trust model. enforced:false, gated:true."
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested sensitive strings in recognized shell command text, explicit edit paths, and apply-patch headers. They do not parse every shell path or write mechanism. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false."
     },
     "format": {
       "status": "advisory",
@@ -23,8 +23,8 @@
       "mechanism": "orchestrator + per-role skill instruction block only, clearly labelled \"ADVISORY — NOT ENFORCED ON CODEX (instruction only)\": Codex has no post-edit type-check hook the compiler can wire deterministically, and the IR carries no per-language checker command, so type-checking is NOT enforced. The agent is instructed to type-check edited files. Making this native needs IR-enrichment deferred this cycle."
     },
     "budget": {
-      "status": "adapted",
-      "mechanism": "generated Node command hook (Stop/SubagentStop): the change budget (files touched, lines added/removed) is reported at turn end via the hook's systemMessage. This is a REPORT, not a block — a Stop-event hook cannot retroactively prevent edits, so it is adapted (a gated report), NOT native enforcement. enforced:false, gated:true."
+      "status": "advisory",
+      "mechanism": "The candidate Stop/SubagentStop hook emits only a systemMessage instruction asking the agent to report files and line counts; it does not calculate budget data. Native delivery is unverified and this is not a release guarantee. enforced:false, gated:false."
     }
   }
 }

@@ -392,7 +392,10 @@ class CodexLockSchemaTest(_CodexEmissionBase):
                 lock = _read_json(root, _LOCK_REL)
                 banner = lock.get("FIDELITY", "")
                 self.assertTrue(banner.strip(), "FIDELITY banner must be non-empty")
-                self.assertIn("ADAPTED", banner, "banner must state enforcement is ADAPTED")
+                self.assertIn(
+                    "PENDING NATIVE ACCEPTANCE", banner,
+                    "banner must state that native Codex acceptance remains pending",
+                )
 
     def test_overlay_sources_is_a_list(self):
         for label, root, _tmp in self.sources:
@@ -507,13 +510,12 @@ class CodexLockNegativeControlsTest(_CodexEmissionBase):
 
     def test_flag_status_mismatch_fails(self):
         bad = copy.deepcopy(self.clean)
-        # An adapted capability's flags must be (False, True); force enforced=True so the
-        # pair breaks the status rule. (Codex always carries >=1 adapted capability.)
-        adapted = [c for c, e in bad["capabilities"].items() if e["status"] == "adapted"]
+        # An advisory capability's flags must be (False, False); force enforced=True.
+        advisory = [c for c, e in bad["capabilities"].items() if e["status"] == "advisory"]
         self.assertTrue(
-            adapted, "precondition: the Codex lock must carry an adapted capability"
+            advisory, "precondition: the Codex lock must carry an advisory capability"
         )
-        bad["capabilities"][adapted[0]]["enforced"] = True
+        bad["capabilities"][advisory[0]]["enforced"] = True
         with self.assertRaises(LockValidationError):
             validate_lock(bad, self.descriptor)
 
@@ -621,6 +623,56 @@ class CodexUninstallSweepTest(unittest.TestCase):
             os.path.isdir(os.path.join(project_dir, "skills")),
             "skills/ should be pruned once empty (best-effort prune)",
         )
+
+
+class CodexDoctorIntegrityTest(unittest.TestCase):
+    def _emitted_project(self):
+        project = tempfile.mkdtemp(prefix="codex-doctor-")
+        self.addCleanup(shutil.rmtree, project, True)
+        _emit_codex(project)
+        return project
+
+    def test_complete_owned_inventory_is_pending_native_validation(self):
+        project = self._emitted_project()
+        report = CodexBackend().doctor(project)
+        self.assertEqual(report.status, "pending_validation")
+        self.assertEqual(report.exit_code, 1)
+        self.assertFalse(report.validator_available)
+        self.assertTrue(
+            any("native" in detail["message"].lower() for detail in report.details)
+        )
+
+    def test_missing_role_or_modified_guard_is_broken(self):
+        mutations = (
+            os.path.join("skills", "system2-role-executor", "SKILL.md"),
+            os.path.join("user-hooks", "hooks", "system2-shell-guard.js"),
+        )
+        for relative_path in mutations:
+            with self.subTest(path=relative_path):
+                project = self._emitted_project()
+                path = os.path.join(project, relative_path)
+                if relative_path.endswith("SKILL.md"):
+                    os.unlink(path)
+                else:
+                    with open(path, "a", encoding="utf-8") as fh:
+                        fh.write("// modified\n")
+                report = CodexBackend().doctor(project)
+                self.assertEqual(report.status, "broken")
+                self.assertEqual(report.exit_code, 1)
+                self.assertTrue(
+                    any(relative_path.replace(os.sep, "/") in d["message"]
+                        for d in report.details)
+                )
+
+    def test_non_object_lock_is_broken_not_a_traceback(self):
+        for malformed in ([], "lock", 7, None):
+            with self.subTest(shape=type(malformed).__name__):
+                project = self._emitted_project()
+                with open(os.path.join(project, _LOCK_REL), "w", encoding="utf-8") as fh:
+                    json.dump(malformed, fh)
+                report = CodexBackend().doctor(project)
+                self.assertEqual(report.status, "broken")
+                self.assertEqual(report.exit_code, 1)
 
 
 if __name__ == "__main__":
