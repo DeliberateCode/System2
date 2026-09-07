@@ -1,5 +1,5 @@
 {
-  "source_sha256": "0939d77ff0b802cd40348f5995d775d76a100fb12c160abcf7bc804648266ba5",
+  "source_sha256": "e92551fc43090e0b41ea49b146ed99ae683edada7c29b31b06c393e7f159bcbb",
   "artifact_sha256": "9ca2f35d79442ce897aae3928a69212fda356efada0578e2d14157d85208db6b",
   "artifact_inventory": [
     "LICENSE",
@@ -27,9 +27,9 @@
     "skills/system2-doctor/SKILL.md",
     "skills/system2-init/SKILL.md"
   ],
-  "generated_from": "System2@b32e576",
+  "generated_from": "System2@d9f51c8",
   "generator": "compiler/tools/regen_all.py",
   "channel_version": "0.2.3",
   "compiler_version": "0.1.0",
-  "generated_at": "2026-09-07T17:40:04.685270+00:00"
+  "generated_at": "2026-09-07T18:14:34.212604+00:00"
 }

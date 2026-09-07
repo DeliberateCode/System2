@@ -1374,8 +1374,6 @@ class PiBackend:
             except Exception:
                 pass
 
-        self._prune_empty_pi_dirs(project_path)
-
         return UninstallResult(
             removed={"name": overlay_name},
             remaining=[],
@@ -1386,22 +1384,6 @@ class PiBackend:
             preview="",
             errors=[],
         )
-
-    def _prune_empty_pi_dirs(self, project_path: str) -> None:
-        """Remove now-empty ``.pi/`` subdirectories bottom-up (best-effort)."""
-        pi_root = os.path.join(project_path, ".pi")
-        if not os.path.isdir(pi_root):
-            return
-        for root, dirs, _files in os.walk(pi_root, topdown=False):
-            for d in dirs:
-                try:
-                    os.rmdir(os.path.join(root, d))
-                except OSError:
-                    pass
-        try:
-            os.rmdir(pi_root)
-        except OSError:
-            pass
 
     # Drift reporting
 
