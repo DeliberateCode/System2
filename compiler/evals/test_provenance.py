@@ -38,6 +38,100 @@ def _manual_hash(entries):
     return digest.hexdigest()
 
 
+def _artifact_bytes(root):
+    files = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
+        for filename in sorted(filenames):
+            path = os.path.join(dirpath, filename)
+            relative = os.path.relpath(path, root).replace(os.sep, "/")
+            if relative == provenance.PROVENANCE_FILENAME or filename.endswith(".pyc"):
+                continue
+            with open(path, "rb") as fh:
+                files[relative] = fh.read()
+    return files
+
+
+def _emit_channel(channel, dest, ctx):
+    os.makedirs(dest, exist_ok=True)
+    if channel == "codex":
+        result = regen_all.ir.compose(
+            ctx.plugin_root, list(ctx.codex_overlays), dest
+        )
+        if result.graph is None:
+            raise AssertionError(result.errors)
+        regen_all.CodexBackend(
+            overlay_sources=list(ctx.codex_overlays)
+        ).emit(result.graph, dest)
+        return
+    with tempfile.TemporaryDirectory(prefix="provenance-pi-emit-") as staging:
+        result = regen_all.ir.compose(ctx.plugin_root, [], staging)
+        if result.graph is None:
+            raise AssertionError(result.errors)
+        regen_all.PiBackend(overlay_sources=[]).emit(result.graph, staging)
+        regen_all.build_pi_package.build(
+            staging, dest, regen_all.build_pi_package.PACKAGE_VERSION
+        )
+
+
+def _write_overlay(root):
+    paths = {
+        "content/principle.md": b"Provenance principle.\n",
+        "content/executor.md": b"Executor provenance guidance.\n",
+        "agents/provenance-scout.md": (
+            b"---\nname: provenance-scout\ndescription: Provenance scout\n"
+            b"tools: [Read]\n---\nInspect provenance.\n"
+        ),
+        "hooks/check.py": b"value = 1\n",
+    }
+    for relative, content in paths.items():
+        path = os.path.join(root, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(content)
+    manifest = {
+        "name": "provenance-overlay",
+        "version": "1.0.0",
+        "description": "provenance test",
+        "schema_version": "1.0.0",
+        "contributions": {
+            "orchestrator": {
+                "principles": [{
+                    "id": "provenance-principle",
+                    "content_file": "content/principle.md",
+                }]
+            },
+            "agents": {
+                "executor": {
+                    "prompt_sections": {
+                        "implementation_discipline": [{
+                            "id": "provenance-executor",
+                            "content_file": "content/executor.md",
+                            "inline": True,
+                        }]
+                    },
+                    "hooks": [{
+                        "event": "SubagentStop",
+                        "command": "hooks/check.py",
+                    }],
+                }
+            },
+            "auxiliary_agents": [{
+                "name": "provenance-scout",
+                "role": "Inspect provenance",
+                "pipeline": False,
+                "delegation_policy": "orchestrator_optional",
+                "agent_file": "agents/provenance-scout.md",
+            }],
+        },
+    }
+    manifest_path = os.path.join(root, "system2.overlay.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2)
+        fh.write("\n")
+    return manifest_path, paths
+
+
 class SourceDigestTest(unittest.TestCase):
     def test_hash_protocol_has_an_independent_manual_control(self):
         with tempfile.TemporaryDirectory() as root:
@@ -66,9 +160,11 @@ class SourceDigestTest(unittest.TestCase):
         pi_labels = {label for label, _path in pi}
 
         common = {
-            "plugin", "lowering/ir", "lowering/system2_compiler_init",
-            "backend/base", "backend/degradation", "backend/enforcement",
-            "backend/yaml", "generator/regen_all", "generator/provenance",
+            "base/plugin_metadata", "base/init_template",
+            "base/schema/overlay", "base/schema/anchor_map",
+            "lowering/ir", "lowering/system2_compiler_init", "backend/base",
+            "backend/degradation", "backend/enforcement", "backend/yaml",
+            "generator/regen_all", "generator/provenance",
             "generator/build_bundle_helpers", "metadata/channel_version",
             "metadata/compiler_project",
         }
@@ -88,10 +184,34 @@ class SourceDigestTest(unittest.TestCase):
             "Codex and Pi must not share a source digest when generators differ",
         )
 
-    def test_overlay_inputs_use_ordered_stable_labels(self):
+    def test_base_inputs_name_only_canonical_agents_and_allowlists(self):
+        ctx = regen_all._context()
+        labels = {
+            label for label, _path in regen_all._plugin_graph_inputs(ctx)
+        }
+        with open(
+            os.path.join(ctx.plugin_root, "schemas", "anchor-map.json"),
+            encoding="utf-8",
+        ) as fh:
+            anchor_map = json.load(fh)
+        agent_prefix = "base/agent/"
+        allowlist_prefix = "base/allowlist/"
+        self.assertEqual(
+            {label[len(agent_prefix):] for label in labels
+             if label.startswith(agent_prefix)},
+            set(anchor_map["agents"]),
+        )
+        self.assertEqual(
+            {label[len(allowlist_prefix):] for label in labels
+             if label.startswith(allowlist_prefix)},
+            set(regen_all.ir_build._ROLE_ALLOWLISTS),
+        )
+        self.assertNotIn("plugin", labels)
+        self.assertFalse(any("task-lease" in label for label in labels))
+
+    def test_overlay_inputs_use_ordered_stable_reference_labels(self):
         with tempfile.TemporaryDirectory() as overlay:
-            with open(os.path.join(overlay, "system2.overlay.json"), "w") as fh:
-                fh.write("{}\n")
+            manifest_path, paths = _write_overlay(overlay)
             base = regen_all._context()
             ctx = regen_all._Context(
                 compiler_root=base.compiler_root,
@@ -100,19 +220,105 @@ class SourceDigestTest(unittest.TestCase):
                 codex_overlays=[overlay],
             )
             inputs = dict(regen_all._distribution_inputs("codex", ctx))
-            self.assertEqual(inputs["overlay/0000"], overlay)
+            self.assertEqual(inputs["overlay/0000/manifest"], manifest_path)
+            for relative in paths:
+                self.assertEqual(
+                    inputs[f"overlay/0000/reference/{relative}"],
+                    os.path.join(overlay, relative),
+                )
+            self.assertFalse(any("unrelated" in label for label in inputs))
+
+    def test_overlay_missing_and_unsafe_references_fail_closed(self):
+        with tempfile.TemporaryDirectory() as overlay:
+            manifest_path, _paths = _write_overlay(overlay)
+            base = regen_all._context()
+            ctx = regen_all._Context(
+                compiler_root=base.compiler_root,
+                repo_root=base.repo_root,
+                plugin_root=base.plugin_root,
+                codex_overlays=[overlay],
+            )
+            with open(manifest_path, encoding="utf-8") as fh:
+                original = json.load(fh)
+            references = (
+                ("content", "content_file", lambda man: man["contributions"]
+                 ["orchestrator"]["principles"][0], "content_file not found"),
+                ("agent", "agent_file", lambda man: man["contributions"]
+                 ["auxiliary_agents"][0], "content_file not found"),
+                ("hook", "command", lambda man: man["contributions"]
+                 ["agents"]["executor"]["hooks"][0], "hook file does not exist"),
+            )
+            for kind, field, select, missing_message in references:
+                for invalid, message in (
+                    ("missing.md", missing_message),
+                    ("../outside.md", "path traversal rejected"),
+                ):
+                    with self.subTest(kind=kind, reference=invalid):
+                        manifest = json.loads(json.dumps(original))
+                        select(manifest)[field] = invalid
+                        with open(manifest_path, "w", encoding="utf-8") as fh:
+                            json.dump(manifest, fh)
+                        with self.assertRaisesRegex(ValueError, message):
+                            regen_all._distribution_inputs("codex", ctx)
+
+    def test_manifest_and_referenced_overlay_bytes_change_hash(self):
+        with tempfile.TemporaryDirectory() as overlay:
+            manifest_path, paths = _write_overlay(overlay)
+            base = regen_all._context()
+            ctx = regen_all._Context(
+                compiler_root=base.compiler_root,
+                repo_root=base.repo_root,
+                plugin_root=base.plugin_root,
+                codex_overlays=[overlay],
+            )
+            baseline = provenance.source_sha256(
+                regen_all._distribution_inputs("codex", ctx)
+            )
+            for relative in ("content/principle.md", "content/executor.md",
+                             "agents/provenance-scout.md", "hooks/check.py"):
+                with self.subTest(reference=relative):
+                    path = os.path.join(overlay, relative)
+                    with open(path, "rb") as fh:
+                        original = fh.read()
+                    with open(path, "ab") as fh:
+                        fh.write(b"# mutation\n")
+                    self.assertNotEqual(
+                        baseline,
+                        provenance.source_sha256(
+                            regen_all._distribution_inputs("codex", ctx)
+                        ),
+                    )
+                    with open(path, "wb") as fh:
+                        fh.write(original)
+            with open(manifest_path, "rb") as fh:
+                original = fh.read()
+            with open(manifest_path, "wb") as fh:
+                fh.write(original.replace(
+                    b"provenance test", b"provenance test changed"
+                ))
+            self.assertNotEqual(
+                baseline,
+                provenance.source_sha256(
+                    regen_all._distribution_inputs("codex", ctx)
+                ),
+            )
 
     def test_missing_declared_input_fails_closed(self):
         with self.assertRaises(FileNotFoundError):
             provenance.source_sha256([("missing", os.path.join(self.id(), "missing"))])
 
-    def test_backend_template_license_plugin_and_lowering_mutations_change_hash(self):
+    def test_effective_base_backend_and_package_mutations_change_hash(self):
         ctx = regen_all._context()
         cases = (
             ("codex", "backend/codex", "# backend mutation\n"),
             ("pi", "package/pi_templates", "template mutation\n"),
             ("pi", "metadata/license", "license mutation\n"),
-            ("codex", "plugin", "plugin mutation\n"),
+            ("codex", "base/plugin_metadata", "plugin metadata mutation\n"),
+            ("codex", "base/init_template", "init mutation\n"),
+            ("codex", "base/schema/overlay", "schema mutation\n"),
+            ("pi", "base/schema/anchor_map", "anchor mutation\n"),
+            ("codex", "base/agent/executor", "agent mutation\n"),
+            ("pi", "base/allowlist/executor", "allowlist mutation\n"),
             ("pi", "lowering/ir", "# lowering mutation\n"),
         )
         for channel, label, addition in cases:
@@ -139,6 +345,93 @@ class SourceDigestTest(unittest.TestCase):
                             fh.write(addition)
                     mutated.append((entry_label, copy))
                 self.assertNotEqual(before, provenance.source_sha256(mutated))
+
+    def test_unrelated_plugin_bytes_leave_digests_and_artifacts_unchanged(self):
+        with tempfile.TemporaryDirectory(prefix="provenance-plugin-controls-") as root:
+            base = regen_all._context()
+            plugin = os.path.join(root, "plugin")
+            shutil.copytree(base.plugin_root, plugin)
+            ctx = regen_all._Context(
+                compiler_root=base.compiler_root,
+                repo_root=root,
+                plugin_root=plugin,
+                codex_overlays=[],
+            )
+            before_hashes = {
+                channel: provenance.source_sha256(
+                    regen_all._distribution_inputs(channel, ctx)
+                )
+                for channel in ("codex", "pi")
+            }
+            destinations = {
+                channel: os.path.join(root, channel)
+                for channel in ("codex", "pi")
+            }
+            for channel, dest in destinations.items():
+                _emit_channel(channel, dest, ctx)
+            before_artifacts = {
+                channel: _artifact_bytes(dest)
+                for channel, dest in destinations.items()
+            }
+
+            mutations = (
+                "scripts/composer.py.preflip",
+                "hooks/HOOKS.md",
+                "skills/doctor/SKILL.md",
+                "scripts/_system2_compiler/BUNDLE.json",
+            )
+            for relative in mutations:
+                with open(os.path.join(plugin, relative), "ab") as fh:
+                    fh.write(b"\nprovenance negative control\n")
+            with open(
+                os.path.join(plugin, "allowlists", ".task-lease.regex"), "wb"
+            ) as fh:
+                fh.write(b"temporary/.*\n")
+            with open(os.path.join(plugin, "unrelated.txt"), "wb") as fh:
+                fh.write(b"unrelated plugin input\n")
+
+            for channel, dest in destinations.items():
+                self.assertEqual(
+                    before_hashes[channel],
+                    provenance.source_sha256(
+                        regen_all._distribution_inputs(channel, ctx)
+                    ),
+                )
+                _emit_channel(channel, dest, ctx)
+                self.assertEqual(before_artifacts[channel], _artifact_bytes(dest))
+
+    def test_unrelated_overlay_bytes_leave_digest_and_artifacts_unchanged(self):
+        with tempfile.TemporaryDirectory(prefix="provenance-overlay-controls-") as root:
+            overlay = os.path.join(root, "overlay")
+            os.makedirs(overlay)
+            _write_overlay(overlay)
+            base = regen_all._context()
+            ctx = regen_all._Context(
+                compiler_root=base.compiler_root,
+                repo_root=root,
+                plugin_root=base.plugin_root,
+                codex_overlays=[overlay],
+            )
+            dest = os.path.join(root, "codex")
+            before_hash = provenance.source_sha256(
+                regen_all._distribution_inputs("codex", ctx)
+            )
+            _emit_channel("codex", dest, ctx)
+            before_artifacts = _artifact_bytes(dest)
+
+            unrelated = os.path.join(overlay, "notes", "unrelated.md")
+            os.makedirs(os.path.dirname(unrelated))
+            with open(unrelated, "wb") as fh:
+                fh.write(b"not referenced by the manifest\n")
+
+            self.assertEqual(
+                before_hash,
+                provenance.source_sha256(
+                    regen_all._distribution_inputs("codex", ctx)
+                ),
+            )
+            _emit_channel("codex", dest, ctx)
+            self.assertEqual(before_artifacts, _artifact_bytes(dest))
 
 
 class DistributionProvenanceTest(unittest.TestCase):

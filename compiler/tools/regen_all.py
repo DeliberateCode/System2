@@ -25,6 +25,8 @@ import build_bundle  # noqa: E402
 import build_pi_package  # noqa: E402
 import check_bundle_fresh  # noqa: E402
 from system2_compiler import ir  # noqa: E402
+from system2_compiler.ir import build as ir_build  # noqa: E402
+from system2_compiler.ir import manifest as ir_manifest  # noqa: E402
 from system2_compiler.backends.codex import CodexBackend  # noqa: E402
 from system2_compiler.backends.pi import PiBackend  # noqa: E402
 from system2_compiler.channel_version import CHANNEL_VERSION  # noqa: E402
@@ -86,12 +88,86 @@ def _build_bundle(dest_abs: str, ctx: _Context) -> None:
     build_bundle.build_bundle(ctx.compiler_root, dest_abs)
 
 
+def _plugin_graph_inputs(ctx: _Context):
+    """Return only the canonical plugin files consumed by graph construction."""
+    schema_path = os.path.join(ctx.plugin_root, "schemas", "overlay.schema.json")
+    anchor_map_path = os.path.join(ctx.plugin_root, "schemas", "anchor-map.json")
+    anchor_map = _read_json(anchor_map_path)
+    inputs = [
+        ("base/plugin_metadata", os.path.join(
+            ctx.plugin_root, ".claude-plugin", "plugin.json"
+        )),
+        ("base/init_template", os.path.join(
+            ctx.plugin_root, "skills", "init", "SKILL.md"
+        )),
+        ("base/schema/overlay", schema_path),
+        ("base/schema/anchor_map", anchor_map_path),
+    ]
+    inputs.extend(
+        (f"base/agent/{name}", os.path.join(
+            ctx.plugin_root, "agents", f"{name}.md"
+        ))
+        for name in sorted(anchor_map.get("agents", {}))
+    )
+    inputs.extend(
+        (f"base/allowlist/{role}", os.path.join(
+            ctx.plugin_root, "allowlists", filename
+        ))
+        for role, filename in sorted(ir_build._ROLE_ALLOWLISTS.items())
+    )
+    return inputs
+
+
+def _overlay_graph_inputs(index: int, overlay_path: str, ctx: _Context):
+    """Return a manifest and only the overlay files it actually references."""
+    manifest_path = os.path.join(overlay_path, "system2.overlay.json")
+    try:
+        manifest = ir_manifest.read_manifest(overlay_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"provenance overlay manifest missing: {manifest_path}"
+        ) from None
+
+    validation = ir_manifest.validate_manifest(
+        manifest,
+        _read_json(os.path.join(ctx.plugin_root, "schemas", "overlay.schema.json")),
+        overlay_path,
+        _read_json(os.path.join(ctx.plugin_root, "schemas", "anchor-map.json")),
+    )
+    if not validation.valid:
+        raise ValueError(
+            f"invalid provenance overlay {overlay_path!r}: "
+            + "; ".join(validation.errors)
+        )
+
+    references = []
+    ir_manifest._collect_content_files_from_manifest(manifest, references)
+    agents = manifest.get("contributions", {}).get("agents", {})
+    for agent in agents.values():
+        if not isinstance(agent, dict):
+            continue
+        for hook in agent.get("hooks", []):
+            if isinstance(hook, dict) and isinstance(hook.get("command"), str):
+                references.append(hook["command"])
+
+    prefix = f"overlay/{index:04d}"
+    inputs = [(f"{prefix}/manifest", manifest_path)]
+    normalized = {
+        os.path.normpath(reference).replace(os.sep, "/"): reference
+        for reference in references
+    }
+    inputs.extend(
+        (f"{prefix}/reference/{label}", os.path.join(overlay_path, reference))
+        for label, reference in sorted(normalized.items())
+    )
+    return inputs
+
+
 def _distribution_inputs(channel: str, ctx: _Context):
     """Return stable labels for every effective producer input of *channel*."""
     package_root = os.path.join(ctx.compiler_root, "system2_compiler")
     backend_root = os.path.join(package_root, "backends")
-    inputs = [
-        ("plugin", ctx.plugin_root),
+    inputs = _plugin_graph_inputs(ctx) + [
         ("lowering/ir", os.path.join(package_root, "ir")),
         ("lowering/system2_compiler_init", os.path.join(package_root, "__init__.py")),
         ("backend/base", os.path.join(backend_root, "base.py")),
@@ -113,10 +189,8 @@ def _distribution_inputs(channel: str, ctx: _Context):
                 backend_root, "capabilities", "codex.json"
             )),
         ])
-        inputs.extend(
-            (f"overlay/{index:04d}", overlay)
-            for index, overlay in enumerate(ctx.codex_overlays)
-        )
+        for index, overlay in enumerate(ctx.codex_overlays):
+            inputs.extend(_overlay_graph_inputs(index, overlay, ctx))
     elif channel == "pi":
         inputs.extend([
             ("backend/pi", os.path.join(backend_root, "pi.py")),
