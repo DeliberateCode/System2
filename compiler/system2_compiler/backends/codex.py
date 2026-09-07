@@ -24,6 +24,7 @@ from .base import (
     build_artifact_ownership,
     lock_sources_outside_project,
     preflight_artifact_write,
+    validate_project_target,
     verify_owned_artifacts,
 )
 
@@ -928,37 +929,72 @@ def _write_outputs(
     stale_paths: Optional[List[str]] = None,
 ) -> List[str]:
     """Write planned files and transactionally remove validated stale files."""
+    project_root = os.path.abspath(project_path)
+
+    def relative(path: str) -> str:
+        return os.path.relpath(path, project_root).replace(os.sep, "/")
+
+    stale_rels = [relative(path) for path in stale_paths or []]
+    for rel in stale_rels:
+        validate_project_target(project_path, rel)
+    for rel, _content in planned:
+        validate_project_target(project_path, rel.replace(os.sep, "/"))
+
     backups: List[Tuple[str, str]] = []
     newly_created: List[str] = []
     dirs_created: List[str] = []
     written: List[str] = []
     try:
-        for path in stale_paths or []:
+        for rel in stale_rels:
+            path = validate_project_target(project_path, rel)
+            if not os.path.isfile(path):
+                raise ValueError(f"owned artifact is no longer a regular file: {rel}")
             dir_name = os.path.dirname(path)
             fd, bak = tempfile.mkstemp(
                 prefix=f".{os.path.basename(path)}.", suffix=".bak", dir=dir_name
             )
             os.close(fd)
-            shutil.copy2(path, bak)
+            try:
+                path = validate_project_target(project_path, rel)
+                validate_project_target(project_path, relative(bak))
+                shutil.copy2(path, bak)
+            except Exception:
+                os.unlink(bak)
+                raise
             backups.append((path, bak))
+            path = validate_project_target(project_path, rel)
             os.unlink(path)
         for rel, content in planned:
-            dst = os.path.join(project_path, rel)
+            canonical_rel = rel.replace(os.sep, "/")
+            dst = validate_project_target(project_path, canonical_rel)
             dir_name = os.path.dirname(dst)
             _makedirs_tracked(dir_name, dirs_created)
-            if os.path.exists(dst):
+            dst = validate_project_target(project_path, canonical_rel)
+            if os.path.lexists(dst):
+                if not os.path.isfile(dst):
+                    raise ValueError(
+                        f"owned artifact is no longer a regular file: {canonical_rel}"
+                    )
                 fd, bak = tempfile.mkstemp(
                     prefix=f".{os.path.basename(dst)}.", suffix=".bak", dir=dir_name
                 )
                 os.close(fd)
-                shutil.copy2(dst, bak)
+                try:
+                    dst = validate_project_target(project_path, canonical_rel)
+                    validate_project_target(project_path, relative(bak))
+                    shutil.copy2(dst, bak)
+                except Exception:
+                    os.unlink(bak)
+                    raise
                 backups.append((dst, bak))
+            dst = validate_project_target(project_path, canonical_rel)
             fd, tmp = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
-                # Apply the final mode because mkstemp creates files as 0600.
+                dst = validate_project_target(project_path, canonical_rel)
                 os.chmod(tmp, _default_file_mode(dst))
+                dst = validate_project_target(project_path, canonical_rel)
                 os.replace(tmp, dst)
             except Exception:
                 if os.path.exists(tmp):
@@ -968,15 +1004,19 @@ def _write_outputs(
                 newly_created.append(dst)
             written.append(dst)
     except Exception:
-        for orig, bak in backups:
+        for orig, bak in reversed(backups):
             if os.path.exists(bak):
+                validate_project_target(project_path, relative(orig))
+                validate_project_target(project_path, relative(bak))
                 shutil.copy2(bak, orig)
                 os.unlink(bak)
         for created in newly_created:
             if os.path.exists(created):
+                validate_project_target(project_path, relative(created))
                 os.unlink(created)
         for d in dirs_created:
             try:
+                validate_project_target(project_path, relative(d))
                 os.rmdir(d)
             except OSError:
                 pass
@@ -984,6 +1024,7 @@ def _write_outputs(
     for _orig, bak in backups:
         try:
             if os.path.exists(bak):
+                validate_project_target(project_path, relative(bak))
                 os.unlink(bak)
         except OSError:
             pass
@@ -1436,9 +1477,10 @@ class CodexBackend:
         return os.path.join(project_path, "system2.codex.lock.json")
 
     def read_lock_overlay_sources(self, project_path: str) -> List[str]:
-        lp = self.lock_path(project_path)
+        lp = validate_project_target(project_path, _CODEX_LOCK)
         if not os.path.isfile(lp):
             raise FileNotFoundError(lp)
+        lp = validate_project_target(project_path, _CODEX_LOCK)
         with open(lp, "r", encoding="utf-8") as fh:
             lock_data = json.load(fh)
         return [s for s in lock_data.get("overlay_sources", []) if s]
@@ -1480,10 +1522,14 @@ class CodexBackend:
                 f"(lowercase alphanumeric, hyphens only)"
             ])
 
-        lp = self.lock_path(project_path)
+        try:
+            lp = validate_project_target(project_path, _CODEX_LOCK)
+        except ValueError as exc:
+            return _err([str(exc)])
         if not os.path.isfile(lp):
             return _err(["No lock file found; no overlays are composed"])
         try:
+            lp = validate_project_target(project_path, _CODEX_LOCK)
             with open(lp, "r", encoding="utf-8") as fh:
                 lock_data = json.load(fh)
         except json.JSONDecodeError:
@@ -1573,7 +1619,16 @@ class CodexBackend:
         owned_artifacts: List[str],
     ) -> UninstallResult:
         """Remove the validated Codex artifacts when zero overlays remain."""
-        artifacts = list(owned_artifacts) + [self.lock_path(project_path)]
+        artifacts = list(owned_artifacts) + [
+            validate_project_target(project_path, _CODEX_LOCK)
+        ]
+        artifact_rels = [
+            os.path.relpath(path, os.path.abspath(project_path)).replace(os.sep, "/")
+            for path in artifacts
+        ]
+        artifacts = [
+            validate_project_target(project_path, rel) for rel in artifact_rels
+        ]
 
         if dry_run:
             return UninstallResult(
@@ -1589,19 +1644,42 @@ class CodexBackend:
 
         backups: List[Tuple[str, str]] = []
         try:
-            for path in artifacts:
+            for rel in artifact_rels:
+                path = validate_project_target(project_path, rel)
+                if not os.path.isfile(path):
+                    raise ValueError(
+                        f"owned artifact is no longer a regular file: {rel}"
+                    )
                 dir_name = os.path.dirname(path)
                 fd, bak = tempfile.mkstemp(
                     prefix=f".{os.path.basename(path)}.", suffix=".bak", dir=dir_name
                 )
                 os.close(fd)
-                shutil.copy2(path, bak)
+                try:
+                    path = validate_project_target(project_path, rel)
+                    validate_project_target(
+                        project_path,
+                        os.path.relpath(
+                            bak, os.path.abspath(project_path)
+                        ).replace(os.sep, "/"),
+                    )
+                    shutil.copy2(path, bak)
+                except Exception:
+                    os.unlink(bak)
+                    raise
                 backups.append((path, bak))
-            for path in artifacts:
+            for rel in artifact_rels:
+                path = validate_project_target(project_path, rel)
                 os.unlink(path)
         except Exception:
-            for orig, bak in backups:
+            for orig, bak in reversed(backups):
                 if os.path.exists(bak):
+                    validate_project_target(
+                        project_path,
+                        os.path.relpath(
+                            orig, os.path.abspath(project_path)
+                        ).replace(os.sep, "/"),
+                    )
                     shutil.copy2(bak, orig)
                     os.unlink(bak)
             raise
@@ -1609,6 +1687,12 @@ class CodexBackend:
         for _orig, bak in backups:
             try:
                 if os.path.exists(bak):
+                    validate_project_target(
+                        project_path,
+                        os.path.relpath(
+                            bak, os.path.abspath(project_path)
+                        ).replace(os.sep, "/"),
+                    )
                     os.unlink(bak)
             except OSError:
                 pass

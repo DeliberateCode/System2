@@ -17,6 +17,7 @@ __all__ = [
     "lock_sources_outside_project",
     "preflight_artifact_write",
     "validate_artifact_ownership",
+    "validate_project_target",
     "verify_owned_artifacts",
 ]
 
@@ -49,6 +50,56 @@ def _validate_relative_artifact_path(path: object) -> str:
 
 def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _resolved_path_is_within(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((path, root)) == root
+    except ValueError:
+        return False
+
+
+def validate_project_target(project_path: str, relative_path: object) -> str:
+    """Return a safe absolute target below the resolved project root.
+
+    The relative path must be canonical, every existing path component must be a
+    real directory (never a symlink), and the nearest existing parent must remain
+    inside the project.  Missing suffixes are allowed so callers can validate
+    planned writes before creating their parent directories.
+    """
+    rel = _validate_relative_artifact_path(relative_path)
+    project_root = os.path.abspath(project_path)
+    resolved_project_root = os.path.realpath(project_root)
+    if not os.path.isdir(project_root):
+        raise ValueError(f"project path is not a directory: {project_path!r}")
+
+    current = project_root
+    parts = rel.split("/")
+    for index, part in enumerate(parts):
+        candidate = os.path.join(current, part)
+        if os.path.islink(candidate):
+            raise ValueError(f"project artifact path contains a symlink: {rel}")
+        if not os.path.lexists(candidate):
+            break
+        if index < len(parts) - 1 and not os.path.isdir(candidate):
+            raise ValueError(
+                f"project artifact parent is not a directory: "
+                f"{'/'.join(parts[:index + 1])}"
+            )
+        current = candidate
+
+    existing_parent = current if os.path.isdir(current) else os.path.dirname(current)
+    parent_real = os.path.realpath(existing_parent)
+    if not _resolved_path_is_within(parent_real, resolved_project_root):
+        raise ValueError(f"project artifact path escapes project root: {rel}")
+    if not os.path.isdir(existing_parent):
+        raise ValueError(f"project artifact parent is not a directory: {rel}")
+
+    target = os.path.join(project_root, *parts)
+    target_real = os.path.realpath(target)
+    if not _resolved_path_is_within(target_real, resolved_project_root):
+        raise ValueError(f"project artifact path escapes project root: {rel}")
+    return target
 
 
 def build_artifact_ownership(
@@ -134,7 +185,10 @@ def verify_owned_artifacts(
     for rel, expected_digest in validate_artifact_ownership(
         lock_data, lock_relative_path
     ):
-        path = os.path.join(project_path, rel)
+        unchecked_path = os.path.join(os.path.abspath(project_path), *rel.split("/"))
+        if os.path.islink(unchecked_path):
+            raise ValueError(f"owned artifact is no longer a regular file: {rel}")
+        path = validate_project_target(project_path, rel)
         if not os.path.isfile(path):
             if os.path.lexists(path):
                 raise ValueError(f"owned artifact is no longer a regular file: {rel}")
@@ -142,6 +196,7 @@ def verify_owned_artifacts(
                 raise ValueError(f"owned artifact is missing: {rel}")
             continue
         try:
+            path = validate_project_target(project_path, rel)
             with open(path, "rb") as fh:
                 actual_digest = _sha256_bytes(fh.read())
         except OSError as exc:
@@ -164,35 +219,46 @@ def preflight_artifact_write(
     planned_rels = [
         _canonicalize_relative_artifact_path(rel) for rel, _content in planned
     ]
-    planned_paths = [os.path.join(project_path, rel) for rel in planned_rels]
     if recompose:
-        with open(os.path.join(project_path, lock_rel), "r", encoding="utf-8") as fh:
+        lock_path = validate_project_target(project_path, lock_rel)
+        if not os.path.isfile(lock_path):
+            raise ValueError(f"target lock is not a regular file: {lock_rel}")
+        lock_path = validate_project_target(project_path, lock_rel)
+        with open(lock_path, "r", encoding="utf-8") as fh:
             lock_data = json.load(fh)
         owned_paths = verify_owned_artifacts(
             project_path, lock_data, lock_rel, require_all=True
         )
         owned_rels = [
-            _canonicalize_relative_artifact_path(os.path.relpath(path, project_path))
+            _canonicalize_relative_artifact_path(
+                os.path.relpath(path, os.path.abspath(project_path))
+            )
             for path in owned_paths
+        ]
+        planned_paths = [
+            validate_project_target(project_path, rel) for rel in planned_rels
         ]
         owned = set(owned_rels)
         collisions = [
             rel
-            for rel in planned_rels
+            for rel, path in zip(planned_rels, planned_paths)
             if rel != lock_rel
-            and os.path.lexists(os.path.join(project_path, rel))
+            and os.path.lexists(path)
             and rel not in owned
         ]
         stale_paths = [
-            os.path.join(project_path, rel)
+            validate_project_target(project_path, rel)
             for rel in owned_rels
             if rel not in planned_rels
         ]
     else:
+        planned_paths = [
+            validate_project_target(project_path, rel) for rel in planned_rels
+        ]
         collisions = [
             rel
-            for rel in planned_rels
-            if os.path.lexists(os.path.join(project_path, rel))
+            for rel, path in zip(planned_rels, planned_paths)
+            if os.path.lexists(path)
         ]
         stale_paths = []
     if collisions:

@@ -43,6 +43,13 @@ def _refusal(errors: List[str], report: dict) -> CompileResult:
     )
 
 
+def _resolved_path_is_within(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((path, root)) == root
+    except ValueError:
+        return False
+
+
 def _resolve_overlays(
     profile: str, overlay_paths: List[str]
 ) -> Tuple[Optional[List[str]], Optional[ProfileRef], Optional[List[str]]]:
@@ -90,17 +97,10 @@ def compose(
     """Orchestrate the front-end composition pipeline and return a ``CompileResult``."""
     errors: List[str] = []
 
-    # 1. Load schema and anchor map.
-    try:
-        schema = _manifest.load_schema(base_path)
-        anchor_map = _manifest.load_anchor_map(base_path)
-    except (OSError, json.JSONDecodeError) as exc:
-        return _refusal([f"Cannot load schema or anchor map: {exc}"], {})
-
-    # Guard: project_path must not be inside or equal to base_path.
+    # Refuse every resolved project/source overlap before reading source files.
     real_base = os.path.realpath(base_path)
     real_project = os.path.realpath(project_path)
-    if real_project == real_base or real_project.startswith(real_base + os.sep):
+    if _resolved_path_is_within(real_project, real_base):
         return _refusal(
             [
                 f"project path {project_path!r} is inside or equal to the "
@@ -109,8 +109,17 @@ def compose(
             ],
             {},
         )
+    if _resolved_path_is_within(real_base, real_project):
+        return _refusal(
+            [
+                f"project path {project_path!r} overlaps the plugin directory "
+                f"{base_path!r}; composition requires separate project and "
+                f"source directories"
+            ],
+            {},
+        )
 
-    # 1a. Profile resolution (lifted _activate_profile resolution half).
+    # Profile resolution (lifted _activate_profile resolution half).
     active_profile: Optional[ProfileRef] = None
     if profile is not None:
         resolved_paths, active_profile, perr = _resolve_overlays(
@@ -119,6 +128,28 @@ def compose(
         if perr is not None:
             return _refusal(perr, {})
         overlay_paths = resolved_paths
+
+    for overlay_path in overlay_paths:
+        real_overlay = os.path.realpath(overlay_path)
+        if (
+            _resolved_path_is_within(real_project, real_overlay)
+            or _resolved_path_is_within(real_overlay, real_project)
+        ):
+            return _refusal(
+                [
+                    f"project path {project_path!r} and overlay source "
+                    f"{overlay_path!r} overlap; composition requires separate "
+                    f"project and source directories"
+                ],
+                {},
+            )
+
+    # 1. Load schema and anchor map.
+    try:
+        schema = _manifest.load_schema(base_path)
+        anchor_map = _manifest.load_anchor_map(base_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        return _refusal([f"Cannot load schema or anchor map: {exc}"], {})
 
     # 2. Read and validate each overlay manifest.
     validated_manifests: List[dict] = []
