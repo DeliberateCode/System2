@@ -1312,6 +1312,15 @@ class ClaudeCodeBackend:
         self._compose_fn = compose_fn
 
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
+        return self._emit_graph(ir, project_path, dry_run=False)
+
+    def plan(self, ir: System2Graph, project_path: str) -> List[str]:
+        """Return the Claude write plan without mutating the project."""
+        return self._emit_graph(ir, project_path, dry_run=True)
+
+    def _emit_graph(
+        self, ir: System2Graph, project_path: str, *, dry_run: bool
+    ) -> List[str]:
         # Recheck that output cannot overwrite an overlay source tree.
         real_project = os.path.realpath(project_path)
         for oi in ir.overlay_inputs:
@@ -1328,7 +1337,7 @@ class ClaudeCodeBackend:
         overlay_info_for_lock: List[dict] = []
         pending_content_copies: List[Tuple[str, str, dict]] = []
         overlay_local_paths: Dict[str, str] = {}
-        dry_run = bool(getattr(ir, "dry_run", False))
+        dry_run = dry_run or bool(getattr(ir, "dry_run", False))
 
         for oi in ir.overlay_inputs:
             manifest = oi.manifest

@@ -325,6 +325,9 @@ class Backend(Protocol):
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
         ...
 
+    def plan(self, ir: System2Graph, project_path: str) -> List[str]:
+        ...
+
     def uninstall(
         self,
         project_path: str,

@@ -286,7 +286,11 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
     claude_text = _render_composed_text(result.graph, backend)
     target_files = result.files_to_write
     if target != "claude-code":
-        target_files = backend.plan(result.graph, project_path)
+        try:
+            target_files = backend.plan(result.graph, project_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            _emit_error(f"Cannot plan/write {target} artifacts: {exc}", fmt)
+            return 3
     report = _build_compose_report(
         result,
         claude_text,
@@ -372,6 +376,9 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
         written = backend.emit(result.graph, project_path)
     except OSError as exc:
         _emit_error(f"I/O error writing outputs: {exc}", fmt)
+        return 3
+    except (ValueError, json.JSONDecodeError) as exc:
+        _emit_error(f"Cannot plan/write {target} artifacts: {exc}", fmt)
         return 3
 
     if fmt == "json":

@@ -6,8 +6,11 @@ import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 from system2_compiler import cli, ir
+from system2_compiler.backends.base import Backend
+from system2_compiler.backends.claude_code import ClaudeCodeBackend
 from system2_compiler.backends.codex import CodexBackend
 from system2_compiler.backends.pi import PiBackend
 from evals import matrix, oracle
@@ -51,20 +54,46 @@ def _tree_bytes(root):
     return entries
 
 
+def _write(path, content=b"caller-owned\n"):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(content)
+
+
+def _assert_cli_error(test_case, code, stdout, stderr, fmt, message_fragment):
+    test_case.assertEqual(code, 3, (stdout, stderr))
+    combined = stdout + stderr
+    test_case.assertNotIn("Traceback", combined)
+    test_case.assertIn(message_fragment, combined)
+    if fmt == "json":
+        test_case.assertEqual(stderr, "")
+        test_case.assertEqual(json.loads(stdout)["status"], "error")
+    else:
+        test_case.assertEqual(stdout, "")
+        test_case.assertTrue(stderr.startswith("ERROR: "), stderr)
+
+
 class GraphProvenanceTest(unittest.TestCase):
     def test_graph_json_carries_ordered_deterministic_overlay_sources(self):
         with tempfile.TemporaryDirectory(prefix="graph-provenance-") as project:
             sources = (_TEST_OVERLAY, _ANCHORFILE)
-            graph = _compose(project, sources)
+            first_graph = _compose(project, sources)
+            second_graph = _compose(project, sources)
 
-            self.assertIsInstance(graph.overlay_sources, tuple)
-            self.assertEqual(graph.overlay_sources, sources)
-            first = graph.to_json(indent=2)
-            self.assertEqual(first, graph.to_json(indent=2))
+            self.assertIsInstance(first_graph.overlay_sources, tuple)
+            self.assertEqual(first_graph.overlay_sources, sources)
+            first = first_graph.to_json(indent=2)
+            second = second_graph.to_json(indent=2)
+            self.assertEqual(first, second)
             self.assertEqual(json.loads(first)["overlay_sources"], list(sources))
 
 
 class BackendProvenanceTest(unittest.TestCase):
+    def test_all_backends_implement_the_complete_protocol(self):
+        for backend in (ClaudeCodeBackend(), CodexBackend(), PiBackend()):
+            with self.subTest(backend=backend.name):
+                self.assertIsInstance(backend, Backend)
+
     def test_default_backends_write_exact_graph_provenance(self):
         for backend_cls in (CodexBackend, PiBackend):
             with self.subTest(backend=backend_cls.__name__):
@@ -93,6 +122,22 @@ class BackendProvenanceTest(unittest.TestCase):
 
 
 class TargetNativeCliPlanTest(unittest.TestCase):
+    def test_claude_plan_is_mutation_free(self):
+        with tempfile.TemporaryDirectory(prefix="claude-plan-") as project:
+            graph = _compose(project, (_TEST_OVERLAY,))
+            sentinel = os.path.join(project, "caller.txt")
+            _write(sentinel)
+            before = _tree_bytes(project)
+
+            planned = ClaudeCodeBackend().plan(graph, project)
+
+            self.assertEqual(_tree_bytes(project), before)
+            self.assertIn(os.path.join(project, "CLAUDE.md"), planned)
+            self.assertIn(
+                os.path.join(project, "spec", "overlay-manifest.lock"),
+                planned,
+            )
+
     def test_codex_and_pi_dry_runs_are_native_and_mutation_free(self):
         expected_fragments = {
             "codex": (os.path.join(".codex-plugin", "plugin.json"),
@@ -134,6 +179,158 @@ class TargetNativeCliPlanTest(unittest.TestCase):
                                 )
                         else:
                             self.assertIn(f"--- {target} target plan ---", stdout)
+
+    def test_first_install_collisions_are_normal_errors_without_mutation(self):
+        cases = (
+            ("codex", os.path.join(".codex-plugin", "plugin.json")),
+            ("pi", os.path.join(".pi", "SYSTEM.md")),
+        )
+        for target, relative in cases:
+            for fmt in ("json", "text"):
+                for dry_run in (False, True):
+                    with self.subTest(
+                        target=target, format=fmt, dry_run=dry_run
+                    ):
+                        with tempfile.TemporaryDirectory(
+                            prefix="cli-collision-"
+                        ) as project:
+                            _write(os.path.join(project, relative))
+                            before = _tree_bytes(project)
+                            argv = [
+                                "compile", "--target", target,
+                                "--base", _BASE,
+                                "--project", project,
+                                "--overlays", _TEST_OVERLAY,
+                                "--format", fmt,
+                            ]
+                            if dry_run:
+                                argv.append("--dry-run")
+
+                            code, stdout, stderr = _run_cli(argv)
+
+                            _assert_cli_error(
+                                self, code, stdout, stderr, fmt,
+                                f"Cannot plan/write {target} artifacts:",
+                            )
+                            self.assertIn("pre-existing", stdout + stderr)
+                            self.assertEqual(_tree_bytes(project), before)
+
+    def test_existing_malformed_locks_are_normal_errors_without_mutation(self):
+        for target, backend_cls in (("codex", CodexBackend), ("pi", PiBackend)):
+            with tempfile.TemporaryDirectory(
+                prefix="cli-malformed-lock-"
+            ) as project:
+                graph = _compose(project, (_TEST_OVERLAY,))
+                backend = backend_cls()
+                backend.emit(graph, project)
+                _write(backend.lock_path(project), b"{not-json\n")
+
+                for fmt in ("json", "text"):
+                    for dry_run in (False, True):
+                        with self.subTest(
+                            target=target, format=fmt, dry_run=dry_run
+                        ):
+                            before = _tree_bytes(project)
+                            argv = [
+                                "compile", "--target", target,
+                                "--base", _BASE,
+                                "--project", project,
+                                "--overlays", _TEST_OVERLAY,
+                                "--format", fmt,
+                            ]
+                            if dry_run:
+                                argv.append("--dry-run")
+
+                            code, stdout, stderr = _run_cli(argv)
+
+                            _assert_cli_error(
+                                self, code, stdout, stderr, fmt,
+                                f"Cannot plan/write {target} artifacts:",
+                            )
+                            self.assertEqual(_tree_bytes(project), before)
+
+    def test_from_lock_ownership_failures_are_normal_and_mutation_free(self):
+        cases = (
+            ("codex", CodexBackend, os.path.join(".codex-plugin", "plugin.json")),
+            ("pi", PiBackend, os.path.join(".pi", "SYSTEM.md")),
+        )
+        for target, backend_cls, owned_relative in cases:
+            for damage in ("tampered", "malformed"):
+                with self.subTest(target=target, damage=damage):
+                    with tempfile.TemporaryDirectory(
+                        prefix="cli-from-lock-ownership-"
+                    ) as project:
+                        graph = _compose(project, (_TEST_OVERLAY,))
+                        backend = backend_cls()
+                        backend.emit(graph, project)
+                        if damage == "tampered":
+                            _write(
+                                os.path.join(project, owned_relative),
+                                b"caller modification\n",
+                            )
+                        else:
+                            lock_path = backend.lock_path(project)
+                            with open(lock_path, encoding="utf-8") as fh:
+                                lock = json.load(fh)
+                            lock["ownership"]["artifacts"] = {"not": "a list"}
+                            with open(lock_path, "w", encoding="utf-8") as fh:
+                                json.dump(lock, fh, indent=2)
+                                fh.write("\n")
+
+                        for fmt in ("json", "text"):
+                            for dry_run in (False, True):
+                                with self.subTest(format=fmt, dry_run=dry_run):
+                                    before = _tree_bytes(project)
+                                    argv = [
+                                        "from-lock", "--target", target,
+                                        "--base", _BASE,
+                                        "--project", project,
+                                        "--format", fmt,
+                                    ]
+                                    if dry_run:
+                                        argv.append("--dry-run")
+
+                                    code, stdout, stderr = _run_cli(argv)
+
+                                    _assert_cli_error(
+                                        self, code, stdout, stderr, fmt,
+                                        f"Cannot plan/write {target} artifacts:",
+                                    )
+                                    self.assertEqual(_tree_bytes(project), before)
+
+    def test_emit_validation_errors_are_normal_and_oserror_is_unchanged(self):
+        cases = (("codex", CodexBackend), ("pi", PiBackend))
+        failures = (
+            (ValueError("synthetic validation failure"),
+             "Cannot plan/write {target} artifacts:"),
+            (json.JSONDecodeError("synthetic malformed lock", "{", 0),
+             "Cannot plan/write {target} artifacts:"),
+            (OSError("synthetic write failure"),
+             "I/O error writing outputs:"),
+        )
+        for target, backend_cls in cases:
+            for failure, expected in failures:
+                with self.subTest(target=target, failure=type(failure).__name__):
+                    with tempfile.TemporaryDirectory(
+                        prefix="cli-emit-error-"
+                    ) as project:
+                        before = _tree_bytes(project)
+                        with mock.patch.object(
+                            backend_cls, "emit", side_effect=failure
+                        ):
+                            code, stdout, stderr = _run_cli([
+                                "compile", "--target", target,
+                                "--base", _BASE,
+                                "--project", project,
+                                "--overlays", _TEST_OVERLAY,
+                                "--format", "json",
+                            ])
+
+                        _assert_cli_error(
+                            self, code, stdout, stderr, "json",
+                            expected.format(target=target),
+                        )
+                        self.assertEqual(_tree_bytes(project), before)
 
 
 if __name__ == "__main__":
