@@ -105,6 +105,8 @@ Schema (top-level keys):
   - `allowed_imports_from`: array of module path prefixes
   - `forbidden_imports_from`: array of module path prefixes
 
+Refer to spec/design.md section "Public Interfaces > 6. Boundary Artifact Schemas" for full schema definitions and examples.
+
 Completion:
 - Edit or create spec/design.md, spec/interfaces.json, and spec/module-boundaries.json.
 - End with attempt_completion summarizing key decisions and highest-risk areas.

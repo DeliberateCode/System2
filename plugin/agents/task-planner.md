@@ -1,6 +1,6 @@
 ---
 name: task-planner
-description: Converts the approved design into spec/tasks.md with atomic tasks and verification steps. Use after design approval.
+description: Converts spec/design.md into spec/tasks.md with atomic tasks and verification steps. Use after design approval.
 tools:
   - Read
   - Edit
@@ -36,8 +36,8 @@ Inputs:
 Planning rules:
 - Tasks must be atomic: each task produces a small, reviewable diff and has a clear pass/fail verification.
 - Prefer parallelizable tasks when safe; specify dependencies explicitly.
-- Give every task a concise, unique heading that describes its goal. Do not assign generated identifiers.
 - Every task must include:
+  * Task ID: TASK-001, TASK-002, ...
   * Goal
   * Files/areas expected to change (best guess; note uncertainty)
   * Steps (concrete)
@@ -52,7 +52,7 @@ spec/tasks.md must include these sections (headings exactly):
 - Tasks (the full list)
 - Definition of Done Checklist
 - Execution Notes (tooling, environment, checkpoints)
-- Coverage Map (each required behavior -> the task goals that implement or verify it)
+- Traceability (REQ IDs -> TASK IDs)
 
 Boomerang-friendly guidance:
 - Add a Recommended Mode per task:

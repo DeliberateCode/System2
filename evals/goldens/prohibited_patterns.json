@@ -1,6 +1,6 @@
 {
   "description": "Patterns that must NOT appear in specified file scopes",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "rules": [
     {
       "id": "no-claude-project-dir-in-agents",
@@ -33,13 +33,68 @@
       "description": "No stale .system2/ entries in .gitignore"
     },
     {
-      "id": "no-generated-spec-identifiers",
-      "pattern": "(?<![A-Za-z0-9])(?:(?:REQ|TASK|NFR|AC|EVAL|OQ|ROQ|OPEN|ODQ|OA|RL|PG|DoD)(?:[-_][A-Z]+)*[-_]?(?:\\d+(?:[._/-]\\d+)*|[xX]{2,})|(?:F|G|J|K|D|A|S|N|R|Q|T|C|B)\\d+(?:[._/-]\\d+)*)(?![A-Za-z0-9])",
-      "scope": ".",
-      "exclude_dirs": [
-        "spec/"
+      "id": "no-req-ids-in-agents",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/agents/",
+      "description": "No requirement IDs in agent files (except requirements-engineer.md instructional example)",
+      "exclude_files": [
+        "plugin/agents/requirements-engineer.md"
+      ]
+    },
+    {
+      "id": "no-req-ids-in-commands",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/skills/",
+      "description": "No requirement IDs in skill files"
+    },
+    {
+      "id": "no-req-ids-in-hooks",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/hooks/",
+      "description": "No requirement IDs in hook files"
+    },
+    {
+      "id": "no-req-ids-in-allowlists",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/allowlists/",
+      "description": "No requirement IDs in allowlist files"
+    },
+    {
+      "id": "no-req-ids-in-plugin-manifests",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/.claude-plugin/",
+      "description": "No requirement IDs in plugin manifest files"
+    },
+    {
+      "id": "no-req-ids-in-readme",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "README.md",
+      "description": "No requirement IDs in README"
+    },
+    {
+      "id": "no-req-ids-in-claudemd",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "CLAUDE.md",
+      "description": "No requirement IDs in CLAUDE.md"
+    },
+    {
+      "id": "no-req-ids-in-schemas",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/schemas/",
+      "description": "No requirement IDs in schema files"
+    },
+    {
+      "id": "no-req-ids-in-scripts",
+      "pattern": "REQ-([0-9]{3}|OVL-[0-9]{3})",
+      "scope": "plugin/scripts/",
+      "description": "No requirement IDs in scripts (traceability comments allowed in composer/hook_security)",
+      "exclude_files": [
+        "plugin/scripts/composer.py",
+        "plugin/scripts/hook_security.py"
       ],
-      "description": "Maintained documentation and implementation text outside source specifications describe behavior directly instead of using generated specification identifiers"
+      "exclude_dirs": [
+        "plugin/scripts/_system2_compiler/"
+      ]
     }
   ]
 }

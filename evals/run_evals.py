@@ -786,27 +786,28 @@ def _prohibited_pattern_hits(rule: dict):
     return grep_file(scope, rule["pattern"])
 
 
-def _generated_identifier_rule() -> dict:
+def check_no_requirement_ids_in_implementation_files():
+    """Implementation files contain no REQ- IDs."""
     golden = load_golden("prohibited_patterns.json")
-    return next(
-        rule for rule in golden["rules"]
-        if rule["id"] == "no-generated-spec-identifiers"
-    )
-
-
-def check_no_generated_spec_identifiers_in_implementation_files():
-    """Implementation files contain no generated specification identifiers."""
-    rule = _generated_identifier_rule()
-    hits = _prohibited_pattern_hits(rule)
-    if hits and len(hits[0]) == 3:
-        locations = [f"{hit[0]}:{hit[1]}" for hit in hits[:3]]
-    else:
-        locations = [f"line {hit[0]}" for hit in hits[:3]]
+    errors = []
+    for rule in golden["rules"]:
+        if not rule["id"].startswith("no-req-ids"):
+            continue
+        hits = _prohibited_pattern_hits(rule)
+        if hits and len(hits[0]) == 3:
+            locations = [f"{hit[0]}:{hit[1]}" for hit in hits[:3]]
+        else:
+            locations = [f"line {hit[0]}" for hit in hits[:3]]
+        if hits:
+            errors.append(
+                f"{rule['id']} in {rule['scope']}: "
+                f"{len(hits)} hit(s) at {locations}"
+            )
     record(
-        'Documentation: implementation files contain no generated specification identifiers',
-        "Implementation files contain no generated specification identifiers",
-        not hits,
-        f"{len(hits)} hit(s) at {locations}" if hits else "",
+        "Documentation: implementation files contain no REQ- IDs",
+        "Implementation files contain no REQ- IDs",
+        not errors,
+        "; ".join(errors),
     )
 
 
@@ -2282,7 +2283,7 @@ ALL_EVALS = [
     check_spec_pattern_in_gitignore,
     # Documentation
     check_documentation_set_has_required_patterns_no_prohibited_patterns,
-    check_no_generated_spec_identifiers_in_implementation_files,
+    check_no_requirement_ids_in_implementation_files,
     # Security
     check_no_non_stdlib_imports_in_hook_scripts,
     check_no_network_calls_in_hook_scripts,
