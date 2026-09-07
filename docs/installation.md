@@ -7,7 +7,7 @@ Codex and Pi are compiler-generated base-workflow projections with separate rele
 |---------|--------|-------|
 | **Claude Code** | Available | [Installation and Updating (Claude Code)](installation/claude-code.md) |
 | **Codex** | Pre-release — native acceptance pending | [Codex pre-release status](installation/codex.md) |
-| **Pi** | Pre-release — npm publication pending | [Pi publication status](installation/pi.md) |
+| **Pi** | Pre-release — validated on Pi 0.85.1; npm publication pending | [Pi publication status](installation/pi.md) |
 
 The shared workflow does not imply mechanism parity. Claude Code uses native isolated
 subagents and provides the end-user overlay/profile commands. Codex and Pi currently expose

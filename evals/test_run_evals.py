@@ -33,6 +33,36 @@ def test_requirement_identifier_guard_rejects_a_production_script():
     assert os.path.basename(planted_path) in record.call_args.args[3]
 
 
+def test_maintained_documentation_matches_current_pi_and_overlay_contracts():
+    repo = run_evals.REPO_ROOT
+    pi_install = (repo / "docs" / "installation" / "pi.md").read_text(
+        encoding="utf-8"
+    )
+    compiler_readme = (repo / "compiler" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    overlay_guide = (
+        repo / "docs" / "overlays" / "claude-code.md"
+    ).read_text(encoding="utf-8")
+
+    assert "0.85.1" in pi_install
+    assert "caller-owned `AGENTS.md`" in pi_install
+    assert "adapted/partial" in pi_install
+    assert "pi install npm:" not in pi_install
+    for target in ("claude-code", "codex", "pi"):
+        segments = compiler_readme.split(f"--target {target}")[1:]
+        example = next(
+            (segment[:240] for segment in segments if "--base ../plugin" in segment[:240]),
+            "",
+        )
+        assert example, f"{target} example uses the wrong base"
+        assert "--overlays" in example, f"{target} source example is not runnable"
+    assert "optional `.system2/overlays.json` input list" in overlay_guide
+    assert "spec/overlay-manifest.lock" in overlay_guide
+    assert "--remove overlay-a" in overlay_guide
+    assert "--remove OverlayA" not in overlay_guide
+
+
 def test_claude_agents_preserve_requirements_to_verification_traceability():
     expected_excerpts = {
         "requirements-engineer.md": (

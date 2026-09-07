@@ -62,7 +62,7 @@ These artifacts serve as the contract between planning and execution.
 
 ## Installation
 
-System2 has three distinct channels. **Claude Code** is the current end-user channel. The compiler also produces base-workflow projections for **Codex** and **Pi**; Codex is pending native acceptance and Pi is pending package publication. See **[Installation and Updating](docs/installation.md)** for current availability.
+System2 has three distinct channels. **Claude Code** is the current end-user channel. The compiler also produces base-workflow projections for **Codex** and **Pi**; Codex is pending native acceptance, while Pi has native acceptance evidence pinned to version 0.85.1 but remains pending package publication. See **[Installation and Updating](docs/installation.md)** for current availability.
 
 Quick start (Claude Code):
 
@@ -84,7 +84,7 @@ Each projection preserves the spec pipeline, but the harness mechanisms are not 
 |---------|-----------------------------|
 | **Claude Code** | Current reference channel. The orchestrator runs from `CLAUDE.md`, and the 13 agents run as native, isolated subagents. |
 | **Codex** | Pre-release base-workflow projection using role skills and in-session role switching; native acceptance is pending. |
-| **Pi** | Unpublished base-workflow projection using an in-session `/delegate` role switch and a Pi extension for safety gates. |
+| **Pi** | Unpublished base-workflow projection, validated on Pi 0.85.1, using an in-session `/delegate` role switch and a Pi extension for bounded safety gates. |
 
 Do not infer mechanism parity from the shared workflow model. See [Installation and Updating](docs/installation.md) for availability and [Overlays (optional extensions)](docs/overlays.md) for the Claude-only end-user overlay/profile workflow.
 
@@ -320,16 +320,23 @@ Just add a helper function to utils.py that formats dates.
 
 ## Development
 
-Run the repository suite from the root:
+Run the repository suite from the root with `python3` resolving to Python 3.11, in the same
+validator environment used by CI (including Node 22):
 
 ```sh
-pytest -q
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements-dev.txt
+npm install -g @earendil-works/pi-coding-agent@0.85.1
+export PI_PKG_ENTRY="$(npm root -g)/@earendil-works/pi-coding-agent/dist/index.js"
+python3 -m pytest -q
 ```
 
-The test suite is intended to run as a non-root user: permission-based rollback
-coverage is skipped under root because root bypasses the permission denial being
-tested. Editable compiler installs are supported (`pip install -e compiler/`); their
-local package metadata is ignored by the repository-reference guard.
+The explicit package entry supports custom npm prefixes. A missing validator or skipped
+compiler test is not an accepted green run; CI enforces zero skips. The suite is intended to
+run as a non-root user because root bypasses the permission denial used by rollback coverage.
+Editable compiler installs are supported (`python3 -m pip install -e compiler/`); their local
+package metadata is ignored by the repository-reference guard. See
+[`compiler/README.md`](compiler/README.md#verification) for narrow checks.
 
 ## Troubleshooting
 

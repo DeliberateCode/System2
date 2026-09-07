@@ -2,7 +2,11 @@
 
 GENERATED npm package candidate — do not hand-edit. Regenerate via `python3 compiler/tools/regen_all.py` in the DeliberateCode/System2 repo.
 
-System2 is a deliberate-reasoning workflow for the [Pi coding agent](https://github.com/earendil-works/pi-coding-agent). This candidate contains the compiler-generated base workflow, prompts, and bounded safety extension. It has no install scripts or runtime dependencies; Pi provides the declared host peer.
+System2 is a deliberate-reasoning workflow for the [Pi coding agent](https://github.com/earendil-works/pi). This candidate contains the compiler-generated base workflow, prompts, and bounded safety extension. It has no install scripts or bundled runtime dependencies; Pi provides the declared host peer.
+
+Native acceptance is pinned to **Pi 0.85.1**. It covers package command discovery, public `/delegate` and `/system2-init` dispatch, persisted role/prompt restoration across reload, bounded dangerous-command and sensitive-path blocks, a structured off-scope write block, and a benign-command negative control. Additional synthetic extension-handler controls cover supported literal shell redirection/`tee` targets and the broader matcher corpus; they are not native CLI acceptance. This is evidence for the tested version, not a compatibility claim for untested Pi versions.
+
+The `"*"` peer range follows Pi's package guidance for host-provided core imports; it is a loader convention, not a claim of validation against every Pi version.
 
 ## Availability
 

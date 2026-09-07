@@ -25,6 +25,10 @@ Apply an overlay after preview and approval:
 /system2:compose /path/to/my-overlay
 ```
 
+As an alternative to passing paths, a project may provide `.system2/overlays.json`
+with an `"overlays"` array of path strings. This is an optional input list; the generated
+composition lock remains `spec/overlay-manifest.lock`.
+
 `/system2:compose` validates manifests, detects structural conflicts, reports warnings, then writes project-local composed artifacts:
 
 - `CLAUDE.md` with base System2 instructions plus overlay-contributed sections
@@ -50,7 +54,7 @@ Overlay composition is explicit. `/system2:init` remains base-only and produces 
 
 ## Overlay profiles
 
-A profile is a named, reusable set of overlays. Once you have settled on a useful combination of overlays, you can save it as a profile and activate it by name in any project instead of retyping overlay paths. Profiles are stored at `~/.system2/profiles.json` (user-level, shared across every project on your machine) and are independent of the per-project `.system2/overlays.json`.
+A profile is a named, reusable set of overlays. Once you have settled on a useful combination of overlays, you can save it as a profile and activate it by name in any project instead of retyping overlay paths. Profiles are stored at `~/.system2/profiles.json` (user-level, shared across every project on your machine) and are independent of per-project state: the optional `.system2/overlays.json` input list, `spec/overlay-manifest.lock`, and `.system2/overlays/` cache.
 
 The `/system2:compose` namespace creates, activates, and changes profiles. Activate a profile to compose its overlay set in the current project (a dry-run preview is shown before any files are written):
 
@@ -73,7 +77,7 @@ Define a profile explicitly from overlay paths:
 Adjust a profile by adding paths or removing overlays by name (flags are repeatable):
 
 ```
-/system2:compose edit backend-stack --add /path/to/overlay-c --remove OverlayA
+/system2:compose edit backend-stack --add /path/to/overlay-c --remove overlay-a
 ```
 
 Remove a profile:

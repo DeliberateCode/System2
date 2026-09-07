@@ -339,6 +339,11 @@ class PiPackagePolicyTest(unittest.TestCase):
         self.assertIn("package-discovered", readme)
         self.assertIn("does not materialize or replace caller-owned `AGENTS.md`", readme)
         self.assertIn("Budget is advisory", readme)
+        self.assertIn("Native acceptance is pinned to **Pi 0.85.1**", readme)
+        self.assertIn("https://github.com/earendil-works/pi", readme)
+        self.assertNotIn("earendil-works/pi-coding-agent", readme)
+        self.assertIn("they are not native CLI acceptance", readme)
+        self.assertIn("loader convention", readme)
         self.assertNotIn("`.pi/extensions/system2.ts`", doctor)
         self.assertNotIn("pi install npm:", readme)
 
@@ -368,6 +373,8 @@ class PiPackagePolicyTest(unittest.TestCase):
             "native safety gate (block-dangerous, protect-sensitive, enforce-lease)",
             description,
         )
+        self.assertIn("no bundled runtime dependencies", description)
+        self.assertNotIn("no dependencies", description)
 
     def test_init_extension_guard_clauses_present(self):
         # Structural defense in depth for the fail-closed out-of-root guard:
