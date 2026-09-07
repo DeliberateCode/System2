@@ -126,6 +126,36 @@ class RegenGuardContractTest(unittest.TestCase):
         )
         self.assertEqual(rc, 0)
 
+    def test_tree_comparison_rejects_same_byte_symlinked_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            committed = os.path.join(root, "committed")
+            regenerated = os.path.join(root, "regenerated")
+            for tree in (committed, regenerated):
+                os.makedirs(os.path.join(tree, "nested"))
+                with open(os.path.join(tree, "nested", "artifact.txt"), "wb") as fh:
+                    fh.write(b"same bytes")
+
+            self.assertTrue(
+                regen_all._trees_match(committed, regenerated),
+                "regular-file trees remain the accepted negative control",
+            )
+
+            victim = os.path.join(committed, "nested", "artifact.txt")
+            external_file = os.path.join(root, "external-file")
+            shutil.copyfile(victim, external_file)
+            os.remove(victim)
+            os.symlink(external_file, victim)
+            self.assertFalse(regen_all._trees_match(committed, regenerated))
+
+            shutil.rmtree(committed)
+            shutil.copytree(regenerated, committed)
+            external_dir = os.path.join(root, "external-dir")
+            os.rename(os.path.join(committed, "nested"), external_dir)
+            os.symlink(external_dir, os.path.join(committed, "nested"))
+            self.assertFalse(regen_all._trees_match(committed, regenerated))
+            with self.assertRaisesRegex(ValueError, "artifact directory"):
+                regen_all._relfiles(committed)
+
     def test_registry_coverage_and_placeholder_slots(self):
         """Every active builder is acknowledged-covered; every placeholder RAISES the
         not-yet-implemented error on ``--only`` (both regen and --check)."""

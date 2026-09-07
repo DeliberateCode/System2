@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -24,24 +25,58 @@ _BUNDLE_COMPANIONS = (("tools/_freshness.py", "_freshness.py"),)
 _BUNDLE_DIRNAME = "_system2_compiler"
 
 
+def _require_type(path: str, predicate, description: str) -> None:
+    """Reject links and special files without dereferencing them."""
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{description} missing: {path}") from None
+    if not predicate(mode):
+        raise ValueError(f"{description} has an invalid file type: {path}")
+
+
+def _require_file(path: str, description: str) -> None:
+    _require_type(path, stat.S_ISREG, description)
+
+
+def _require_directory(path: str, description: str) -> None:
+    _require_type(path, stat.S_ISDIR, description)
+
+
 def _iter_source_files(compiler_root: str):
     """Yield ``(relpath, abspath)`` for every bundled source file, sorted."""
+    compiler_root = os.path.abspath(compiler_root)
+    _require_directory(compiler_root, "compiler source root")
     out = []
     for member in _BUNDLE_MEMBERS:
         src = os.path.join(compiler_root, member)
-        if os.path.isfile(src):
-            out.append((member, src))
-            continue
-        if not os.path.isdir(src):
+        try:
+            mode = os.lstat(src).st_mode
+        except FileNotFoundError:
             raise FileNotFoundError(
                 f"bundle member missing from compiler source: {member}"
+            ) from None
+        if stat.S_ISREG(mode):
+            out.append((member, src))
+            continue
+        if not stat.S_ISDIR(mode):
+            raise ValueError(
+                f"bundle member is not a regular file or directory: {member}"
             )
         for dirpath, dirnames, filenames in os.walk(src):
-            dirnames[:] = sorted(d for d in dirnames if d not in _EXCLUDE_DIRS)
+            _require_directory(dirpath, "bundle source directory")
+            retained = []
+            for dirname in sorted(dirnames):
+                child = os.path.join(dirpath, dirname)
+                _require_directory(child, "bundle source directory")
+                if dirname not in _EXCLUDE_DIRS:
+                    retained.append(dirname)
+            dirnames[:] = retained
             for fn in sorted(filenames):
+                abspath = os.path.join(dirpath, fn)
+                _require_file(abspath, "bundle source file")
                 if fn.endswith(".pyc"):
                     continue
-                abspath = os.path.join(dirpath, fn)
                 rel = os.path.relpath(abspath, compiler_root)
                 out.append((rel.replace(os.sep, "/"), abspath))
     out.sort(key=lambda pair: pair[0])
@@ -72,10 +107,7 @@ def _copy_companions(compiler_root: str, bundle_root: str) -> None:
     """Vendor each bundle companion into ``bundle_root`` (non-hashed, re-emitted)."""
     for src_rel, dest_rel in _BUNDLE_COMPANIONS:
         src = os.path.join(compiler_root, src_rel.replace("/", os.sep))
-        if not os.path.isfile(src):
-            raise FileNotFoundError(
-                f"bundle companion missing from compiler source: {src_rel}"
-            )
+        _require_file(src, f"bundle companion {src_rel}")
         dest = os.path.join(bundle_root, dest_rel.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copyfile(src, dest)
@@ -85,6 +117,7 @@ def _compiler_version(compiler_root: str) -> str:
     """Read the compiler version from ``pyproject.toml`` (``project.version``)."""
     path = os.path.join(compiler_root, "pyproject.toml")
     try:
+        _require_file(path, "compiler project metadata")
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
                 stripped = line.strip()

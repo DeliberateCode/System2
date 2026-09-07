@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -261,7 +262,7 @@ def _package_data_matches_current_codex_emission(ctx: _Context) -> bool:
     mirror = os.path.join(ctx.compiler_root, _PACKAGED_USER_HOOKS_REL)
     with tempfile.TemporaryDirectory(prefix="system2-codex-package-data-") as tmp:
         _build_codex(tmp, ctx)
-        return os.path.isdir(mirror) and _trees_match(
+        return _is_regular_directory(mirror) and _trees_match(
             os.path.join(tmp, "user-hooks"), mirror
         )
 
@@ -328,15 +329,51 @@ def _read_json(path: str) -> dict:
 
 # check tree comparison
 
+def _require_type(path: str, predicate, description: str) -> None:
+    """Reject links and special files without dereferencing them."""
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{description} missing: {path}") from None
+    if not predicate(mode):
+        raise ValueError(f"{description} has an invalid file type: {path}")
+
+
+def _require_file(path: str, description: str) -> None:
+    _require_type(path, stat.S_ISREG, description)
+
+
+def _require_directory(path: str, description: str) -> None:
+    _require_type(path, stat.S_ISDIR, description)
+
+
+def _is_regular_directory(path: str) -> bool:
+    try:
+        _require_directory(path, "artifact root")
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _relfiles(root: str):
     """Return the set of POSIX relpaths under *root*, excluding build/test detritus."""
+    root = os.path.abspath(root)
+    _require_directory(root, "artifact root")
     out = set()
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in _WALK_EXCLUDE_DIRS]
-        for fn in filenames:
+        _require_directory(dirpath, "artifact directory")
+        retained = []
+        for dirname in sorted(dirnames):
+            child = os.path.join(dirpath, dirname)
+            _require_directory(child, "artifact directory")
+            if dirname not in _WALK_EXCLUDE_DIRS:
+                retained.append(dirname)
+        dirnames[:] = retained
+        for fn in sorted(filenames):
+            abspath = os.path.join(dirpath, fn)
+            _require_file(abspath, "artifact file")
             if fn.endswith(".pyc"):
                 continue
-            abspath = os.path.join(dirpath, fn)
             out.add(os.path.relpath(abspath, root).replace(os.sep, "/"))
     return out
 
@@ -355,22 +392,29 @@ def _provenance_equivalent(committed_path: str, regen_path: str) -> bool:
 
 
 def _bytes_equal(a: str, b: str) -> bool:
+    _require_file(a, "committed artifact")
+    _require_file(b, "regenerated artifact")
     with open(a, "rb") as fa, open(b, "rb") as fb:
         return fa.read() == fb.read()
 
 
 def _trees_match(committed_root: str, regen_root: str) -> bool:
     """Return True iff the two trees are byte-identical modulo provenance timestamps."""
-    if _relfiles(committed_root) != _relfiles(regen_root):
-        return False
-    for rel in _relfiles(committed_root):
-        committed_path = os.path.join(committed_root, rel)
-        regen_path = os.path.join(regen_root, rel)
-        if os.path.basename(rel) in _PROVENANCE_FILENAMES:
-            if not _provenance_equivalent(committed_path, regen_path):
-                return False
-        elif not _bytes_equal(committed_path, regen_path):
+    try:
+        committed_files = _relfiles(committed_root)
+        regen_files = _relfiles(regen_root)
+        if committed_files != regen_files:
             return False
+        for rel in committed_files:
+            committed_path = os.path.join(committed_root, rel)
+            regen_path = os.path.join(regen_root, rel)
+            if os.path.basename(rel) in _PROVENANCE_FILENAMES:
+                if not _provenance_equivalent(committed_path, regen_path):
+                    return False
+            elif not _bytes_equal(committed_path, regen_path):
+                return False
+    except (OSError, ValueError):
+        return False
     return True
 
 
@@ -421,7 +465,7 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
             )
             continue
         committed_root = os.path.join(ctx.repo_root, art.dest_rel, art.content_rel)
-        if not os.path.isdir(committed_root):
+        if not _is_regular_directory(committed_root):
             if explicit:
                 sys.stderr.write(
                     f"{art.name}: no committed tree at {art.dest_rel} yet\n"
@@ -454,7 +498,7 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
                 ctx.compiler_root, _PACKAGED_USER_HOOKS_REL
             )
             user_hooks_committed = os.path.join(committed_root, "user-hooks")
-            if not os.path.isdir(mirror_root) or not _trees_match(
+            if not _is_regular_directory(mirror_root) or not _trees_match(
                 user_hooks_committed, mirror_root
             ):
                 sys.stderr.write(

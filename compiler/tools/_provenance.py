@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import json
 import os
+import stat
 
 import build_bundle  # sibling tool; regen_all puts compiler/tools on sys.path
 
@@ -31,22 +32,57 @@ _ARTIFACT_EXCLUDE_DIRS = frozenset(
 )
 
 
+def _require_type(path: str, predicate, description: str) -> None:
+    """Reject links and special files without dereferencing them."""
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{description} missing: {path}") from None
+    if not predicate(mode):
+        raise ValueError(f"{description} has an invalid file type: {path}")
+
+
+def _require_file(path: str, description: str) -> None:
+    _require_type(path, stat.S_ISREG, description)
+
+
+def _require_directory(path: str, description: str) -> None:
+    _require_type(path, stat.S_ISDIR, description)
+
+
 def _iter_input_files(roots):
     """Yield ``(relpath, abspath)`` over every input file, sorted by relpath."""
     out = []
     for label, path in roots:
         path = os.path.abspath(path)
-        if os.path.isfile(path):
+        try:
+            mode = os.lstat(path).st_mode
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"provenance input missing: {label} ({path})"
+            ) from None
+        if stat.S_ISREG(mode):
             out.append((label, path))
             continue
-        if not os.path.isdir(path):
-            raise FileNotFoundError(f"provenance input missing: {label} ({path})")
+        if not stat.S_ISDIR(mode):
+            raise ValueError(
+                f"provenance input is not a regular file or directory: "
+                f"{label} ({path})"
+            )
         for dirpath, dirnames, filenames in os.walk(path):
-            dirnames[:] = sorted(d for d in dirnames if d not in _EXCLUDE_DIRS)
+            _require_directory(dirpath, "provenance input directory")
+            retained = []
+            for dirname in sorted(dirnames):
+                child = os.path.join(dirpath, dirname)
+                _require_directory(child, "provenance input directory")
+                if dirname not in _EXCLUDE_DIRS:
+                    retained.append(dirname)
+            dirnames[:] = retained
             for fn in sorted(filenames):
+                abspath = os.path.join(dirpath, fn)
+                _require_file(abspath, "provenance input file")
                 if fn.endswith(".pyc"):
                     continue
-                abspath = os.path.join(dirpath, fn)
                 rel = os.path.relpath(abspath, path).replace(os.sep, "/")
                 out.append((f"{label}/{rel}", abspath))
     out.sort(key=lambda pair: pair[0])
@@ -71,15 +107,22 @@ def source_sha256(roots) -> str:
 def artifact_inventory(dest_dir: str):
     """Return the exact sorted artifact-file inventory, excluding provenance itself."""
     root = os.path.abspath(dest_dir)
+    _require_directory(root, "artifact root directory")
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(
-            d for d in dirnames if d not in _ARTIFACT_EXCLUDE_DIRS
-        )
+        _require_directory(dirpath, "artifact directory")
+        retained = []
+        for dirname in sorted(dirnames):
+            child = os.path.join(dirpath, dirname)
+            _require_directory(child, "artifact directory")
+            if dirname not in _ARTIFACT_EXCLUDE_DIRS:
+                retained.append(dirname)
+        dirnames[:] = retained
         for fn in sorted(filenames):
+            abspath = os.path.join(dirpath, fn)
+            _require_file(abspath, "artifact file")
             if fn.endswith(".pyc"):
                 continue
-            abspath = os.path.join(dirpath, fn)
             rel = os.path.relpath(abspath, root).replace(os.sep, "/")
             if rel == PROVENANCE_FILENAME:
                 continue
@@ -95,7 +138,9 @@ def artifact_sha256(dest_dir: str, inventory=None) -> str:
     for rel in inventory:
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        with open(os.path.join(dest_dir, rel.replace("/", os.sep)), "rb") as fh:
+        path = os.path.join(dest_dir, rel.replace("/", os.sep))
+        _require_file(path, "artifact file")
+        with open(path, "rb") as fh:
             digest.update(fh.read())
         digest.update(b"\0")
     return digest.hexdigest()
@@ -103,13 +148,16 @@ def artifact_sha256(dest_dir: str, inventory=None) -> str:
 
 def artifacts_match(dest_dir: str, provenance=None) -> bool:
     """Fail closed unless provenance pins the exact current artifact set and bytes."""
-    if not os.path.isdir(dest_dir):
+    dest_dir = os.path.abspath(dest_dir)
+    try:
+        _require_directory(dest_dir, "artifact root directory")
+    except (OSError, ValueError):
         return False
     if provenance is None:
         try:
-            with open(
-                os.path.join(dest_dir, PROVENANCE_FILENAME), "r", encoding="utf-8"
-            ) as fh:
+            provenance_path = os.path.join(dest_dir, PROVENANCE_FILENAME)
+            _require_file(provenance_path, "provenance file")
+            with open(provenance_path, "r", encoding="utf-8") as fh:
                 provenance = json.load(fh)
         except (OSError, ValueError):
             return False
@@ -126,12 +174,12 @@ def artifacts_match(dest_dir: str, provenance=None) -> bool:
         or any(ch not in "0123456789abcdef" for ch in recorded_digest)
     ):
         return False
-    current_inventory = artifact_inventory(dest_dir)
-    if recorded_inventory != current_inventory:
-        return False
     try:
+        current_inventory = artifact_inventory(dest_dir)
+        if recorded_inventory != current_inventory:
+            return False
         return artifact_sha256(dest_dir, current_inventory) == recorded_digest
-    except OSError:
+    except (OSError, ValueError):
         return False
 
 

@@ -160,6 +160,48 @@ class BundleDriftTest(unittest.TestCase):
         rc = check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest)
         self.assertEqual(rc, 0, "a freshly-built bundle must pass the guard")
 
+    def test_guard_rejects_same_byte_symlinked_member_and_freshness_companion(self):
+        cases = (
+            ("member", os.path.join("system2_compiler", "ir", "build.py")),
+            ("freshness-companion", "_freshness.py"),
+        )
+        for name, relative in cases:
+            with self.subTest(name=name):
+                dest = os.path.join(self._tmp, "symlink-file-" + name)
+                build_bundle.build_bundle(_COMPILER_ROOT, dest)
+                self.assertEqual(check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0)
+                bundle = os.path.join(dest, "_system2_compiler")
+                victim = os.path.join(bundle, relative)
+                external = os.path.join(dest, "external-" + name)
+                shutil.copyfile(victim, external)
+                os.remove(victim)
+                os.symlink(external, victim)
+                self.assertNotEqual(
+                    check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0,
+                    f"same-byte symlinked {name} must fail the guard",
+                )
+
+    def test_guard_rejects_symlinked_bundle_package_and_member_directories(self):
+        cases = (
+            ("bundle-root", ""),
+            ("package", "system2_compiler"),
+            ("member-directory", os.path.join("system2_compiler", "ir")),
+        )
+        for name, relative in cases:
+            with self.subTest(name=name):
+                dest = os.path.join(self._tmp, "symlink-directory-" + name)
+                build_bundle.build_bundle(_COMPILER_ROOT, dest)
+                self.assertEqual(check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0)
+                bundle = os.path.join(dest, "_system2_compiler")
+                victim = os.path.join(bundle, relative) if relative else bundle
+                external = os.path.join(dest, "external-" + name)
+                os.rename(victim, external)
+                os.symlink(external, victim)
+                self.assertNotEqual(
+                    check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0,
+                    f"symlinked {name} must fail the guard",
+                )
+
     # --- the guard FAILS on a one-byte mutation (teeth) -----------------------
 
     def test_guard_fails_on_mutated_vendored_byte(self):

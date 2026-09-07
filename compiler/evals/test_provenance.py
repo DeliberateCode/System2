@@ -307,6 +307,46 @@ class SourceDigestTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             provenance.source_sha256([("missing", os.path.join(self.id(), "missing"))])
 
+    def test_symlinked_source_inputs_and_intermediate_directories_fail_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "source")
+            os.makedirs(os.path.join(source, "nested"))
+            regular = os.path.join(source, "regular.txt")
+            nested = os.path.join(source, "nested", "member.txt")
+            with open(regular, "wb") as fh:
+                fh.write(b"same bytes")
+            with open(nested, "wb") as fh:
+                fh.write(b"nested bytes")
+
+            regular_hash = provenance.source_sha256([("source", source)])
+            self.assertEqual(regular_hash, provenance.source_sha256([("source", source)]))
+
+            source_link = os.path.join(root, "source-link")
+            os.symlink(source, source_link)
+            with self.assertRaisesRegex(ValueError, "not a regular file or directory"):
+                provenance.source_sha256([("source", source_link)])
+
+            file_link = os.path.join(root, "file-link")
+            os.symlink(regular, file_link)
+            with self.assertRaisesRegex(ValueError, "not a regular file or directory"):
+                provenance.source_sha256([("source", file_link)])
+
+            external = os.path.join(root, "external.txt")
+            shutil.copyfile(nested, external)
+            os.remove(nested)
+            os.symlink(external, nested)
+            with self.assertRaisesRegex(ValueError, "provenance input file"):
+                provenance.source_sha256([("source", source)])
+
+            os.remove(nested)
+            with open(nested, "wb") as fh:
+                fh.write(b"nested bytes")
+            external_dir = os.path.join(root, "external-dir")
+            os.rename(os.path.join(source, "nested"), external_dir)
+            os.symlink(external_dir, os.path.join(source, "nested"))
+            with self.assertRaisesRegex(ValueError, "provenance input directory"):
+                provenance.source_sha256([("source", source)])
+
     def test_effective_base_backend_and_package_mutations_change_hash(self):
         ctx = regen_all._context()
         cases = (
@@ -454,6 +494,27 @@ class DistributionProvenanceTest(unittest.TestCase):
                 self.assertTrue(provenance.artifacts_match(dest, records[channel]))
                 self.assertTrue(records[channel]["artifact_inventory"])
                 self.assertEqual(len(records[channel]["artifact_sha256"]), 64)
+
+                comparison = dest + "-comparison"
+                shutil.copytree(dest, comparison)
+                self.assertTrue(
+                    regen_all._trees_match(dest, comparison),
+                    "ordinary regular-file trees must remain equivalent",
+                )
+                victim_rel = records[channel]["artifact_inventory"][0]
+                victim = os.path.join(comparison, victim_rel.replace("/", os.sep))
+                external = dest + "-same-bytes"
+                shutil.copyfile(victim, external)
+                os.remove(victim)
+                os.symlink(external, victim)
+                self.assertFalse(
+                    provenance.artifacts_match(comparison, records[channel]),
+                    "a same-byte symlink is not a distribution artifact",
+                )
+                self.assertFalse(
+                    regen_all._trees_match(comparison, dest),
+                    "tree comparison must not dereference a distribution symlink",
+                )
             self.assertNotEqual(
                 records["codex"]["source_sha256"], records["pi"]["source_sha256"]
             )
@@ -499,6 +560,45 @@ class ArtifactDigestTest(unittest.TestCase):
                     with open(os.path.join(copy, "a.txt"), "ab") as fh:
                         fh.write(b"!")
                 self.assertFalse(provenance.artifacts_match(copy, self.prov))
+
+    def test_same_byte_symlinked_artifacts_and_directories_fail_closed(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            root_link = os.path.join(workspace, "root-link")
+            os.symlink(self.root, root_link)
+            self.assertFalse(provenance.artifacts_match(root_link, self.prov))
+            with self.assertRaisesRegex(ValueError, "artifact root directory"):
+                provenance.artifact_inventory(root_link)
+
+            regular_tree = os.path.join(workspace, "regular-tree")
+            shutil.copytree(self.root, regular_tree)
+            self.assertTrue(provenance.artifacts_match(regular_tree, self.prov))
+
+            external_file = os.path.join(workspace, "external-file")
+            victim = os.path.join(regular_tree, "a.txt")
+            shutil.copyfile(victim, external_file)
+            os.remove(victim)
+            os.symlink(external_file, victim)
+            self.assertFalse(provenance.artifacts_match(regular_tree, self.prov))
+            with self.assertRaisesRegex(ValueError, "artifact file"):
+                provenance.artifact_inventory(regular_tree)
+
+            shutil.rmtree(regular_tree)
+            shutil.copytree(self.root, regular_tree)
+            external_dir = os.path.join(workspace, "external-dir")
+            os.rename(os.path.join(regular_tree, "nested"), external_dir)
+            os.symlink(external_dir, os.path.join(regular_tree, "nested"))
+            self.assertFalse(provenance.artifacts_match(regular_tree, self.prov))
+            with self.assertRaisesRegex(ValueError, "artifact directory"):
+                provenance.artifact_inventory(regular_tree)
+
+    def test_non_regular_artifact_fails_closed(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("mkfifo is unavailable")
+        fifo = os.path.join(self.root, "non-regular")
+        os.mkfifo(fifo)
+        self.assertFalse(provenance.artifacts_match(self.root, self.prov))
+        with self.assertRaisesRegex(ValueError, "artifact file"):
+            provenance.artifact_inventory(self.root)
 
     def test_malformed_provenance_fails_closed(self):
         for malformed in ([], {}, {"artifact_inventory": "a.txt"}, {
