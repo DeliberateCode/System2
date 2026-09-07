@@ -37,6 +37,17 @@ _SECTION_RE = re.compile(r"^## (.+)$")
 _GATE_CHECKLIST_RE = re.compile(r"^- Gate (\d+) \(([^)]+)\): (.+)$")
 _DELEGATION_RE = re.compile(r"^\d+\) (?:system2:)?([a-z0-9-]+):")
 
+_REPO_GOVERNOR_PERMISSION_DELIVERABLE_RE = re.compile(
+    r"^2\) \.claude/settings\.json \(if missing or incomplete\)$"
+    r".*?"
+    r"(?=\n\n^Discovery process:$)",
+    re.MULTILINE | re.DOTALL,
+)
+_REPO_GOVERNOR_NEUTRAL_PERMISSION_POLICY = """2) Sensitive and large-artifact access policy
+   - Restrict access to secrets, sensitive paths, and large artifacts using the active harness's documented native mechanism.
+   - Do not guess configuration syntax.
+   - If no such mechanism exists, report that native access controls are unsupported."""
+
 _ROLE_CONTRACT_REPLACEMENTS = (
     (
         "CLAUDE.md / .claude/rules/ / tests / evals",
@@ -49,6 +60,7 @@ _ROLE_CONTRACT_REPLACEMENTS = (
     (".claude/rules/", "repository rules/"),
     ("CLAUDE.md", "repository instructions"),
     ("Claude Code CLI", "active harness"),
+    ("Claude Code", "the active harness"),
     (
         "`plugin/allowlists/*.regex` convention",
         "the repository's regex-per-line path-pattern convention",
@@ -263,6 +275,10 @@ def _load_role_contract(name: str, base_path: str) -> str:
 
     if not body:
         raise RoleContractError(f"Role contract {name!r} is empty: {relative_path}")
+    if name == "repo-governor":
+        body = _REPO_GOVERNOR_PERMISSION_DELIVERABLE_RE.sub(
+            _REPO_GOVERNOR_NEUTRAL_PERMISSION_POLICY, body, count=1
+        )
     for source, neutral in _ROLE_CONTRACT_REPLACEMENTS:
         body = body.replace(source, neutral)
     return body

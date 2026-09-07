@@ -79,7 +79,21 @@ _CLAUDE_ROLE_REFERENCES = (
     ".claude/rules",
     ".claude/slop-catalog.md",
     "executor.regex",
-    "Claude Code CLI",
+    "Claude Code",
+)
+
+_REPO_GOVERNOR_NEUTRAL_SECURITY_POLICY = (
+    "Sensitive and large-artifact access policy",
+    "using the active harness's documented native mechanism",
+    "Do not guess configuration syntax.",
+    "report that native access controls are unsupported.",
+)
+
+_REPO_GOVERNOR_CLAUDE_PERMISSION_RESIDUE = (
+    "Claude Code",
+    "permissions.deny",
+    "Read(",
+    "Edit(",
 )
 
 
@@ -210,6 +224,27 @@ class CanonicalRoleContractTest(unittest.TestCase):
                         self.assertNotIn(forbidden, artifact)
                     self.assertEqual(1, artifact.count("# System2 role:"))
                     self.assertNotIn("## Canonical role contract\n\n\n", artifact)
+
+    def test_repo_governor_uses_harness_neutral_security_policy(self):
+        artifacts = {
+            "codex": _read(
+                self.projects["codex"],
+                os.path.join(
+                    "skills", "system2-role-repo-governor", "SKILL.md"
+                ),
+            ),
+            "pi": _read(
+                self.projects["pi"],
+                os.path.join(".pi", "prompts", "role-repo-governor.md"),
+            ),
+        }
+        for target, artifact in artifacts.items():
+            with self.subTest(target=target):
+                self.assertEqual(
+                    [], _missing(artifact, _REPO_GOVERNOR_NEUTRAL_SECURITY_POLICY)
+                )
+                for residue in _REPO_GOVERNOR_CLAUDE_PERMISSION_RESIDUE:
+                    self.assertNotIn(residue, artifact)
 
     def test_generic_role_stub_fails_the_semantic_control(self):
         generic_stub = (
