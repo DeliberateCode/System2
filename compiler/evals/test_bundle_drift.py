@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import shutil
 import tempfile
@@ -99,6 +100,7 @@ class BundleDriftTest(unittest.TestCase):
             pkg_entries,
             {
                 "__init__.py", "ir", "backends", "plugin_adapter.py", "cli.py",
+                "channel_version.py",
                 # # the Codex user-hooks reference is now real package-data (pyproject.toml), so it's vendored along with the rest of the package -- intentional, not drift.
                 "_packaged_data",
             },
@@ -171,6 +173,78 @@ class BundleDriftTest(unittest.TestCase):
         self.assertNotEqual(
             rc, 0,
             "mutating a vendored byte MUST fail the guard (teeth)",
+        )
+
+    def test_guard_fails_on_missing_or_changed_companion(self):
+        for mutation in ("missing", "changed"):
+            with self.subTest(mutation=mutation):
+                dest = os.path.join(self._tmp, "companion-" + mutation)
+                build_bundle.build_bundle(_COMPILER_ROOT, dest)
+                companion = os.path.join(dest, "_system2_compiler", "_freshness.py")
+                if mutation == "missing":
+                    os.remove(companion)
+                else:
+                    with open(companion, "ab") as fh:
+                        fh.write(b"\n# tampered companion\n")
+                self.assertNotEqual(
+                    check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0,
+                    f"a {mutation} companion MUST fail the guard",
+                )
+
+    def test_guard_fails_on_extra_bundle_root_entry(self):
+        dest = os.path.join(self._tmp, "extra-root")
+        build_bundle.build_bundle(_COMPILER_ROOT, dest)
+        with open(os.path.join(dest, "_system2_compiler", "unexpected.txt"), "w") as fh:
+            fh.write("unexpected\n")
+        self.assertNotEqual(
+            check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0,
+            "an unrecorded companion/root entry MUST fail the guard",
+        )
+
+    def test_guard_fails_on_nonvolatile_manifest_mutations(self):
+        mutations = (
+            ("compiler_version", "999.0.0"),
+            ("compiler_source_sha256", "0" * 64),
+            ("unexpected_semantic_field", "unvalidated"),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field):
+                dest = os.path.join(self._tmp, "manifest-" + field)
+                build_bundle.build_bundle(_COMPILER_ROOT, dest)
+                path = os.path.join(dest, "_system2_compiler", "BUNDLE.json")
+                with open(path, encoding="utf-8") as fh:
+                    manifest = json.load(fh)
+                manifest[field] = value
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(manifest, fh, indent=2)
+                    fh.write("\n")
+                self.assertNotEqual(
+                    check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0,
+                    f"mutating nonvolatile BUNDLE.json field {field!r} MUST fail",
+                )
+
+    def test_guard_fails_on_malformed_manifest(self):
+        dest = os.path.join(self._tmp, "malformed")
+        build_bundle.build_bundle(_COMPILER_ROOT, dest)
+        with open(os.path.join(dest, "_system2_compiler", "BUNDLE.json"), "w") as fh:
+            fh.write("[]\n")
+        self.assertNotEqual(check_bundle_fresh.check_bundle_fresh(_COMPILER_ROOT, dest), 0)
+
+    def test_stale_compiler_version_source_fails(self):
+        dest = os.path.join(self._tmp, "version-source")
+        build_bundle.build_bundle(_COMPILER_ROOT, dest)
+        newer_root = os.path.join(self._tmp, "new-version-source")
+        shutil.copytree(_COMPILER_ROOT, newer_root, ignore=shutil.ignore_patterns(
+            "__pycache__", ".pytest_cache", ".ruff_cache", ".git",
+        ))
+        pyproject = os.path.join(newer_root, "pyproject.toml")
+        with open(pyproject, encoding="utf-8") as fh:
+            content = fh.read()
+        with open(pyproject, "w", encoding="utf-8") as fh:
+            fh.write(content.replace('version = "0.1.0"', 'version = "0.1.1"', 1))
+        self.assertNotEqual(
+            check_bundle_fresh.check_bundle_fresh(newer_root, dest), 0,
+            "changing the compiler version source MUST stale the bundle",
         )
 
     def test_stale_vs_newer_source_fails(self):

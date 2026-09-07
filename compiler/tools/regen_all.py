@@ -27,11 +27,11 @@ import check_bundle_fresh  # noqa: E402
 from system2_compiler import ir  # noqa: E402
 from system2_compiler.backends.codex import CodexBackend  # noqa: E402
 from system2_compiler.backends.pi import PiBackend  # noqa: E402
+from system2_compiler.channel_version import CHANNEL_VERSION  # noqa: E402
 
 __all__ = [
     "REGISTRY",
     "IGNORED_PROVENANCE_FIELDS",
-    "IGNORED_INSTALL_SH_PIN_LINES",
     "GENERATOR",
     "stale_message",
     "main",
@@ -44,7 +44,7 @@ _REGEN_COMMAND = "python3 compiler/tools/regen_all.py"
 GENERATOR = "compiler/tools/regen_all.py"
 
 # Ignore only volatile provenance breadcrumbs; content hashes still detect staleness.
-IGNORED_PROVENANCE_FIELDS = ("bundled_at", "generated_at", "generated_from")
+IGNORED_PROVENANCE_FIELDS = ("generated_at", "generated_from")
 
 # Distribution provenance is compared field-wise to omit volatile breadcrumbs.
 _PROVENANCE_FILENAMES = (_provenance.PROVENANCE_FILENAME,)
@@ -86,6 +86,65 @@ def _build_bundle(dest_abs: str, ctx: _Context) -> None:
     build_bundle.build_bundle(ctx.compiler_root, dest_abs)
 
 
+def _distribution_inputs(channel: str, ctx: _Context):
+    """Return stable labels for every effective producer input of *channel*."""
+    package_root = os.path.join(ctx.compiler_root, "system2_compiler")
+    backend_root = os.path.join(package_root, "backends")
+    inputs = [
+        ("plugin", ctx.plugin_root),
+        ("lowering/ir", os.path.join(package_root, "ir")),
+        ("lowering/system2_compiler_init", os.path.join(package_root, "__init__.py")),
+        ("backend/base", os.path.join(backend_root, "base.py")),
+        ("backend/degradation", os.path.join(backend_root, "_degradation.py")),
+        ("backend/enforcement", os.path.join(backend_root, "_enforcement.py")),
+        ("backend/yaml", os.path.join(backend_root, "_yaml.py")),
+        ("generator/regen_all", os.path.join(ctx.compiler_root, "tools", "regen_all.py")),
+        ("generator/provenance", os.path.join(ctx.compiler_root, "tools", "_provenance.py")),
+        ("generator/build_bundle_helpers", os.path.join(
+            ctx.compiler_root, "tools", "build_bundle.py"
+        )),
+        ("metadata/channel_version", os.path.join(package_root, "channel_version.py")),
+        ("metadata/compiler_project", os.path.join(ctx.compiler_root, "pyproject.toml")),
+    ]
+    if channel == "codex":
+        inputs.extend([
+            ("backend/codex", os.path.join(backend_root, "codex.py")),
+            ("backend/capabilities/codex", os.path.join(
+                backend_root, "capabilities", "codex.json"
+            )),
+        ])
+        inputs.extend(
+            (f"overlay/{index:04d}", overlay)
+            for index, overlay in enumerate(ctx.codex_overlays)
+        )
+    elif channel == "pi":
+        inputs.extend([
+            ("backend/pi", os.path.join(backend_root, "pi.py")),
+            ("backend/capabilities/pi", os.path.join(
+                backend_root, "capabilities", "pi.json"
+            )),
+            ("package/pi_builder", os.path.join(
+                ctx.compiler_root, "tools", "build_pi_package.py"
+            )),
+            ("package/pi_templates", os.path.join(
+                ctx.compiler_root, "tools", "templates"
+            )),
+            ("metadata/license", os.path.join(build_pi_package._REPO_ROOT, "LICENSE")),
+        ])
+    else:
+        raise ValueError(f"unknown distribution channel: {channel!r}")
+    return inputs
+
+
+def _require_channel_version(channel: str, emitted_version: str) -> None:
+    """Reject generated channel metadata that diverges from the authority."""
+    if emitted_version != CHANNEL_VERSION:
+        raise RuntimeError(
+            f"{channel} channel version mismatch: emitted {emitted_version!r}, "
+            f"expected {CHANNEL_VERSION!r}"
+        )
+
+
 def _build_codex(dest_abs: str, ctx: _Context) -> None:
     """Regenerate the Codex plugin tree + lock + PROVENANCE.json under *dest_abs*."""
     if os.path.isdir(dest_abs):
@@ -98,13 +157,13 @@ def _build_codex(dest_abs: str, ctx: _Context) -> None:
     CodexBackend(overlay_sources=list(ctx.codex_overlays)).emit(result.graph, dest_abs)
 
     manifest = _read_json(os.path.join(dest_abs, ".codex-plugin", "plugin.json"))
-    inputs = [("plugin", ctx.plugin_root)]
-    inputs += [(f"overlay{i}", o) for i, o in enumerate(ctx.codex_overlays)]
+    emitted_version = str(manifest.get("version", ""))
+    _require_channel_version("codex", emitted_version)
     _provenance.write_provenance(
         dest_abs,
-        inputs=inputs,
+        inputs=_distribution_inputs("codex", ctx),
         generator=GENERATOR,
-        channel_version=str(manifest.get("version", "")),
+        channel_version=emitted_version,
         compiler_root=ctx.compiler_root,
     )
     # Mirror package data only during real regeneration; --check must stay read-only.
@@ -142,11 +201,14 @@ def _build_pi(dest_abs: str, ctx: _Context) -> None:
         PiBackend(overlay_sources=[]).emit(result.graph, staging)
         build_pi_package.build(staging, dest_abs, build_pi_package.PACKAGE_VERSION)
 
+    package = _read_json(os.path.join(dest_abs, "package.json"))
+    emitted_version = str(package.get("version", ""))
+    _require_channel_version("pi", emitted_version)
     _provenance.write_provenance(
         dest_abs,
-        inputs=[("plugin", ctx.plugin_root)],
+        inputs=_distribution_inputs("pi", ctx),
         generator=GENERATOR,
-        channel_version=build_pi_package.PACKAGE_VERSION,
+        channel_version=emitted_version,
         compiler_root=ctx.compiler_root,
     )
 
@@ -178,29 +240,6 @@ def stale_message(artifact: str) -> str:
     return f"{artifact} is stale: regenerate via {_REGEN_COMMAND}"
 
 
-def _version_drift_note(artifact: str, committed_root: str, regen_root: str) -> Optional[str]:
-    """advisory-only diagnostic, never a new failure mode -- ``--check`` already fails on staleness by itself."""
-    for name in ("codex", "pi"):
-        if artifact != name:
-            continue
-        try:
-            committed_version = _read_json(
-                os.path.join(committed_root, "PROVENANCE.json")
-            ).get("channel_version")
-            regen_version = _read_json(
-                os.path.join(regen_root, "PROVENANCE.json")
-            ).get("channel_version")
-        except (OSError, json.JSONDecodeError):
-            return None
-        if committed_version is not None and committed_version == regen_version:
-            return (
-                f"  note: {artifact}'s emitted content changed but its version "
-                f"constant did not move (still {regen_version!r}) -- see the bump "
-                f"policy comment on _CODEX_PLUGIN_VERSION/PACKAGE_VERSION"
-            )
-    return None
-
-
 def _placeholder_message(art: _Artifact) -> str:
     return (
         f"{art.name} builder is not yet implemented — see {art.todo_task}; "
@@ -229,12 +268,14 @@ def _relfiles(root: str):
 
 
 def _provenance_equivalent(committed_path: str, regen_path: str) -> bool:
-    """Compare two provenance JSON files field-wise, ignoring the timestamp fields."""
+    """Compare two provenance JSON files field-wise, ignoring volatile breadcrumbs."""
     try:
         a = _read_json(committed_path)
         b = _read_json(regen_path)
     except (OSError, json.JSONDecodeError):
         return _bytes_equal(committed_path, regen_path)
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
     strip = lambda d: {k: v for k, v in d.items() if k not in IGNORED_PROVENANCE_FIELDS}
     return strip(a) == strip(b)
 
@@ -326,11 +367,12 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
             dest_abs = os.path.join(tmp, art.name)
             art.builder(dest_abs, ctx)
             regen_root = os.path.join(dest_abs, art.content_rel)
-            if not _trees_match(committed_root, regen_root):
+            if (
+                not _provenance.artifacts_match(committed_root)
+                or not _provenance.artifacts_match(regen_root)
+                or not _trees_match(committed_root, regen_root)
+            ):
                 sys.stderr.write(stale_message(art.name) + "\n")
-                drift = _version_drift_note(art.name, committed_root, regen_root)
-                if drift:
-                    sys.stderr.write(drift + "\n")
                 return 1
         if art.name == "codex":
             # Verify the independently committed package-data mirror too.

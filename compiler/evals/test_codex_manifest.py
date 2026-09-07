@@ -33,7 +33,7 @@ _MANIFEST_REQUIRED = ("name", "version", "description")
 # The inert plugin-level ``hooks`` pointer is omitted; only ``skills`` remains.
 _MANIFEST_POINTERS = ("skills",)
 
-# The pinned 0.2.2 version, imported from the backend (never re-typed).
+# The authoritative lockstep channel version, imported from the backend.
 _CODEX_PLUGIN_VERSION = codex_backend._CODEX_PLUGIN_VERSION
 
 # Exact-name 15-skill inventory (orchestrator + system2-doctor + 13 role skills).
@@ -541,11 +541,11 @@ class CodexLockNegativeControlsTest(_CodexEmissionBase):
         self.assertEqual(on_disk["backend"], "codex")
 
 
-# Exact-name 15-skill inventory and the 0.2.2 version pin.
+# Exact-name 15-skill inventory and the 0.2.3 version pin.
 
 class CodexSkillInventoryTest(_CodexEmissionBase):
     """The emitted ``skills/`` directory carries exactly the pinned 15 names,
-    each with a non-empty ``SKILL.md``, and every version field reads 0.2.2."""
+    each with a non-empty ``SKILL.md``, and every version field reads 0.2.3."""
 
     def test_skills_directory_has_exactly_the_15_expected_names(self):
         for label, root, _tmp in self.sources:
@@ -568,18 +568,17 @@ class CodexSkillInventoryTest(_CodexEmissionBase):
                     with open(path, encoding="utf-8") as fh:
                         self.assertTrue(fh.read().strip(), f"{name}: SKILL.md is empty")
 
-    def test_manifest_and_lock_pin_the_0_2_2_version(self):
-        # The emitted-byte cleanup in this change is the "bug fix that changes
+    def test_manifest_and_lock_pin_the_0_2_3_version(self):
         self.assertEqual(
-            "0.2.2", _CODEX_PLUGIN_VERSION,
-            "backends.codex._CODEX_PLUGIN_VERSION drifted off the bundled 0.2.2 pin",
+            "0.2.3", _CODEX_PLUGIN_VERSION,
+            "backends.codex._CODEX_PLUGIN_VERSION drifted off the channel version",
         )
         for label, root, _tmp in self.sources:
             with self.subTest(source=label):
                 manifest = _read_json(root, _MANIFEST_REL)
-                self.assertEqual(manifest["version"], "0.2.2")
+                self.assertEqual(manifest["version"], "0.2.3")
                 lock = _read_json(root, _LOCK_REL)
-                self.assertEqual(lock["codex_plugin_version"], "0.2.2")
+                self.assertEqual(lock["codex_plugin_version"], "0.2.3")
 
 
 # uninstall-path leg (Decision 's compensating test).

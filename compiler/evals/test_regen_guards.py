@@ -32,12 +32,12 @@ _PLUGIN_ROOT = os.path.join(_REPO_ROOT, "plugin")
 _OVERLAYS = [os.path.join(_REPO_ROOT, r) for r in regen_all._CODEX_OVERLAY_RELPATHS]
 
 # Only volatile provenance breadcrumbs may be ignored.
-_EXPECTED_IGNORE = ("bundled_at", "generated_at", "generated_from")
+_EXPECTED_IGNORE = ("generated_at", "generated_from")
 
 # Correctness-bearing provenance fields that must NEVER be ignored.
 _CORRECTNESS_FIELDS = frozenset({
-    "source_sha256", "compiler_source_sha256", "generator",
-    "channel_version", "compiler_version",
+    "source_sha256", "artifact_sha256", "artifact_inventory",
+    "compiler_source_sha256", "generator", "channel_version", "compiler_version",
 })
 
 # Basenames of the provenance/manifest files that carry the ignorable breadcrumbs and
@@ -103,8 +103,8 @@ class RegenGuardContractTest(unittest.TestCase):
             self.assertIn(name, msg)
             self.assertIn("python3 compiler/tools/regen_all.py", msg)
 
-    def test_ignore_set_is_exactly_the_documented_three_fields(self):
-        """the ignore set is EXACTLY these three breadcrumbs. A broadened set is
+    def test_ignore_set_is_exactly_the_documented_provenance_fields(self):
+        """the ignore set is EXACTLY these two breadcrumbs. A broadened set is
         itself a defect — this literal equality makes any widening a hard failure."""
         self.assertEqual(regen_all.IGNORED_PROVENANCE_FIELDS, _EXPECTED_IGNORE)
 
@@ -188,16 +188,46 @@ class RegenInducedDivergenceTest(unittest.TestCase):
             rc, _out, _err = self._run_check(art, ctx)
             self.assertEqual(rc, 0, "regenerated bundle must check GREEN again")
 
+            bundle_root = os.path.join(dest, art.content_rel)
+            for mutation in ("missing companion", "changed companion", "compiler version"):
+                with self.subTest(bundle_mutation=mutation):
+                    art.builder(dest, ctx)
+                    if mutation == "missing companion":
+                        os.remove(os.path.join(bundle_root, "_freshness.py"))
+                    elif mutation == "changed companion":
+                        with open(os.path.join(bundle_root, "_freshness.py"), "ab") as fh:
+                            fh.write(b"\n# changed companion\n")
+                    else:
+                        manifest_path = os.path.join(bundle_root, "BUNDLE.json")
+                        with open(manifest_path, encoding="utf-8") as fh:
+                            manifest = json.load(fh)
+                        manifest["compiler_version"] = "999.0.0"
+                        with open(manifest_path, "w", encoding="utf-8") as fh:
+                            json.dump(manifest, fh, indent=2)
+                            fh.write("\n")
+                    rc, _out, err = self._run_check(art, ctx)
+                    self.assertEqual(rc, 1, f"{mutation} must make regen --check RED")
+                    self.assertIn(regen_all.stale_message(art.name), err)
+
     def _divergence_distribution(self, art):
         """Assert that temporary distribution drift is detected."""
         with tempfile.TemporaryDirectory() as repo:
+            compiler_root = os.path.join(repo, "compiler-source")
+            shutil.copytree(
+                _COMPILER_ROOT, compiler_root,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+            )
             ctx = regen_all._Context(
-                compiler_root=_COMPILER_ROOT, repo_root=repo,
+                compiler_root=compiler_root, repo_root=repo,
                 plugin_root=_PLUGIN_ROOT, codex_overlays=list(_OVERLAYS),
             )
             dest = os.path.join(repo, art.dest_rel)
             art.builder(dest, ctx)
             committed_root = os.path.join(dest, art.content_rel)
+            if art.name == "codex":
+                mirror = os.path.join(compiler_root, regen_all._PACKAGED_USER_HOOKS_REL)
+                shutil.rmtree(mirror, ignore_errors=True)
+                shutil.copytree(os.path.join(dest, "user-hooks"), mirror)
 
             rc, _out, _err = self._run_check(art, ctx)
             self.assertEqual(rc, 0, f"freshly emitted {art.name} must check GREEN")
@@ -235,6 +265,21 @@ class RegenInducedDivergenceTest(unittest.TestCase):
                 self.assertEqual(
                     rc, 1, "mutating the non-ignored source_sha256 must go RED")
                 self.assertIn(regen_all.stale_message(art.name), err)
+
+            for mutation in ("extra artifact", "missing artifact", "malformed provenance"):
+                with self.subTest(distribution=art.name, mutation=mutation):
+                    art.builder(dest, ctx)
+                    if mutation == "extra artifact":
+                        with open(os.path.join(committed_root, "unexpected.txt"), "w") as fh:
+                            fh.write("unexpected\n")
+                    elif mutation == "missing artifact":
+                        os.remove(os.path.join(committed_root, targets[0]))
+                    else:
+                        with open(prov_path, "w", encoding="utf-8") as fh:
+                            fh.write("[]\n")
+                    rc, _out, err = self._run_check(art, ctx)
+                    self.assertEqual(rc, 1, f"{mutation} must make regen --check RED")
+                    self.assertIn(regen_all.stale_message(art.name), err)
 
     def test_induced_divergence_for_every_active_builder(self):
         active = [a for a in regen_all.REGISTRY if a.builder is not None]
@@ -291,14 +336,17 @@ class RegenDeterminismTest(unittest.TestCase):
                     pa = json.load(fa)
                 with open(os.path.join(root_b, rel), "r", encoding="utf-8") as fb:
                     pb = json.load(fb)
+                ignored = set(regen_all.IGNORED_PROVENANCE_FIELDS)
+                if os.path.basename(rel) == "BUNDLE.json":
+                    ignored.add("bundled_at")
                 diff_keys = {k for k in set(pa) | set(pb) if pa.get(k) != pb.get(k)}
                 self.assertTrue(
-                    diff_keys <= set(regen_all.IGNORED_PROVENANCE_FIELDS),
+                    diff_keys <= ignored,
                     f"{art.name}/{rel}: fields outside the ignore set differ: "
-                    f"{sorted(diff_keys - set(regen_all.IGNORED_PROVENANCE_FIELDS))}",
+                    f"{sorted(diff_keys - ignored)}",
                 )
                 for key, val in pa.items():
-                    if key not in regen_all.IGNORED_PROVENANCE_FIELDS:
+                    if key not in ignored:
                         self.assertEqual(
                             val, pb.get(key),
                             f"{art.name}/{rel}: non-ignored field {key!r} is unstable",

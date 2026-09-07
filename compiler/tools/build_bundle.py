@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-__all__ = ["build_bundle", "compute_source_hash"]
+__all__ = ["build_bundle", "compute_source_hash", "expected_manifest"]
 
 # Vendor the complete system2_compiler package verbatim.
 _BUNDLE_MEMBERS = ("system2_compiler",)
@@ -17,7 +17,8 @@ _BUNDLE_MEMBERS = ("system2_compiler",)
 # Exclude build and test detritus from the package walk.
 _EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"}
 
-# Companions ship with the bundle but stay outside its self-referential source hash.
+# Companions stay outside the self-referential package hash. The external freshness
+# guard validates their exact inventory and compares each one to its canonical source.
 _BUNDLE_COMPANIONS = (("tools/_freshness.py", "_freshness.py"),)
 
 _BUNDLE_DIRNAME = "_system2_compiler"
@@ -106,6 +107,16 @@ def _git_rev(compiler_root: str) -> str:
         return "unknown"
 
 
+def expected_manifest(compiler_root: str) -> dict:
+    """Return the complete manifest expected for the current compiler source."""
+    return {
+        "compiler_source_sha256": compute_source_hash(compiler_root),
+        "compiler_version": _compiler_version(compiler_root),
+        "generated_from": f"System2@{_git_rev(compiler_root)}",
+        "bundled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
 def build_bundle(compiler_root: str, dest: str) -> dict:
     """Generate ``<dest>/_system2_compiler/`` + ``BUNDLE.json``; return the manifest."""
     compiler_root = os.path.abspath(compiler_root)
@@ -118,13 +129,7 @@ def build_bundle(compiler_root: str, dest: str) -> dict:
     _copy_subtree(compiler_root, bundle_root)
     _copy_companions(compiler_root, bundle_root)
 
-    source_hash = compute_source_hash(compiler_root)
-    manifest = {
-        "compiler_source_sha256": source_hash,
-        "compiler_version": _compiler_version(compiler_root),
-        "generated_from": f"System2@{_git_rev(compiler_root)}",
-        "bundled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
+    manifest = expected_manifest(compiler_root)
     with open(os.path.join(bundle_root, "BUNDLE.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2)
         fh.write("\n")

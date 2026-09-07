@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 
+from system2_compiler.channel_version import CHANNEL_VERSION
+
 __all__ = ["build", "PACKAGE_NAME", "PACKAGE_VERSION"]
 
 _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -11,8 +13,7 @@ _TEMPLATES_DIR = os.path.join(_TOOLS_DIR, "templates")
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 
 PACKAGE_NAME = "@deliberatecode/pi-system2"
-# Keep in sync with _CODEX_PLUGIN_VERSION; bump when user-visible output changes.
-PACKAGE_VERSION = "0.2.2"
+PACKAGE_VERSION = CHANNEL_VERSION
 
 # The ``.pi/<X>/`` subtrees that ARE pi package component types: hoisted to ``<X>/``.
 _COMPONENT_PREFIXES = ("extensions", "skills", "prompts")
@@ -25,6 +26,11 @@ _FORBIDDEN_PACKAGE_KEYS = ("scripts", "dependencies", "devDependencies")
 
 def build(staging_emission, dest, package_version=PACKAGE_VERSION):
     """Transform the canonical Pi emission at *staging_emission* into *dest*."""
+    if package_version != PACKAGE_VERSION:
+        raise ValueError(
+            f"Pi package version mismatch: requested {package_version!r}, "
+            f"expected {PACKAGE_VERSION!r}"
+        )
     if os.path.isdir(dest):
         shutil.rmtree(dest)
     os.makedirs(dest)

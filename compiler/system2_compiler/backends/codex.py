@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from typing import Callable, List, Optional, Tuple
 
+from system2_compiler.channel_version import CHANNEL_VERSION
 from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation, _yaml
@@ -37,8 +38,7 @@ _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "codex.json"
 )
 
-# Keep in sync with PACKAGE_VERSION; bump when user-visible output changes.
-_CODEX_PLUGIN_VERSION = "0.2.2"
+_CODEX_PLUGIN_VERSION = CHANNEL_VERSION
 
 # Both enforcement guards are PreToolUse; the modern block schema carries this as
 # ``hookSpecificOutput.hookEventName``.

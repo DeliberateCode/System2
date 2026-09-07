@@ -245,6 +245,7 @@ class PiPackagePolicyTest(unittest.TestCase):
         self.assertEqual(scripts, {}, "the package must ship zero scripts")
 
     def test_package_json_has_required_fields(self):
+        self.assertEqual(self.pkg.get("version"), "0.2.3")
         self.assertIsInstance(self.pkg.get("pi"), dict, "missing pi manifest")
         self.assertIn(
             "pi-package", self.pkg.get("keywords", []),
