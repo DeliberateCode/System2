@@ -566,6 +566,13 @@ class CodexSkillFrontmatterYamlSafetyTest(unittest.TestCase):
                     reason = _yaml_unsafe_reason(value)
                     self.assertIsNone(reason, f"{rel}: frontmatter {key!r} {reason}")
 
+    def test_guard_trips_on_the_regressed_value(self):
+        # Mutation self-test: prove the guard rejects an unquoted colon in a plain
+        # YAML frontmatter value.
+        reason = _yaml_unsafe_reason("Unsafe description: unquoted detail")
+        self.assertIsNotNone(reason)
+        self.assertIn("Unsafe description: unquoted detail", reason)
+
 
 if __name__ == "__main__":
     unittest.main()
