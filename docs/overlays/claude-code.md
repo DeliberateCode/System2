@@ -2,8 +2,8 @@
 
 Overlays are System2's opt-in mechanism for extending the base workflow without forking the
 plugin. This page covers composing overlays and saving reusable overlay **profiles** on
-Claude Code, the only harness that currently supports overlays. See the
-[Overlays index](../overlays.md) for other harnesses, and
+Claude Code, the only harness with end-user overlay/profile UX. See the
+[Overlays index](../overlays.md) for channel availability, and
 [Installation and Updating (Claude Code)](../installation/claude-code.md) for setup.
 
 Overlays are entirely optional: `/system2:init` remains base-only and produces the same

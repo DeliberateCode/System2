@@ -1,16 +1,17 @@
 # Installation and Updating
 
-System2 ships to three agent harnesses from this one repository. Claude Code is the reference
-channel and its install experience is unchanged. The other two channels are additive: they
-carry the **base System2 workflow** compiled for their host.
-
-Each harness has its own installation, updating, and rollback guide:
+System2 has three distinct harness channels. Claude Code is the current reference channel;
+Codex and Pi are compiler-generated base-workflow projections with separate release gates.
 
 | Channel | Status | Guide |
 |---------|--------|-------|
-| **Claude Code** | Live | [Installation and Updating (Claude Code)](installation/claude-code.md) |
-| **Codex** | Live | [Installation and Updating (Codex)](installation/codex.md) |
-| **Pi** | Publishing soon — pending npm publish | [Installation and Updating (Pi)](installation/pi.md) |
+| **Claude Code** | Available | [Installation and Updating (Claude Code)](installation/claude-code.md) |
+| **Codex** | Pre-release — native acceptance pending | [Codex pre-release status](installation/codex.md) |
+| **Pi** | Pre-release — npm publication pending | [Pi publication status](installation/pi.md) |
 
-For the base workflow and concepts, see the [README](../README.md); for extending the base
-workflow, see [Overlays (optional extensions)](overlays.md).
+The shared workflow does not imply mechanism parity. Claude Code uses native isolated
+subagents and provides the end-user overlay/profile commands. Codex and Pi currently expose
+only compiler-generated base-workflow projections.
+
+For workflow concepts, see the [README](../README.md). For overlays and profiles, see
+[Overlays (optional extensions)](overlays.md).

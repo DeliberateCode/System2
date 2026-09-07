@@ -1,17 +1,13 @@
 # Overlays (optional extensions)
 
-Overlays are System2's opt-in mechanism for extending the base workflow without forking the
-plugin, together with reusable overlay **profiles**. Overlays are entirely optional:
-`/system2:init` (and the compiled base distributions) produce the same orchestrator
-instructions regardless of installed or available overlays.
+Claude Code is the only channel with end-user overlay and profile UX. Its
+`/system2:compose` and `/system2:profile` commands remain available and opt-in:
 
-Overlay support is per-harness. Today only **Claude Code** supports overlays; the other
-distributions ship the base workflow only:
+- [Overlays and profiles — Claude Code](overlays/claude-code.md)
 
-| Harness | Overlays | Guide |
-|---------|----------|-------|
-| **Claude Code** | Supported (native `/system2:compose`) | [Overlays — Claude Code](overlays/claude-code.md) |
-| **Codex** | Not yet supported | [Overlays — Codex](overlays/codex.md) |
-| **Pi** | Not yet supported | [Overlays — Pi](overlays/pi.md) |
+The source compiler can project overlay compositions for Codex and Pi, but their generated
+end-user channels currently ship only the base workflow. Codex is pending native acceptance,
+and Pi is pending package publication. This compiler capability is not mechanism parity and
+does not make Claude's commands available on those harnesses.
 
-For installation and updating, see [Installation and Updating](installation.md).
+For channel status, see [Installation and Updating](installation.md).

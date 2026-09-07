@@ -12,7 +12,7 @@ Scope → Context → Requirements → Design → Tasks → Implementation → V
 
 The name comes from Daniel Kahneman's dual-process theory: **System 1** is fast and intuitive; **System 2** is slow and deliberate. This framework embodies System 2 thinking—analytical, verification-focused, and risk-aware.
 
-A single **orchestrator** context drives this pipeline and delegates specialist work to purpose-built agents. On Claude Code—the reference harness—those agents are native **subagents** defined as Markdown files with YAML frontmatter; the other supported harnesses (Codex, Pi) host the same agents in their own native form. See [Usage](#usage) for how this maps to each harness.
+A single **orchestrator** context drives this pipeline and delegates specialist work to purpose-built agents. Claude Code is the reference harness: its agents are native **subagents** defined as Markdown files with YAML frontmatter. The compiler can also project the base workflow for Codex and Pi, but those harnesses use different hosting and enforcement mechanisms.
 
 ## Core Concepts
 
@@ -62,7 +62,7 @@ These artifacts serve as the contract between planning and execution.
 
 ## Installation
 
-System2 ships to three agent harnesses from one repository—**Claude Code** (the reference channel), **Codex**, and **Pi**. Full per-channel install commands, fidelity notes, updating, and rollback live in **[Installation and Updating](docs/installation.md)**.
+System2 has three distinct channels. **Claude Code** is the current end-user channel. The compiler also produces base-workflow projections for **Codex** and **Pi**; Codex is pending native acceptance and Pi is pending package publication. See **[Installation and Updating](docs/installation.md)** for current availability.
 
 Quick start (Claude Code):
 
@@ -72,27 +72,21 @@ Quick start (Claude Code):
 /system2:init
 ```
 
-Previously used the `sys2` utility skills (from the old standalone utility-skills
-marketplace)? They're now part of the `system2` plugin — see the [migration
-note](docs/installation/claude-code.md#migrating-from-the-sys2-utility-skills).
-
 ## Overlays (optional extensions)
 
-Overlays extend the base workflow without forking the plugin, and reusable **profiles** let you activate a named overlay set in any project. Overlays are entirely opt-in—`/system2:init` remains base-only. See **[Overlays (optional extensions)](docs/overlays.md)** for composing overlays, managing profiles, and using overlays on non-Claude harnesses.
+Claude Code provides the end-user `/system2:compose` and `/system2:profile` experience. The compiler can project overlay compositions from source for other targets, but the Codex and Pi channels expose only the base workflow. See **[Overlays (optional extensions)](docs/overlays.md)**.
 
 ## Usage
 
-System2's workflow is identical across every supported harness: a single **orchestrator** context drives the spec pipeline, pauses at quality gates, and delegates specialist work to the pipeline agents. What differs between harnesses is *how* that orchestration is hosted—not what it does.
+Each projection preserves the spec pipeline, but the harness mechanisms are not equivalent.
 
-| Harness | How the orchestrator and agents are hosted |
-|---------|--------------------------------------------|
-| **Claude Code** | Orchestrator persona in `CLAUDE.md`; the 13 pipeline agents run as native, isolated subagents. Reference channel. |
-| **Codex** | An orchestrator skill with in-session role switching; pipeline agents are lowered to role skills (no native subagent isolation). |
-| **Pi** | The base workflow compiled for Pi, with native enforcement of the safety gates. |
+| Harness | Current channel and hosting |
+|---------|-----------------------------|
+| **Claude Code** | Current reference channel. The orchestrator runs from `CLAUDE.md`, and the 13 agents run as native, isolated subagents. |
+| **Codex** | Pre-release base-workflow projection using role skills and in-session role switching; native acceptance is pending. |
+| **Pi** | Unpublished base-workflow projection using an in-session `/delegate` role switch and a Pi extension for safety gates. |
 
-Safety-gate fidelity varies by harness (native, adapted, or advisory). See the per-channel fidelity notes in [Installation and Updating](docs/installation.md). Overlays and profiles are a Claude-native / compiler-path feature—see [Overlays (optional extensions)](docs/overlays.md).
-
-Whatever the host, you interact with the orchestrator the same way.
+Do not infer mechanism parity from the shared workflow model. See [Installation and Updating](docs/installation.md) for availability and [Overlays (optional extensions)](docs/overlays.md) for the Claude-only end-user overlay/profile workflow.
 
 ### Basic Workflow
 
@@ -122,7 +116,7 @@ I'll delegate to the spec-coordinator to draft spec/context.md...
 
 ### Explicit Delegation
 
-You can target a specific pipeline agent directly. The exact invocation depends on the harness—a native subagent call on Claude Code, an in-session role switch on Codex—but the intent is identical:
+You can target a specific pipeline agent directly. Claude Code uses a native subagent call; compiler projections use their documented in-session role-switch mechanism:
 
 ```
 You: Use the spec-coordinator to draft the context for a new caching feature

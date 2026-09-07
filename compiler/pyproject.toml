@@ -34,7 +34,7 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/DeliberateCode/System2"
 Repository = "https://github.com/DeliberateCode/System2"
-Changelog = "https://github.com/DeliberateCode/System2/blob/main/compiler/CHANGELOG.md"
+Changelog = "https://github.com/DeliberateCode/System2/blob/main/CHANGELOG.md"
 
 [project.scripts]
 system2 = "system2_compiler.cli:main"
