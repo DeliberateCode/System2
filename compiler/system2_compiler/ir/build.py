@@ -454,5 +454,6 @@ def build_graph(
         blocking_semantics=_capabilities.blocking_semantics(),
         warnings=warnings,
         base_template=base_template,
+        overlay_sources=tuple(item.source_path for item in overlay_inputs),
         overlay_inputs=overlay_inputs,
     )

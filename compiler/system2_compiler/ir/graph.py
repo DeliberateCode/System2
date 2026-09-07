@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, Tuple
 
 from .anchors import AnchorDef, AnchorRef, AnchorTable
 from .capabilities import BlockingSemantic, CapabilitySet
@@ -154,6 +154,7 @@ class System2Graph:
     blocking_semantics: list
     warnings: Warnings
     base_template: BaseTemplate
+    overlay_sources: Tuple[str, ...] = field(default_factory=tuple)
     overlay_inputs: list = field(default_factory=list)
 
     def to_dict(self) -> dict:

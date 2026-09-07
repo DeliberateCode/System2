@@ -38,22 +38,14 @@ def _select_backend(target: str) -> Backend:
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
 
-def _backend_for(
-    target: str, base_path: str, overlay_sources: Optional[List[str]] = None
-) -> Backend:
+def _backend_for(target: str, base_path: str) -> Backend:
     """Construct the active backend, injecting ``base_path``/``compose_fn``."""
     if target == "claude-code":
         return ClaudeCodeBackend(base_path=base_path, compose_fn=ir.compose)
     if target == "pi":
-        return PiBackend(
-            base_path=base_path, compose_fn=ir.compose,
-            overlay_sources=overlay_sources,
-        )
+        return PiBackend(base_path=base_path, compose_fn=ir.compose)
     if target == "codex":
-        return CodexBackend(
-            base_path=base_path, compose_fn=ir.compose,
-            overlay_sources=overlay_sources,
-        )
+        return CodexBackend(base_path=base_path, compose_fn=ir.compose)
     raise ValueError(f"unknown target {target!r}")
 
 
@@ -95,11 +87,14 @@ def _composed_lines(claude_md_text: str) -> int:
 
 
 def _build_compose_report(
-    result, claude_md_text: str
+    result,
+    claude_md_text: str,
+    *,
+    target: str = "claude-code",
+    files_to_write: Optional[List[str]] = None,
 ) -> dict:
-    """Build the oracle-shaped compose ``report`` dict."""
+    """Build a Claude-oracle report or a truthful target-native report."""
     graph = result.graph
-    composed_lines = _composed_lines(claude_md_text)
     report = {
         "overlays": [
             {"name": ov["name"], "version": ov["version"]}
@@ -110,10 +105,16 @@ def _build_compose_report(
         "injection_warnings": list(result.warnings.injection),
         "validation_warnings": list(result.warnings.validation),
         "conflicts": result.report.get("conflicts", {}),
-        "composed_lines": composed_lines,
-        "files_to_write": list(result.files_to_write),
     }
-    if composed_lines > 500:
+    if target == "claude-code":
+        composed_lines = _composed_lines(claude_md_text)
+        report["composed_lines"] = composed_lines
+    else:
+        report["target"] = target
+    report["files_to_write"] = list(
+        result.files_to_write if files_to_write is None else files_to_write
+    )
+    if target == "claude-code" and composed_lines > 500:
         report["size_warning"] = (
             f"Composed CLAUDE.md is {composed_lines} lines "
             f"(exceeds 500-line threshold)."
@@ -272,7 +273,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
             return report["exit_code"]
         return _emit_refusal(result.errors, report, fmt)
 
-    backend = _backend_for(target, base_path, overlay_paths)
+    backend = _backend_for(target, base_path)
 
     # Profile activation note (text mode), then the report.
     if profile is not None and fmt == "text":
@@ -283,7 +284,15 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
         )
 
     claude_text = _render_composed_text(result.graph, backend)
-    report = _build_compose_report(result, claude_text)
+    target_files = result.files_to_write
+    if target != "claude-code":
+        target_files = backend.plan(result.graph, project_path)
+    report = _build_compose_report(
+        result,
+        claude_text,
+        target=target,
+        files_to_write=target_files,
+    )
 
     _emit_stderr_warnings(report)
 
@@ -292,9 +301,15 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
         sys.stdout.write("=" * 40 + "\n")
         for ov in report.get("overlays", []):
             sys.stdout.write(f"  Overlay: {ov['name']}@{ov['version']}\n")
-        sys.stdout.write(
-            f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
-        )
+        if target == "claude-code":
+            sys.stdout.write(
+                f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
+            )
+        else:
+            sys.stdout.write(
+                f"\nPlanned {target} artifacts: "
+                f"{len(report['files_to_write'])} files\n"
+            )
         sys.stdout.write("\nContributions applied:\n")
         for scope, ids in report.get("contributions_applied", {}).items():
             sys.stdout.write(f"  {scope}: {ids}\n")
@@ -318,12 +333,15 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
                 "report": report,
             }, indent=2) + "\n")
         else:
-            sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
-            preview_lines = claude_text.split("\n")[:20]
-            for pl in preview_lines:
-                sys.stdout.write(pl + "\n")
-            if len(claude_text.split("\n")) > 20:
-                sys.stdout.write("... (truncated)\n")
+            if target == "claude-code":
+                sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
+                preview_lines = claude_text.split("\n")[:20]
+                for pl in preview_lines:
+                    sys.stdout.write(pl + "\n")
+                if len(claude_text.split("\n")) > 20:
+                    sys.stdout.write("... (truncated)\n")
+            else:
+                sys.stdout.write(f"\n--- {target} target plan ---\n")
             sys.stdout.write("\nFiles that would be written:\n")
             for fp in report["files_to_write"]:
                 sys.stdout.write(f"  {fp}\n")
@@ -399,15 +417,21 @@ def _uninstall_report(
     }
 
     if result.is_last_overlay:
-        # Render the base template text the backend reverted CLAUDE.md to.
+        # Render the base template text the Claude backend reverted CLAUDE.md to.
         claude_text = result.preview
         report = {
             "uninstall": uninstall_meta,
             "overlays": [],
             "contributions_applied": {},
-            "composed_lines": _composed_lines(claude_text),
-            "files_to_write": [os.path.join(project_path, "CLAUDE.md")],
         }
+        if target == "claude-code":
+            report["composed_lines"] = _composed_lines(claude_text)
+            report["files_to_write"] = [
+                os.path.join(project_path, "CLAUDE.md")
+            ]
+        else:
+            report["target"] = target
+            report["files_to_write"] = list(result.files_written)
         return report, claude_text
 
     remaining_paths = _remaining_source_paths(backend, project_path, args.name)
@@ -417,9 +441,16 @@ def _uninstall_report(
     )
     claude_text = ""
     if recomposed.graph is not None:
-        render_backend = _backend_for(target, base_path, remaining_paths)
+        render_backend = _backend_for(target, base_path)
         claude_text = _render_composed_text(recomposed.graph, render_backend)
-    report = _build_compose_report(recomposed, claude_text)
+    report = _build_compose_report(
+        recomposed,
+        claude_text,
+        target=target,
+        files_to_write=(
+            None if target == "claude-code" else list(result.files_written)
+        ),
+    )
     # The oracle inserts `uninstall` AFTER files_to_write (preserving the compose
     # report key order), then `files_written` last.
     report["uninstall"] = uninstall_meta
@@ -466,9 +497,16 @@ def _do_uninstall(args, target: str) -> int:
             sys.stdout.write("=" * 40 + "\n")
             for ov in report.get("overlays", []):
                 sys.stdout.write(f"  Overlay: {ov['name']}@{ov['version']}\n")
-            sys.stdout.write(
-                f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
-            )
+            if target == "claude-code":
+                sys.stdout.write(
+                    f"\nComposed CLAUDE.md: "
+                    f"{report.get('composed_lines', 0)} lines\n"
+                )
+            else:
+                sys.stdout.write(
+                    f"\nPlanned {target} artifacts: "
+                    f"{len(result.files_written)} files\n"
+                )
             contribs = report.get("contributions_applied", {})
             if contribs:
                 sys.stdout.write("\nContributions applied:\n")
@@ -489,12 +527,15 @@ def _do_uninstall(args, target: str) -> int:
                 sys.stdout.write("Files/directories to remove:\n")
                 for a in artifacts:
                     sys.stdout.write(f"  {a}\n")
-            sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
-            preview_lines = claude_text.split("\n")[:20]
-            for pl in preview_lines:
-                sys.stdout.write(pl + "\n")
-            if len(claude_text.split("\n")) > 20:
-                sys.stdout.write("... (truncated)\n")
+            if target == "claude-code":
+                sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
+                preview_lines = claude_text.split("\n")[:20]
+                for pl in preview_lines:
+                    sys.stdout.write(pl + "\n")
+                if len(claude_text.split("\n")) > 20:
+                    sys.stdout.write("... (truncated)\n")
+            else:
+                sys.stdout.write(f"\n--- {target} target plan ---\n")
             sys.stdout.write("\nFiles that would be written:\n")
             for fp in result.files_written:
                 sys.stdout.write(f"  {fp}\n")

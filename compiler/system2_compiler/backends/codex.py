@@ -830,20 +830,16 @@ def _build_degradation_report(ir: System2Graph) -> dict:
 _CODEX_LOCK = "system2.codex.lock.json"
 
 
-def _build_lock(
-    ir: System2Graph, overlay_sources: List[str], ownership: dict
-) -> dict:
+def _build_lock(ir: System2Graph, ownership: dict) -> dict:
     lock = _build_degradation_report(ir)
     lock["ownership"] = ownership
-    lock["overlay_sources"] = list(overlay_sources)
+    lock["overlay_sources"] = list(ir.overlay_sources)
     return lock
 
 
 # Planned emission + write posture (atomic write + backup/restore)
 
-def _planned_files(
-    ir: System2Graph, overlay_sources: List[str]
-) -> List[Tuple[str, str]]:
+def _planned_files(ir: System2Graph) -> List[Tuple[str, str]]:
     """Ordered ``(relative_path, content)`` set emit writes (deterministic)."""
     planned: List[Tuple[str, str]] = []
 
@@ -892,7 +888,7 @@ def _planned_files(
     planned.append(
         (
             _CODEX_LOCK,
-            json.dumps(_build_lock(ir, overlay_sources, ownership), indent=2) + "\n",
+            json.dumps(_build_lock(ir, ownership), indent=2) + "\n",
         )
     )
     return planned
@@ -1441,34 +1437,45 @@ class CodexBackend:
     ) -> None:
         self._base_path = base_path
         self._compose_fn = compose_fn
+        # Deprecated compatibility input: graph provenance is authoritative.
         self._overlay_sources = list(overlay_sources) if overlay_sources else None
 
-    def _resolve_overlay_sources(self, ir: System2Graph) -> List[str]:
-        if self._overlay_sources is not None:
-            return list(self._overlay_sources)
-        profile = ir.active_profile
-        if profile is not None and profile.ordered_source_paths:
-            return list(profile.ordered_source_paths)
-        return []
+    def _validate_legacy_overlay_sources(self, ir: System2Graph) -> None:
+        if (
+            self._overlay_sources is not None
+            and tuple(self._overlay_sources) != ir.overlay_sources
+        ):
+            raise ValueError(
+                "constructor overlay_sources do not match authoritative graph "
+                "provenance"
+            )
 
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
-        return self._emit_with_sources(
+        return self._emit_graph(
             ir,
             project_path,
-            self._resolve_overlay_sources(ir),
             recompose=os.path.lexists(self.lock_path(project_path)),
         )
 
-    def _emit_with_sources(
+    def plan(self, ir: System2Graph, project_path: str) -> List[str]:
+        """Return the target-native write plan without mutating the project."""
+        return self._emit_graph(
+            ir,
+            project_path,
+            dry_run=True,
+            recompose=os.path.lexists(self.lock_path(project_path)),
+        )
+
+    def _emit_graph(
         self,
         ir: System2Graph,
         project_path: str,
-        overlay_sources: List[str],
         *,
         dry_run: bool = False,
         recompose: bool = False,
     ) -> List[str]:
-        planned = _planned_files(ir, overlay_sources)
+        self._validate_legacy_overlay_sources(ir)
+        planned = _planned_files(ir)
         planned_paths, stale_paths = preflight_artifact_write(
             project_path, planned, _CODEX_LOCK, recompose=recompose
         )
@@ -1496,10 +1503,9 @@ class CodexBackend:
     def recompose_from_lock(
         self, ir: System2Graph, project_path: str, *, dry_run: bool = False
     ) -> List[str]:
-        return self._emit_with_sources(
+        return self._emit_graph(
             ir,
             project_path,
-            self._resolve_overlay_sources(ir),
             dry_run=dry_run,
             recompose=True,
         )
@@ -1596,10 +1602,9 @@ class CodexBackend:
         report = getattr(result, "report", {}) or {}
         injection_warnings = list(report.get("injection_warnings", []))
         try:
-            files_written = self._emit_with_sources(
+            files_written = self._emit_graph(
                 result.graph,
                 project_path,
-                remaining_sources,
                 dry_run=dry_run,
                 recompose=True,
             )
