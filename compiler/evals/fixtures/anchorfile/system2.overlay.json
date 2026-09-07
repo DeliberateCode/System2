@@ -1,0 +1,38 @@
+{
+  "name": "anchorfile",
+  "version": "1.0.0",
+  "description": "Overlay exposing the anchor-aware content-file selection path (a prompt_sections contribution to an UNKNOWN anchor carrying a content_file must be excluded from composition, the content copy, the content_hash, and the content fingerprint).",
+  "schema_version": "1.0.0",
+  "tags": ["test"],
+
+  "compatibility": {
+    "known_conflicts": [],
+    "tested_with": [],
+    "review_when_combined_with_tags": []
+  },
+
+  "contributions": {
+    "agents": {
+      "executor": {
+        "prompt_sections": {
+          "implementation_discipline": [
+            {
+              "id": "af-known",
+              "content_file": "contributions/known.md",
+              "inline": false,
+              "summary": "Known-anchor guidance for the executor's implementation discipline."
+            }
+          ],
+          "nonexistent_anchor_zzz": [
+            {
+              "id": "af-unknown",
+              "content_file": "contributions/extra.md",
+              "inline": false,
+              "summary": "Unknown-anchor guidance that must be silently excluded."
+            }
+          ]
+        }
+      }
+    }
+  }
+}

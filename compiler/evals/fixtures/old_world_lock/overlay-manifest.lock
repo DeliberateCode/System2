@@ -1,0 +1,37 @@
+{
+  "composed_at": "2026-07-03T23:02:02Z",
+  "content_fingerprint": "sha256:8a53793de3a8c7c1fe3da5dab94a1add7d0a48ca59beb3975de0257266b30963",
+  "system2_version": "1.1.0",
+  "schema_version": "1.0.0",
+  "overlays": [
+    {
+      "name": "test-overlay",
+      "version": "1.0.0",
+      "source_path": "__SYSTEM2_TEST_OVERLAY__",
+      "local_path": ".system2/overlays/test-overlay/",
+      "manifest_hash": "sha256:272e8d0b1947d2075953cad3db1a7e57d78f0ee478a2b5c05649a1ced9a109ef",
+      "content_hash": "sha256:a5cd80d5216af60dc8e78e783bc21f1a7b709d16fb3b28b0d0837f5c1d72a591"
+    }
+  ],
+  "contributions_applied": {
+    "orchestrator.principles": [
+      "test-principle-1"
+    ],
+    "orchestrator.gates.3.consultation": [
+      "test-gate3-consultation"
+    ],
+    "delegation.advisory_sources": [
+      "test-advisory-1"
+    ],
+    "agents.executor.prompt_sections.implementation_discipline": [
+      "test-executor-discipline"
+    ],
+    "spec.context.required_sections": [
+      "test-spec-section"
+    ],
+    "auxiliary_agents": [
+      "test-scout"
+    ]
+  },
+  "warnings": []
+}

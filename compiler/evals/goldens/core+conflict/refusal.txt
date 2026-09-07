@@ -1,0 +1,25 @@
+{
+  "status": "error",
+  "errors": [
+    "Structural conflict: Overlay 'conflict-a' declares a known conflict with 'conflict-b', which is also being composed.\n  Type: compatibility.known_conflicts\n  Target: conflict-b\n  Resolution: Remove 'conflict-b' from the overlay set, or remove 'conflict-a''s known_conflicts declaration if the conflict has been resolved."
+  ],
+  "report": {
+    "conflicts": {
+      "structural_conflicts": [
+        {
+          "type": "known_conflicts",
+          "message": "Overlay 'conflict-a' declares a known conflict with 'conflict-b', which is also being composed.",
+          "overlays": [
+            "conflict-a",
+            "conflict-b"
+          ],
+          "contribution_type": "compatibility.known_conflicts",
+          "target": "conflict-b",
+          "suggested_resolution": "Remove 'conflict-b' from the overlay set, or remove 'conflict-a''s known_conflicts declaration if the conflict has been resolved."
+        }
+      ],
+      "additive_overlaps": [],
+      "semantic_tensions": []
+    }
+  }
+}

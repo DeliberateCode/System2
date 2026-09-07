@@ -1,0 +1,10 @@
+{
+  "name": "system2",
+  "plugins": [
+    {
+      "name": "system2",
+      "source": "./distributions/codex",
+      "description": "System2 workflows for Codex. Bundled hooks are unverified candidate artifacts; native event routing, trust, and deny semantics remain pending acceptance, so all capabilities remain advisory."
+    }
+  ]
+}

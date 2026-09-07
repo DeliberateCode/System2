@@ -1,0 +1,1 @@
+Test executor discipline: enforce aggregate boundaries in all domain operations.

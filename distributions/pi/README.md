@@ -1,0 +1,33 @@
+# @deliberatecode/pi-system2
+
+GENERATED npm package candidate — do not hand-edit. Regenerate via `python3 compiler/tools/regen_all.py` in the DeliberateCode/System2 repo.
+
+System2 is a deliberate-reasoning workflow for the [Pi coding agent](https://github.com/earendil-works/pi). This candidate contains the compiler-generated base workflow, prompts, and bounded safety extension. It has no install scripts or bundled runtime dependencies; Pi provides the declared host peer.
+
+Native acceptance is pinned to **Pi 0.85.1**. It covers package command discovery, public `/delegate` and `/system2-init` dispatch, persisted role/prompt restoration across reload, bounded dangerous-command and sensitive-path blocks, a structured off-scope write block, and a benign-command negative control. Additional synthetic extension-handler controls cover supported literal shell redirection/`tee` targets and the broader matcher corpus; they are not native CLI acceptance. This is evidence for the tested version, not a compatibility claim for untested Pi versions.
+
+The `"*"` peer range follows Pi's package guidance for host-provided core imports; it is a loader convention, not a claim of validation against every Pi version.
+
+## Availability
+
+This package is **pending publication**. There is no supported npm installation command, and the package name must not be treated as currently installable.
+
+## Materialize project files
+
+After publication, the package-discovered `/system2-init` command will materialize `.pi/SYSTEM.md` and `system2.pi.lock.json` into the current project, then reload Pi so resources are rediscovered. It does not materialize or replace caller-owned `AGENTS.md`. Re-running is idempotent: byte-identical managed files are skipped, locally modified managed files are left untouched unless `--force` is supplied, lexical/symlink escapes are refused, writes use atomic replacement, and unmanaged files are never touched.
+
+## Scope
+
+The candidate contains the **base 13-role workflow** composed with an empty overlay set. `/delegate` switches roles in-session; it is not native isolated subagent execution.
+
+Overlays and profiles are not end-user package UX. Applying them requires the source compiler; the published package will contain no compiler and will read no overlay input at install time or runtime.
+
+## Enforcement fidelity
+
+The package-discovered Pi extension registers a `tool_call` handler that blocks declared dangerous-command patterns, sensitive structured paths/ordinary literal shell tokens, structured off-lease writes, and supported off-lease shell redirection/`tee` targets before execution. Lease enforcement is adapted/partial, not a general shell-write parser: commands such as `touch`, `cp`, `mv`, `install`, `sed -i`, interpreters, and build tools are unsupported. Dangerous-command matching does not claim arbitrary-shell normalization, and sensitive-token matching does not expand shell expressions. Malformed or overflowing supported extraction fails closed; unknown custom tool schemas are outside the sensitive-path claim.
+
+Budget is advisory: the extension emits a completion reminder but computes no report and gates nothing. Formatting and type-checking are also advisory. See `system2.pi.lock.json` for the per-capability report.
+
+## License
+
+MIT — see `LICENSE`.

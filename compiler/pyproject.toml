@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "system2-compiler"
+version = "0.1.0"
+description = "Harness-neutral compiler for System2 overlay composition (IR + pluggable backends), targeting Claude Code, Pi, and Codex."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "DeliberateCode" },
+]
+keywords = ["system2", "compiler", "overlays", "claude-code", "pi", "codex", "agent"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DeliberateCode/System2"
+Repository = "https://github.com/DeliberateCode/System2"
+Changelog = "https://github.com/DeliberateCode/System2/blob/main/CHANGELOG.md"
+
+[project.scripts]
+system2 = "system2_compiler.cli:main"
+
+[tool.setuptools]
+packages = [
+    "system2_compiler",
+    "system2_compiler.ir",
+    "system2_compiler.backends",
+    "system2_compiler.backends.capabilities",
+]
+
+[tool.setuptools.package-data]
+"system2_compiler.backends.capabilities" = ["*.json"]
+# `system2 codex init` needs its user-hooks reference tree regardless of install
+# method. Mirrored into the package by compiler/tools/regen_all.py's
+# _mirror_user_hooks_into_package (single source of truth: CodexBackend's own
+# emit output, never a second hand-authored copy) -- see
+# system2_compiler/_packaged_data/codex_user_hooks/.
+"system2_compiler" = ["_packaged_data/codex_user_hooks/**/*"]

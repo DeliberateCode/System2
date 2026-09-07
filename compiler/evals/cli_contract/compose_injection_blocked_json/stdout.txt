@@ -1,0 +1,36 @@
+{
+  "status": "injection_blocked",
+  "injection_warnings": [
+    "injection-control/contributions/principle.md: suspected prompt injection (ignore previous instructions): ...Ignore all previous instructions..."
+  ],
+  "report": {
+    "overlays": [
+      {
+        "name": "injection-control",
+        "version": "1.0.0"
+      }
+    ],
+    "contributions_applied": {
+      "orchestrator.principles": [
+        "injection-control-principle"
+      ]
+    },
+    "deferred": {},
+    "injection_warnings": [
+      "injection-control/contributions/principle.md: suspected prompt injection (ignore previous instructions): ...Ignore all previous instructions..."
+    ],
+    "validation_warnings": [],
+    "conflicts": {
+      "structural_conflicts": [],
+      "additive_overlaps": [],
+      "semantic_tensions": []
+    },
+    "composed_lines": 224,
+    "files_to_write": [
+      "<PROJECT>/CLAUDE.md",
+      "<PROJECT>/spec/overlay-manifest.lock",
+      "<PROJECT>/.system2/overlays/injection-control/ (overlay content)"
+    ]
+  },
+  "message": "Prompt injection warnings detected. Re-run with --allow-injection to proceed."
+}

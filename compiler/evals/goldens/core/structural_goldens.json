@@ -1,0 +1,50 @@
+{
+  "description": "Static inventory invariant for the 13-agent, 6-gate workflow and its hook and allowlist bindings.",
+  "base_template_sha256": "bbf92beacc749f37c6f0e3515332d7e000e25832264be0abaa94ba9643ae90f5",
+  "structural_goldens": [
+    {
+      "path": "evals/goldens/agent_inventory.json",
+      "sha256": "4ccbd7ea307caebcfa84a51b0abf937d74c415a41468698f9d6a3d52c5e8aef9"
+    },
+    {
+      "path": "evals/goldens/delegation_map.json",
+      "sha256": "8f3d941de218c70db5761e034d0f0a58d94bf7ad0cd18089114fe27446b59863"
+    },
+    {
+      "path": "evals/goldens/hook_inventory.json",
+      "sha256": "d7740314f732458a53d9a3a389cb0dc9842e9690cccd4e13e2ff0b44fb45b885"
+    },
+    {
+      "path": "evals/goldens/allowlist_inventory.json",
+      "sha256": "57e5336fefb7538e57de4522fcc92df7df3694ae47d229c4392e9c520dbb2a33"
+    },
+    {
+      "path": "evals/goldens/agent_allowlist_bindings.json",
+      "sha256": "74737c90468c7056f3f20ff5fc78e8b67e642f0e491478dc620d7573cb3f72ce"
+    },
+    {
+      "path": "evals/goldens/template_sections.json",
+      "sha256": "658067dcc5fde119c8e74402ceaae442953e3d08407c9fd83c6e2737422da62d"
+    },
+    {
+      "path": "evals/goldens/maintenance_thresholds.json",
+      "sha256": "f061574b688abb6701f37493cec35686f002c182284cc1186d1f3f0dfe1b8feb"
+    },
+    {
+      "path": "evals/goldens/manifest_schemas.json",
+      "sha256": "ea3ddf6784b4b471bcc9433c417340d41c8fabebe469c76fe96842b63ddb8f8f"
+    },
+    {
+      "path": "evals/goldens/prohibited_patterns.json",
+      "sha256": "1e10275a28237a85a98182dafbc7d06996af8a6920720d314da7d89e659acf1b"
+    },
+    {
+      "path": "evals/goldens/required_readme_patterns.json",
+      "sha256": "2bbeb048fe69ea08369427dd871a9c4673f6a6b935b95684d71eb661aa369827"
+    },
+    {
+      "path": "evals/goldens/skill_inventory.json",
+      "sha256": "6e8f96f7fea7f130080b2f78467b064214254d354fd4d97efdf23546d818f389"
+    }
+  ]
+}

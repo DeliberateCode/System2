@@ -5,6 +5,16 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Consolidated the compiler subtree into this repository under `compiler/`.
+- Moved the plugin version from 1.1.1 to 1.2.0.
+- Updated copyright notices to Deliberate Code.
+- Added a Codex base-workflow projection; it remains pre-release pending native acceptance.
+- Added a Pi base-workflow projection; it remains pre-release pending npm publication.
+
 ## [1.1.1] - 2026-06-26
 
 ### Changed

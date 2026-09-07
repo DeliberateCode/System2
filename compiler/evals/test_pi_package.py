@@ -1,0 +1,655 @@
+"""Pi package supply-chain policy + init-materializer semantics."""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_COMPILER_ROOT = os.path.dirname(_HERE)
+_TOOLS_DIR = os.path.join(_COMPILER_ROOT, "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+
+import build_pi_package  # noqa: E402  (tools/ is on sys.path above)
+from system2_compiler import ir  # noqa: E402
+from system2_compiler.backends.pi import PiBackend  # noqa: E402
+from evals import oracle  # noqa: E402
+
+_FIXTURES = os.path.join(_HERE, "fixtures", "pi_package")
+
+_NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
+_LOUD_SKIP = (
+    "node not installed — Pi init-materializer legs SKIPPED (LOUD skip, not a "
+    "silent pass; the CI skip-count-0 gate escalates this to a failure)"
+)
+
+# The ONLY npm specifier the generated extensions may reference (the pi-injected types).
+_PI_TYPE_PACKAGE = "@earendil-works/pi-coding-agent"
+_FORBIDDEN_PACKAGE_KEYS = ("scripts", "dependencies", "devDependencies")
+
+# Package builder — mirrors regen_all._build_pi exactly (BASE plugin, EMPTY overlays).
+
+
+def _build_package(dest):
+    """Build the pi package into *dest* the way ``regen_all.py --only pi`` does."""
+    with tempfile.TemporaryDirectory(prefix="pi-emit-") as staging:
+        result = ir.compose(oracle.PLUGIN_ROOT, [], staging)
+        if result.graph is None:
+            raise AssertionError(f"pi compose refused the BASE cell: {result.errors!r}")
+        PiBackend(overlay_sources=[]).emit(result.graph, staging)
+        build_pi_package.build(staging, dest, build_pi_package.PACKAGE_VERSION)
+
+
+# Supply-chain policy checkers, tested in isolation against hostile fixtures.
+
+def _ts_tokens(source):
+    """Yield code identifiers/punctuation and string values, excluding comments."""
+    tokens = []
+    index = 0
+    while index < len(source):
+        if source.startswith("//", index):
+            end = source.find("\n", index + 2)
+            index = len(source) if end < 0 else end + 1
+        elif source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
+        elif source[index] in "'\"":
+            quote = source[index]
+            index += 1
+            value = []
+            while index < len(source) and source[index] != quote:
+                if source[index] == "\\" and index + 1 < len(source):
+                    index += 1
+                value.append(source[index])
+                index += 1
+            index += index < len(source)
+            tokens.append(("string", "".join(value)))
+        elif source[index].isalpha() or source[index] in "_$":
+            end = index + 1
+            while end < len(source) and (
+                source[end].isalnum() or source[end] in "_$"
+            ):
+                end += 1
+            tokens.append(("identifier", source[index:end]))
+            index = end
+        elif source[index].isspace():
+            index += 1
+        else:
+            tokens.append(("punctuation", source[index]))
+            index += 1
+    return tokens
+
+
+def _all_import_specifiers(ts_source):
+    tokens = _ts_tokens(ts_source)
+    specs = []
+    for index, (kind, value) in enumerate(tokens):
+        if kind != "identifier" or value not in ("import", "export", "require"):
+            continue
+        tail = tokens[index + 1:]
+        if value == "require" or (value == "import" and tail and tail[0][1] == "("):
+            if len(tail) > 1 and tail[0][1] == "(" and tail[1][0] == "string":
+                specs.append(tail[1][1])
+            continue
+        if value == "import" and tail and tail[0][0] == "string":
+            specs.append(tail[0][1])
+            continue
+        for offset, token in enumerate(tail):
+            if token[1] == ";":
+                break
+            if token == ("identifier", "from"):
+                if offset + 1 < len(tail) and tail[offset + 1][0] == "string":
+                    specs.append(tail[offset + 1][1])
+                break
+    return specs
+
+
+def _external_imports(ts_source):
+    """Return the sorted set of bare npm specifiers that are NOT the pi type package."""
+    external = set()
+    for spec in _all_import_specifiers(ts_source):
+        if spec.startswith((".", "/")):
+            continue
+        if spec.startswith("node:"):
+            continue
+        if spec == _PI_TYPE_PACKAGE:
+            continue
+        external.add(spec)
+    return sorted(external)
+
+
+def _package_policy_violations(pkg):
+    """Return supply-chain policy violations for a parsed package manifest."""
+    violations = []
+    for key in _FORBIDDEN_PACKAGE_KEYS:
+        if key in pkg:
+            violations.append(f"declares forbidden key {key!r}")
+    # postinstall (and every other npm lifecycle hook) can only live under `scripts`,
+    # which is already forbidden above; assert its specific absence for a clear signal.
+    scripts = pkg.get("scripts")
+    if isinstance(scripts, dict) and "postinstall" in scripts:
+        violations.append("declares a postinstall script")
+    return violations
+
+
+# Node harness that drives the generated system2-init.ts command handler.
+
+# Imports the built (or hostile-variant) system2-init.ts, hands it a mock ExtensionAPI to
+_INIT_HARNESS = r"""
+import { pathToFileURL } from "node:url";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+const modPath = process.argv[2];
+const projectRoot = process.argv[3];
+const args = process.argv[4] || "";
+
+process.chdir(projectRoot);
+const mod = await import(pathToFileURL(modPath).href);
+
+const notes = [];
+const replaceSnapshots = {};
+let reloads = 0;
+let registeredName = null;
+let spec = null;
+const pi = { registerCommand: (name, s) => { registeredName = name; spec = s; } };
+mod.default(pi);
+
+const ctx = {
+  cwd: projectRoot,
+  ui: {
+    notify: (msg, level) => {
+      notes.push({ level: level || null, msg });
+      const m = /replacing user-modified (\S+)/.exec(msg);
+      if (m) {
+        const rel = m[1];
+        try {
+          replaceSnapshots[rel] = fs.readFileSync(path.join(projectRoot, rel), "utf8");
+        } catch {
+          replaceSnapshots[rel] = null;
+        }
+      }
+    },
+  },
+  reload: async () => { reloads += 1; },
+};
+
+if (!spec || typeof spec.handler !== "function") {
+  process.stdout.write(JSON.stringify({ fatal: "no /system2-init handler registered" }));
+  process.exit(0);
+}
+await spec.handler(args, ctx);
+process.stdout.write(JSON.stringify({
+  command: registeredName,
+  description: spec.description || null,
+  notes,
+  replaceSnapshots,
+  reloads,
+}));
+"""
+
+
+def _dir_snapshot(root):
+    """Map every file under *root* to its bytes (for exact before/after comparison)."""
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for fn in sorted(filenames):
+            full = os.path.join(dirpath, fn)
+            with open(full, "rb") as fh:
+                out[os.path.relpath(full, root)] = fh.read()
+    return out
+
+
+class _NodeInitDriver:
+    """Owns the harness .mjs file and runs the init command via node."""
+
+    def __init__(self, workdir):
+        self.harness = os.path.join(workdir, "init_harness.mjs")
+        with open(self.harness, "w", encoding="utf-8") as fh:
+            fh.write(_INIT_HARNESS)
+
+    def run(self, mod_path, project_root, args=""):
+        completed = subprocess.run(
+            [_NODE_BIN, self.harness, mod_path, project_root, args],
+            capture_output=True, text=True, timeout=120,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(
+                f"init harness failed: exit {completed.returncode}\n"
+                f"stdout={completed.stdout!r}\nstderr={completed.stderr!r}"
+            )
+        return json.loads(completed.stdout)
+
+
+def _summary_counts(notes):
+    """Parse the terminal 'wrote X, skipped Y, replaced Z.' info note into ints."""
+    for note in notes:
+        m = re.search(r"wrote (\d+), skipped (\d+), replaced (\d+)", note["msg"])
+        if m:
+            return {
+                "wrote": int(m.group(1)),
+                "skipped": int(m.group(2)),
+                "replaced": int(m.group(3)),
+            }
+    raise AssertionError(f"no summary note found in {notes!r}")
+
+
+def _rejected_from_notes(notes):
+    """Parse the rejected-managed-paths error note into a set of rels (empty if none)."""
+    for note in notes:
+        m = re.search(
+            r"refused out-of-root or missing managed paths[^:]*:\s*(.+)$", note["msg"]
+        )
+        if m:
+            return {p.strip() for p in m.group(1).split(",") if p.strip()}
+    return set()
+
+
+# supply-chain policy (no node; always runs).
+
+
+class PiPackagePolicyTest(unittest.TestCase):
+    """package.json declares no scripts/deps; extensions import nothing external."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dest = tempfile.mkdtemp(prefix="pi-pkg-policy-")
+        _build_package(cls.dest)
+        with open(os.path.join(cls.dest, "package.json"), encoding="utf-8") as fh:
+            cls.pkg = json.load(fh)
+        cls.ext_sources = {}
+        for name in ("system2.ts", "system2-init.ts"):
+            with open(os.path.join(cls.dest, "extensions", name), encoding="utf-8") as fh:
+                cls.ext_sources[name] = fh.read()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dest, ignore_errors=True)
+
+    # ---- built-package policy (the real posture) -------------------------
+
+    def test_package_json_has_no_forbidden_keys(self):
+        violations = _package_policy_violations(self.pkg)
+        self.assertEqual(
+            violations, [],
+            f"the shipped package.json violates  supply-chain policy: {violations}",
+        )
+        for key in _FORBIDDEN_PACKAGE_KEYS:
+            self.assertNotIn(
+                key, self.pkg, f"package.json must not declare {key!r}")
+
+    def test_package_json_declares_no_postinstall(self):
+        # Explicit: even if `scripts` ever returned, no install-time execution hook.
+        scripts = self.pkg.get("scripts", {})
+        self.assertNotIn("postinstall", scripts)
+        self.assertEqual(scripts, {}, "the package must ship zero scripts")
+
+    def test_package_json_has_required_fields(self):
+        self.assertEqual(self.pkg.get("version"), "0.2.3")
+        self.assertIsInstance(self.pkg.get("pi"), dict, "missing pi manifest")
+        self.assertIn(
+            "pi-package", self.pkg.get("keywords", []),
+            "package must carry the 'pi-package' keyword",
+        )
+        self.assertIsInstance(
+            self.pkg.get("files"), list, "package must declare a files whitelist")
+        self.assertTrue(self.pkg["files"], "the files whitelist must be non-empty")
+        self.assertTrue(self.pkg.get("license"), "package must declare a license")
+        self.assertEqual(
+            self.pkg.get("peerDependencies"),
+            {"@earendil-works/pi-coding-agent": "*"},
+            "Pi packages importing the host API must declare its documented peer",
+        )
+
+    def test_extension_sources_import_nothing_external(self):
+        for name, src in self.ext_sources.items():
+            external = _external_imports(src)
+            self.assertEqual(
+                external, [],
+                f"{name} imports external npm modules {external} — only "
+                f"{_PI_TYPE_PACKAGE!r} + node: builtins are permitted",
+            )
+
+    def test_extension_sources_reference_only_pi_type_package(self):
+        # Positive: the ONLY non-relative, non-node: specifier anywhere is the pi types.
+        for name, src in self.ext_sources.items():
+            bare = [
+                s for s in _all_import_specifiers(src)
+                if not s.startswith((".", "/", "node:"))
+            ]
+            self.assertTrue(
+                set(bare) <= {_PI_TYPE_PACKAGE},
+                f"{name} references unexpected packages: {sorted(set(bare))}",
+            )
+
+    def test_package_wording_matches_discovery_and_advisory_budget(self):
+        with open(os.path.join(self.dest, "README.md"), encoding="utf-8") as fh:
+            readme = fh.read()
+        with open(
+            os.path.join(self.dest, "skills", "system2-doctor", "SKILL.md"),
+            encoding="utf-8",
+        ) as fh:
+            doctor = fh.read()
+        self.assertIn("package-discovered", readme)
+        self.assertIn("does not materialize or replace caller-owned `AGENTS.md`", readme)
+        self.assertIn("Budget is advisory", readme)
+        self.assertIn("Native acceptance is pinned to **Pi 0.85.1**", readme)
+        self.assertIn("https://github.com/earendil-works/pi", readme)
+        self.assertNotIn("earendil-works/pi-coding-agent", readme)
+        self.assertIn("they are not native CLI acceptance", readme)
+        self.assertIn("loader convention", readme)
+        self.assertNotIn("`.pi/extensions/system2.ts`", doctor)
+        self.assertNotIn("pi install npm:", readme)
+
+    def test_package_description_separates_native_and_adapted_safety_gates(self):
+        description = self.pkg.get("description", "")
+        native_clause = (
+            "bounded native dangerous-command and sensitive-path gates for declared "
+            "patterns (block-dangerous, protect-sensitive)"
+        )
+        adapted_clause = (
+            "adapted/partial write-scope gating for supported structured edits and "
+            "literal shell redirection/tee targets (enforce-lease)"
+        )
+        self.assertIn(native_clause, description)
+        self.assertIn(adapted_clause, description)
+        self.assertEqual(description.count("native"), 1)
+        self.assertEqual(description.count("enforce-lease"), 1)
+        self.assertLess(
+            description.index(native_clause), description.index(adapted_clause)
+        )
+        self.assertIn(
+            "; adapted/partial",
+            description,
+            "the adapted enforce-lease claim must be separate from the native gates",
+        )
+        self.assertNotIn(
+            "native safety gate (block-dangerous, protect-sensitive, enforce-lease)",
+            description,
+        )
+        self.assertIn("no bundled runtime dependencies", description)
+        self.assertNotIn("no dependencies", description)
+
+    def test_init_extension_guard_clauses_present(self):
+        # Structural defense in depth for the fail-closed out-of-root guard:
+        # rejection and package-relative payload anchor must be in the shipped source.
+        src = self.ext_sources["system2-init.ts"]
+        self.assertIn("resolveWithinRoot", src)
+        self.assertIn("path.isAbsolute(rel)", src)
+        self.assertIn("import.meta.url", src, "payload anchor must be package-relative")
+        self.assertIn("MANAGED_FILES", src)
+        self.assertIn("lstatSync", src, "target and parent symlinks must be rejected")
+        self.assertIn("renameSync", src, "managed writes must use atomic replacement")
+
+    # ---- checker teeth: hostile fixtures must be flagged -----------------
+
+    def test_policy_checker_flags_injected_postinstall(self):
+        with open(os.path.join(_FIXTURES, "bad_postinstall.package.json")) as fh:
+            pkg = json.load(fh)
+        violations = _package_policy_violations(pkg)
+        self.assertTrue(
+            any("postinstall" in v for v in violations),
+            f"an injected postinstall was NOT caught: {violations}",
+        )
+        self.assertIn("declares forbidden key 'scripts'", violations)
+
+    def test_policy_checker_flags_injected_dependencies(self):
+        with open(os.path.join(_FIXTURES, "bad_dependencies.package.json")) as fh:
+            pkg = json.load(fh)
+        violations = _package_policy_violations(pkg)
+        self.assertIn("declares forbidden key 'dependencies'", violations)
+        self.assertIn("declares forbidden key 'devDependencies'", violations)
+
+    def test_import_scanner_flags_external_import(self):
+        with open(os.path.join(_FIXTURES, "bad_external_import.ts")) as fh:
+            external = _external_imports(fh.read())
+        # static default, named, side-effect, dynamic import(), and require() forms.
+        self.assertEqual(
+            external,
+            sorted(["@scope/side-effect-pkg", "execa", "lodash", "zod", "chalk"]),
+            f"the import scanner missed an external-import surface: {external}",
+        )
+
+    def test_import_scanner_clean_source_has_no_false_positives(self):
+        with open(os.path.join(_FIXTURES, "clean_imports.ts")) as fh:
+            external = _external_imports(fh.read())
+        self.assertEqual(
+            external, [],
+            f"the scanner false-flagged pi/node:/relative imports: {external}",
+        )
+
+
+# init-materializer semantics (node REQUIRED; LOUD-skip if absent).
+
+
+class PiInitMaterializerTest(unittest.TestCase):
+    """the generated /system2-init command materializes safely and idempotently."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._skip = None
+        if not _NODE_BIN:
+            cls._skip = _LOUD_SKIP
+            return
+        cls.dest = tempfile.mkdtemp(prefix="pi-pkg-init-")
+        _build_package(cls.dest)
+        cls.init_mod = os.path.join(cls.dest, "extensions", "system2-init.ts")
+        with open(cls.init_mod, encoding="utf-8") as fh:
+            cls.init_src = fh.read()
+        # Managed set embedded in the built module (project-relative payload files).
+        cls.managed = json.loads(
+            re.search(
+                r"const MANAGED_FILES: string\[\] = (\[[^\]]*\]);", cls.init_src
+            ).group(1)
+        )
+        cls.payload_root = os.path.join(cls.dest, "payload", "project")
+        cls.workdir = tempfile.mkdtemp(prefix="pi-pkg-init-work-")
+        cls.driver = _NodeInitDriver(cls.workdir)
+
+    @classmethod
+    def tearDownClass(cls):
+        for attr in ("dest", "workdir"):
+            path = getattr(cls, attr, None)
+            if path:
+                shutil.rmtree(path, ignore_errors=True)
+
+    def setUp(self):
+        if self._skip:
+            self.skipTest(self._skip)
+        self.project = tempfile.mkdtemp(prefix="pi-proj-")
+        self.addCleanup(shutil.rmtree, self.project, ignore_errors=True)
+
+    # -- helpers -----------------------------------------------------------
+
+    def _payload_bytes(self, rel):
+        with open(os.path.join(self.payload_root, rel), "rb") as fh:
+            return fh.read()
+
+    # -- cases -------------------------------------------------------------
+
+    def test_materialize_creates_all_managed_files(self):
+        out = self.driver.run(self.init_mod, self.project)
+        self.assertEqual(out["command"], "system2-init")
+        counts = _summary_counts(out["notes"])
+        self.assertEqual(counts["wrote"], len(self.managed))
+        self.assertEqual(counts["skipped"], 0)
+        self.assertEqual(counts["replaced"], 0)
+        self.assertEqual(_rejected_from_notes(out["notes"]), set())
+        self.assertEqual(out["reloads"], 1, "successful materialization must reload Pi")
+        # Every managed file exists with byte-identical payload content.
+        for rel in self.managed:
+            target = os.path.join(self.project, rel)
+            self.assertTrue(os.path.isfile(target), f"{rel} was not materialized")
+            with open(target, "rb") as fh:
+                self.assertEqual(
+                    fh.read(), self._payload_bytes(rel),
+                    f"{rel} content does not match the package payload",
+                )
+
+    def test_second_run_is_idempotent_zero_diff(self):
+        self.driver.run(self.init_mod, self.project)
+        before = _dir_snapshot(self.project)
+        out = self.driver.run(self.init_mod, self.project)
+        after = _dir_snapshot(self.project)
+        self.assertEqual(
+            before, after, "a second /system2-init run changed the project (not idempotent)")
+        counts = _summary_counts(out["notes"])
+        self.assertEqual(counts["wrote"], 0, "idempotent re-run must write nothing")
+        self.assertEqual(counts["replaced"], 0)
+        self.assertEqual(counts["skipped"], len(self.managed))
+        self.assertEqual(out["reloads"], 0, "an idempotent no-write run must not reload")
+
+    def test_user_modified_file_left_untouched_without_force(self):
+        rel = self.managed[0]
+        target = os.path.join(self.project, rel)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        user_bytes = b"USER LOCAL EDIT - do not clobber\n"
+        with open(target, "wb") as fh:
+            fh.write(user_bytes)
+        out = self.driver.run(self.init_mod, self.project)
+        with open(target, "rb") as fh:
+            self.assertEqual(
+                fh.read(), user_bytes,
+                f"{rel} was overwritten without --force",
+            )
+        counts = _summary_counts(out["notes"])
+        self.assertEqual(counts["replaced"], 0, "nothing may be replaced without --force")
+        # And it is reported (not silently ignored).
+        self.assertTrue(
+            any(rel in n["msg"] and "left unchanged" in n["msg"] for n in out["notes"]),
+            f"the untouched user-modified file {rel} was not reported: {out['notes']}",
+        )
+
+    def test_caller_owned_agents_is_never_managed_or_replaced(self):
+        rel = "AGENTS.md"
+        self.assertNotIn(rel, self.managed)
+        target = os.path.join(self.project, rel)
+        user_bytes = b"CALLER OWNED AGENTS\n"
+        with open(target, "wb") as fh:
+            fh.write(user_bytes)
+        self.driver.run(self.init_mod, self.project, args="--force")
+        with open(target, "rb") as fh:
+            self.assertEqual(fh.read(), user_bytes)
+
+    def test_force_overwrites_and_prints_replacing_before_write(self):
+        rel = self.managed[0]
+        target = os.path.join(self.project, rel)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        user_bytes = b"USER LOCAL EDIT - clobber me with --force\n"
+        with open(target, "wb") as fh:
+            fh.write(user_bytes)
+        out = self.driver.run(self.init_mod, self.project, args="--force")
+        # Overwritten with the payload bytes.
+        with open(target, "rb") as fh:
+            self.assertEqual(
+                fh.read(), self._payload_bytes(rel),
+                f"--force did not overwrite {rel} with the payload content",
+            )
+        counts = _summary_counts(out["notes"])
+        self.assertEqual(counts["replaced"], 1)
+        # The "replacing user-modified <rel>" message was emitted...
+        self.assertTrue(
+            any(f"replacing user-modified {rel}" in n["msg"] for n in out["notes"]),
+            f"the --force replace warning for {rel} was not printed: {out['notes']}",
+        )
+        # ...and it was emitted BEFORE the write: the on-disk snapshot captured at
+        # notify time still held the USER bytes, not the payload's.
+        self.assertIn(rel, out["replaceSnapshots"])
+        self.assertEqual(
+            out["replaceSnapshots"][rel], user_bytes.decode(),
+            "the 'replacing user-modified' message was printed AFTER the write — the "
+            "user's clobbered content must be announced BEFORE it is destroyed",
+        )
+
+    def test_out_of_root_managed_paths_rejected_fail_closed(self):
+        # MANAGED_FILES is fixed/in-root in the real package, so exercise resolveWithinRoot
+        variant_root = tempfile.mkdtemp(prefix="pi-hostile-")
+        self.addCleanup(shutil.rmtree, variant_root, ignore_errors=True)
+        # Copy the payload so the legitimate entry can still be written.
+        shutil.copytree(
+            self.payload_root, os.path.join(variant_root, "payload", "project"))
+        legit = self.managed[0]
+        abs_escape = os.path.join(
+            tempfile.gettempdir(), "s2-abs-escape-must-not-exist.txt")
+        parent_escape = "../s2-parent-escape-must-not-exist.txt"
+        hostile = [legit, parent_escape, abs_escape]
+        src = re.sub(
+            r"const MANAGED_FILES: string\[\] = \[[^\]]*\];",
+            "const MANAGED_FILES: string[] = " + json.dumps(hostile) + ";",
+            self.init_src, count=1,
+        )
+        variant_ext = os.path.join(variant_root, "extensions")
+        os.makedirs(variant_ext)
+        variant_mod = os.path.join(variant_ext, "system2-init.ts")
+        with open(variant_mod, "w", encoding="utf-8") as fh:
+            fh.write(src)
+
+        # Pre-clean any stale escape artifacts.
+        for p in (abs_escape, os.path.abspath(
+                os.path.join(self.project, os.pardir, os.path.basename(parent_escape)))):
+            if os.path.exists(p):
+                os.remove(p)
+
+        out = self.driver.run(variant_mod, self.project)
+        rejected = _rejected_from_notes(out["notes"])
+        self.assertIn(parent_escape, rejected, "a ../ managed path was not rejected")
+        self.assertIn(abs_escape, rejected, "an absolute managed path was not rejected")
+        # Fail-closed: NOTHING was written outside the project root.
+        self.assertFalse(
+            os.path.exists(abs_escape),
+            "an absolute managed target was written outside the project root",
+        )
+        parent_target = os.path.abspath(
+            os.path.join(self.project, os.pardir, os.path.basename(parent_escape)))
+        self.assertFalse(
+            os.path.exists(parent_target),
+            "a ../-escaping managed target was written outside the project root",
+        )
+        # The legitimate in-root entry still materialized (rejection is targeted, not
+        # a blanket abort — the negative control that the guard discriminates).
+        self.assertTrue(os.path.isfile(os.path.join(self.project, legit)))
+
+    def test_symlinked_parent_is_rejected_without_external_write(self):
+        external = tempfile.mkdtemp(prefix="pi-init-external-parent-")
+        self.addCleanup(shutil.rmtree, external, ignore_errors=True)
+        os.symlink(external, os.path.join(self.project, ".pi"))
+        out = self.driver.run(self.init_mod, self.project)
+        self.assertFalse(os.path.exists(os.path.join(external, "SYSTEM.md")))
+        self.assertIn(".pi/SYSTEM.md", _rejected_from_notes(out["notes"]))
+
+    def test_dangling_target_symlink_is_rejected_without_external_write(self):
+        external = tempfile.mkdtemp(prefix="pi-init-external-target-")
+        self.addCleanup(shutil.rmtree, external, ignore_errors=True)
+        outside = os.path.join(external, "SYSTEM.md")
+        os.makedirs(os.path.join(self.project, ".pi"))
+        os.symlink(outside, os.path.join(self.project, ".pi", "SYSTEM.md"))
+        out = self.driver.run(self.init_mod, self.project)
+        self.assertFalse(os.path.exists(outside))
+        self.assertIn(".pi/SYSTEM.md", _rejected_from_notes(out["notes"]))
+
+    def test_unmanaged_files_are_never_touched(self):
+        # An unrelated file the user owns must survive materialization untouched.
+        unrelated = os.path.join(self.project, "MY_NOTES.txt")
+        payload_val = b"private user content that is not a managed file\n"
+        with open(unrelated, "wb") as fh:
+            fh.write(payload_val)
+        nested = os.path.join(self.project, "src", "keep.py")
+        os.makedirs(os.path.dirname(nested))
+        with open(nested, "wb") as fh:
+            fh.write(b"print('keep me')\n")
+        self.driver.run(self.init_mod, self.project)
+        with open(unrelated, "rb") as fh:
+            self.assertEqual(fh.read(), payload_val, "an unmanaged file was modified")
+        self.assertTrue(os.path.isfile(nested), "an unmanaged file was deleted")
+        with open(nested, "rb") as fh:
+            self.assertEqual(fh.read(), b"print('keep me')\n")
+
+
+if __name__ == "__main__":
+    unittest.main()

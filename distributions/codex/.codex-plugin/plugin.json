@@ -1,0 +1,13 @@
+{
+  "name": "system2",
+  "version": "0.2.3",
+  "description": "System2 workflows for Codex. NOTE: bundled hooks are unverified candidate artifacts, not a release enforcement guarantee; Codex safety capabilities remain advisory-only pending native acceptance.",
+  "publisher": {
+    "name": "DeliberateCode",
+    "url": "https://github.com/DeliberateCode/System2"
+  },
+  "interface": {
+    "displayName": "System2"
+  },
+  "skills": "./skills"
+}

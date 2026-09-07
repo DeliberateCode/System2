@@ -1,0 +1,25 @@
+{
+  "status": "success",
+  "report": {
+    "uninstall": {
+      "removed": {
+        "name": "test-overlay",
+        "version": "1.0.0"
+      },
+      "remaining": [],
+      "artifacts_removed": [
+        "<PROJECT>/.system2/overlays/test-overlay",
+        "<PROJECT>/.claude/agents/test-scout.md"
+      ]
+    },
+    "overlays": [],
+    "contributions_applied": {},
+    "composed_lines": 216,
+    "files_to_write": [
+      "<PROJECT>/CLAUDE.md"
+    ],
+    "files_written": [
+      "<PROJECT>/CLAUDE.md"
+    ]
+  }
+}
