@@ -8,8 +8,10 @@ import stat
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 from system2_compiler import cli, ir
+from system2_compiler.backends import codex, pi
 from system2_compiler.backends.base import (
     build_artifact_ownership,
     validate_artifact_ownership,
@@ -72,6 +74,23 @@ def _emit(backend_cls, project):
     backend = backend_cls(overlay_sources=[_TEST_OVERLAY])
     backend.emit(graph, project)
     return backend
+
+
+def _add_synthetic_owned_artifact(backend, project, content=b"stale owned\n"):
+    relative = "system2-stale-owned.txt"
+    path = os.path.join(project, relative)
+    _write(path, content)
+    lock_path = backend.lock_path(project)
+    with open(lock_path, "r", encoding="utf-8") as fh:
+        lock = json.load(fh)
+    lock["ownership"]["artifacts"].insert(
+        -1,
+        {"path": relative, "sha256": hashlib.sha256(content).hexdigest()},
+    )
+    with open(lock_path, "w", encoding="utf-8") as fh:
+        json.dump(lock, fh, indent=2)
+        fh.write("\n")
+    return relative, path
 
 
 def _run_cli(argv):
@@ -349,6 +368,99 @@ class LifecycleOwnershipTest(unittest.TestCase):
                         ).uninstall(project, "test-overlay")
                         self.assertTrue(result.errors)
                         self.assertEqual(_tree_fingerprint(project), before)
+
+    def test_recompose_removes_unchanged_stale_owned_artifact(self):
+        for backend_cls in (CodexBackend, PiBackend):
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="stale-owned-") as project:
+                    backend = _emit(backend_cls, project)
+                    relative, path = _add_synthetic_owned_artifact(backend, project)
+                    sources = backend.read_lock_overlay_sources(project)
+
+                    backend_cls(overlay_sources=sources).recompose_from_lock(
+                        _compose(project, sources), project
+                    )
+
+                    self.assertFalse(os.path.lexists(path))
+                    with open(backend.lock_path(project), "r", encoding="utf-8") as fh:
+                        lock = json.load(fh)
+                    self.assertNotIn(
+                        relative,
+                        [entry["path"] for entry in lock["ownership"]["artifacts"]],
+                    )
+
+    def test_recompose_dry_run_reports_and_preserves_stale_owned_artifact(self):
+        for backend_cls in (CodexBackend, PiBackend):
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="stale-dry-run-") as project:
+                    backend = _emit(backend_cls, project)
+                    _relative, path = _add_synthetic_owned_artifact(backend, project)
+                    sources = backend.read_lock_overlay_sources(project)
+                    before = _tree_fingerprint(project)
+
+                    planned = backend_cls(
+                        overlay_sources=sources
+                    ).recompose_from_lock(
+                        _compose(project, sources), project, dry_run=True
+                    )
+
+                    self.assertIn("(remove) " + path, planned)
+                    self.assertEqual(_tree_fingerprint(project), before)
+
+    def test_modified_stale_owned_artifact_refuses_before_mutation(self):
+        for backend_cls in (CodexBackend, PiBackend):
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="stale-modified-") as project:
+                    backend = _emit(backend_cls, project)
+                    _relative, path = _add_synthetic_owned_artifact(backend, project)
+                    _write(path, b"caller modification\n")
+                    sources = backend.read_lock_overlay_sources(project)
+                    before = _tree_fingerprint(project)
+
+                    with self.assertRaisesRegex(ValueError, "was modified"):
+                        backend_cls(overlay_sources=sources).recompose_from_lock(
+                            _compose(project, sources), project
+                        )
+
+                    self.assertEqual(_tree_fingerprint(project), before)
+
+    def test_recompose_rollback_restores_stale_owned_artifact(self):
+        cases = ((CodexBackend, codex), (PiBackend, pi))
+        for backend_cls, backend_module in cases:
+            with self.subTest(backend=backend_cls.__name__):
+                with tempfile.TemporaryDirectory(prefix="stale-rollback-") as project:
+                    backend = _emit(backend_cls, project)
+                    _relative, path = _add_synthetic_owned_artifact(backend, project)
+                    sources = backend.read_lock_overlay_sources(project)
+                    before = _tree_fingerprint(project)
+                    lock_path = backend.lock_path(project)
+                    real_replace = os.replace
+
+                    def fail_lock_replace(source, destination):
+                        if destination == lock_path:
+                            self.assertFalse(
+                                os.path.lexists(path),
+                                "stale artifact must be removed before the late failure",
+                            )
+                            raise OSError("synthetic late lock write failure")
+                        return real_replace(source, destination)
+
+                    with mock.patch.object(
+                        backend_module.os,
+                        "replace",
+                        side_effect=fail_lock_replace,
+                    ):
+                        with self.assertRaisesRegex(
+                            OSError, "synthetic late lock write failure"
+                        ):
+                            backend_cls(
+                                overlay_sources=sources
+                            ).recompose_from_lock(
+                                _compose(project, sources), project
+                            )
+
+                    self.assertTrue(os.path.isfile(path))
+                    self.assertEqual(_tree_fingerprint(project), before)
 
     def test_ownership_inventory_exactly_matches_emitted_artifacts(self):
         cases = (

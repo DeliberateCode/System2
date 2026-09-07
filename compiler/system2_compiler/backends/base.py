@@ -158,8 +158,8 @@ def preflight_artifact_write(
     lock_relative_path: str,
     *,
     recompose: bool,
-) -> List[str]:
-    """Refuse collisions or unproven overwrites before a backend writes anything."""
+) -> Tuple[List[str], List[str]]:
+    """Return planned writes and validated stale owned files after safe preflight."""
     lock_rel = _canonicalize_relative_artifact_path(lock_relative_path)
     planned_rels = [
         _canonicalize_relative_artifact_path(rel) for rel, _content in planned
@@ -171,10 +171,11 @@ def preflight_artifact_write(
         owned_paths = verify_owned_artifacts(
             project_path, lock_data, lock_rel, require_all=True
         )
-        owned = {
+        owned_rels = [
             _canonicalize_relative_artifact_path(os.path.relpath(path, project_path))
             for path in owned_paths
-        }
+        ]
+        owned = set(owned_rels)
         collisions = [
             rel
             for rel in planned_rels
@@ -182,18 +183,24 @@ def preflight_artifact_write(
             and os.path.lexists(os.path.join(project_path, rel))
             and rel not in owned
         ]
+        stale_paths = [
+            os.path.join(project_path, rel)
+            for rel in owned_rels
+            if rel not in planned_rels
+        ]
     else:
         collisions = [
             rel
             for rel in planned_rels
             if os.path.lexists(os.path.join(project_path, rel))
         ]
+        stale_paths = []
     if collisions:
         raise FileExistsError(
             "refusing to overwrite pre-existing project artifact(s): "
             + ", ".join(collisions)
         )
-    return planned_paths
+    return planned_paths, stale_paths
 
 
 def lock_sources_outside_project(sources: List[str], project_path: str) -> List[dict]:

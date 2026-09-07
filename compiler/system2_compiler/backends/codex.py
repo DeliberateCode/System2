@@ -922,13 +922,26 @@ def _default_file_mode(existing_path: Optional[str] = None) -> int:
     return 0o666 & ~umask
 
 
-def _write_outputs(project_path: str, planned: List[Tuple[str, str]]) -> List[str]:
-    """Write planned files under ``project_path`` with backup/restore on failure."""
+def _write_outputs(
+    project_path: str,
+    planned: List[Tuple[str, str]],
+    stale_paths: Optional[List[str]] = None,
+) -> List[str]:
+    """Write planned files and transactionally remove validated stale files."""
     backups: List[Tuple[str, str]] = []
     newly_created: List[str] = []
     dirs_created: List[str] = []
     written: List[str] = []
     try:
+        for path in stale_paths or []:
+            dir_name = os.path.dirname(path)
+            fd, bak = tempfile.mkstemp(
+                prefix=f".{os.path.basename(path)}.", suffix=".bak", dir=dir_name
+            )
+            os.close(fd)
+            shutil.copy2(path, bak)
+            backups.append((path, bak))
+            os.unlink(path)
         for rel, content in planned:
             dst = os.path.join(project_path, rel)
             dir_name = os.path.dirname(dst)
@@ -1409,12 +1422,12 @@ class CodexBackend:
         recompose: bool = False,
     ) -> List[str]:
         planned = _planned_files(ir, overlay_sources)
-        planned_paths = preflight_artifact_write(
+        planned_paths, stale_paths = preflight_artifact_write(
             project_path, planned, _CODEX_LOCK, recompose=recompose
         )
         if dry_run or bool(getattr(ir, "dry_run", False)):
-            return planned_paths
-        return _write_outputs(project_path, planned)
+            return planned_paths + ["(remove) " + path for path in stale_paths]
+        return _write_outputs(project_path, planned, stale_paths)
 
     # Lifecycle: lock helpers
 
