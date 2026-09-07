@@ -14,16 +14,76 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GOLDENS_DIR = os.path.join(_THIS_DIR, "goldens")
 POLICY_PATH = os.path.join(_THIS_DIR, "comparison_policy.json")
 
-# The lock's overlay ``source_path`` is the ABSOLUTE on-disk fixture path, which varies by checkout location (the frozen baseline baked the original author's path).
-_FIXTURE_PATH_RE = re.compile(rb'("source_path":\s*")[^"]*/evals/fixtures/')
-_FIXTURE_TOKEN = rb"\1<FIXTURES>/"
+_REPO_ROOT_BYTES = os.fsencode(os.path.abspath(oracle.PLUGIN_REPO_ROOT))
+_REPO_ROOT_TOKEN = b"<REPO_ROOT>"
+_VALID_MODES = ("byte-identical",)
+_ARTIFACT_CLASSES = (
+    "base-template", "structural", "CLAUDE.md", "agents", "lock",
+    "overlay-content", "warnings", "refusal", "exit-code",
+)
+_TIMESTAMP_RE = re.compile(rb"<!-- Composed at: ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z) -->")
 
 
-def _normalize_lock_paths(lock_bytes: bytes) -> bytes:
-    return _FIXTURE_PATH_RE.sub(_FIXTURE_TOKEN, lock_bytes)
+def _normalize_produced_lock_paths(lock_bytes: bytes, cell: "matrix.Cell") -> bytes:
+    lock = json.loads(lock_bytes.decode("utf-8"))
+    actual = tuple(overlay.get("source_path") for overlay in lock.get("overlays", []))
+    expected = matrix.resolved_overlay_sources(cell)
+    if actual != expected:
+        raise ValueError(
+            f"lock source paths differ from exact cell inputs: expected {expected!r}, got {actual!r}"
+        )
+    return lock_bytes.replace(_REPO_ROOT_BYTES, _REPO_ROOT_TOKEN)
 
-_VALID_MODES = ("byte-identical", "semantic-equivalent")
-_ARTIFACT_CLASSES = ("CLAUDE.md", "agents", "lock", "warnings")
+
+def _strip_top_level_field(raw: bytes, field: str) -> bytes:
+    """Remove one additive top-level JSON field without reserializing other bytes."""
+    text = raw.decode("utf-8")
+    decoder = json.JSONDecoder()
+    depth = 0
+    in_string = False
+    escaped = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"' and depth == 1:
+            key, key_end = decoder.raw_decode(text, index)
+            colon = key_end
+            while colon < len(text) and text[colon].isspace():
+                colon += 1
+            if key == field and colon < len(text) and text[colon] == ":":
+                value_start = colon + 1
+                while text[value_start].isspace():
+                    value_start += 1
+                _, value_end = decoder.raw_decode(text, value_start)
+                start = index
+                before = start - 1
+                while before >= 0 and text[before].isspace():
+                    before -= 1
+                if before >= 0 and text[before] == ",":
+                    start = before
+                else:
+                    after = value_end
+                    while after < len(text) and text[after].isspace():
+                        after += 1
+                    if after < len(text) and text[after] == ",":
+                        value_end = after + 1
+                return (text[:start] + text[value_end:]).encode("utf-8")
+            in_string = True
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+        index += 1
+    return raw
 
 
 class PolicyError(ValueError):
@@ -39,17 +99,11 @@ def _validate_entry(label: str, entry: dict) -> dict:
             f"comparison policy {label!r} has invalid mode {mode!r}; expected one of {_VALID_MODES}"
         )
     justification = entry.get("justification")
-    if mode == "semantic-equivalent":
-        if not isinstance(justification, str) or not justification.strip():
-            raise PolicyError(
-                f"comparison policy {label!r} selects 'semantic-equivalent' without a non-empty "
-                "justification; rejected"
-            )
     return {"mode": mode, "justification": justification}
 
 
 def load_policy(policy_path: str = POLICY_PATH) -> dict:
-    """Load + validate the comparison policy. Rejects under-justified semantic modes."""
+    """Load the byte-only comparison policy; unsupported modes are rejected."""
     with open(policy_path, "r", encoding="utf-8") as fh:
         raw = json.load(fh)
     default = _validate_entry("default", raw.get("default", {"mode": "byte-identical", "justification": None}))
@@ -67,6 +121,10 @@ _OVERLAY_CONTENT_PREFIX = os.path.join(".system2", "overlays") + os.sep
 
 
 def _classify(rel_path: str) -> str:
+    if rel_path == "base_template.md":
+        return "base-template"
+    if rel_path == "structural_goldens.json":
+        return "structural"
     if rel_path == "CLAUDE.md":
         return "CLAUDE.md"
     if rel_path.startswith(os.path.join(".claude", "agents") + os.sep):
@@ -75,7 +133,38 @@ def _classify(rel_path: str) -> str:
         return "lock"
     if rel_path.startswith(_OVERLAY_CONTENT_PREFIX):
         return "overlay-content"
+    if rel_path == "refusal.txt":
+        return "refusal"
+    if rel_path == "exit_code.txt":
+        return "exit-code"
     return "warnings"
+
+
+def _tree_files(root: str) -> set:
+    return {
+        os.path.relpath(os.path.join(dirpath, name), root)
+        for dirpath, _, names in os.walk(root)
+        for name in names
+    }
+
+
+def _inventory_failures(cell: "matrix.Cell", produced: set) -> list:
+    expected = set(cell.expected_files)
+    failures = [
+        f"[{cell.name}] missing produced artifact: {rel}"
+        for rel in sorted(expected - produced)
+    ]
+    failures.extend(
+        f"[{cell.name}] unexpected produced artifact: {rel}"
+        for rel in sorted(produced - expected)
+    )
+    classes = {_classify(rel) for rel in expected}
+    if classes != set(cell.expected_artifacts):
+        failures.append(
+            f"[{cell.name}] required class mismatch: declared={sorted(cell.expected_artifacts)!r}, "
+            f"files={sorted(classes)!r}"
+        )
+    return failures
 
 
 def _read_bytes(path: str) -> bytes:
@@ -96,19 +185,22 @@ _DEGRADATION_STATUS_ENUM = ("native", "adapted", "advisory", "unsupported")
 
 
 def _compare_lock(
-    label: str, expected: bytes, actual: bytes, *, require_report: bool
+    label: str, expected: bytes, actual: bytes, *, require_report: bool,
+    cell: "matrix.Cell",
 ) -> list:
-    """Structural-additive lock comparison applied UNIFORMLY to both drivers."""
+    """Remove only the additive report; preserve and compare every other byte."""
     failures: list = []
     try:
         produced = json.loads(actual.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         return [f"{label}: produced lock is not parseable JSON: {exc!r}"]
 
-    report = produced.pop("degradation_report", None)
-    stripped = (json.dumps(produced, indent=2) + "\n").encode("utf-8")
-    expected = _normalize_lock_paths(expected)
-    stripped = _normalize_lock_paths(stripped)
+    report = produced.get("degradation_report")
+    stripped = _strip_top_level_field(actual, "degradation_report")
+    try:
+        stripped = _normalize_produced_lock_paths(stripped, cell)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return [f"{label}: {exc}"]
     msg = _compare_bytes(label, expected, stripped)
     if msg:
         failures.append(msg + " (after stripping additive degradation_report)")
@@ -142,11 +234,12 @@ def _compare_lock(
     return failures
 
 
-def _rerun_composed(cell: "matrix.Cell", cell_dir: str):
-    """Re-run the oracle for a composed cell, seeding the prior golden lock for determinism."""
+def _rerun_composed(cell: "matrix.Cell", cell_dir: str, *, seed_lock=True):
+    """Re-run the oracle, optionally seeding the prior lock for deterministic bytes."""
     project_dir = tempfile.mkdtemp(prefix=f"rerun-{cell.name}-")
     home = None
-    capture._seed_prior_lock(project_dir, cell_dir)
+    if seed_lock:
+        capture._seed_prior_lock(project_dir, cell_dir)
     if cell.profile is not None:
         home = capture._materialize_profile_home(cell)
     run = oracle.invoke_oracle(
@@ -170,34 +263,30 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
             )
             return failures
 
-        # Compare each snapshot file against the freshly produced artifact.
-        for snap_path in _iter_snapshot_files(cell_dir):
-            rel = os.path.relpath(snap_path, cell_dir)
+        produced_files = _tree_files(project_dir) | {"warnings.txt"}
+        failures.extend(_inventory_failures(cell, produced_files))
+        for rel in cell.expected_files:
+            snap_path = os.path.join(cell_dir, rel)
             if rel == "warnings.txt":
                 actual = run.stderr.encode("utf-8")
             else:
                 produced = os.path.join(project_dir, rel)
                 if not os.path.isfile(produced):
-                    failures.append(f"[{cell.name}] missing produced artifact: {rel}")
                     continue
                 actual = _read_bytes(produced)
-            cls = "warnings" if rel == "warnings.txt" else _classify(rel)
-            mode = policy_for(policy, cls)["mode"]
+            cls = _classify(rel)
             expected = _read_bytes(snap_path)
-            if mode == "byte-identical":
-                if cls == "lock":
-                    # The oracle lock has no additive degradation report.
-                    failures.extend(
-                        _compare_lock(
-                            f"[{cell.name}] {rel}", expected, actual,
-                            require_report=False,
-                        )
+            if cls == "lock":
+                failures.extend(
+                    _compare_lock(
+                        f"[{cell.name}] {rel}", expected, actual,
+                        require_report=False, cell=cell,
                     )
-                else:
-                    msg = _compare_bytes(f"[{cell.name}] {rel}", expected, actual)
-                    if msg:
-                        failures.append(msg)
-            # semantic-equivalent requires an explicit policy justification.
+                )
+            else:
+                msg = _compare_bytes(f"[{cell.name}] {rel}", expected, actual)
+                if msg:
+                    failures.append(msg)
         oracle.cleanup_run(run)
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -208,12 +297,13 @@ def _diff_composed(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
 
 # Compiler driver (in-process ir.compose -> ClaudeCodeBackend().emit)
 
-def _compiler_compose_emit(cell: "matrix.Cell", cell_dir: str):
+def _compiler_compose_emit(cell: "matrix.Cell", cell_dir: str, *, seed_lock=True):
     """Run the in-process compiler for a composed cell into a temp project."""
     import importlib
 
     project_dir = tempfile.mkdtemp(prefix=f"compiler-{cell.name}-")
-    capture._seed_prior_lock(project_dir, cell_dir)
+    if seed_lock:
+        capture._seed_prior_lock(project_dir, cell_dir)
 
     home = None
     saved_home = os.environ.get("HOME")
@@ -256,34 +346,30 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
     home = None
     try:
         _written, project_dir, home = _compiler_compose_emit(cell, cell_dir)
-        for snap_path in _iter_snapshot_files(cell_dir):
-            rel = os.path.relpath(snap_path, cell_dir)
+        produced_files = _tree_files(project_dir) | {"warnings.txt"}
+        failures.extend(_inventory_failures(cell, produced_files))
+        for rel in cell.expected_files:
+            snap_path = os.path.join(cell_dir, rel)
             if rel == "warnings.txt":
-                # Compare compiler warnings with the captured oracle stderr.
                 actual = _render_compiler_warnings(cell, cell_dir).encode("utf-8")
             else:
                 produced = os.path.join(project_dir, rel)
                 if not os.path.isfile(produced):
-                    failures.append(f"[{cell.name}] missing produced artifact: {rel}")
                     continue
                 actual = _read_bytes(produced)
-            cls = "warnings" if rel == "warnings.txt" else _classify(rel)
-            mode = policy_for(policy, cls)["mode"]
+            cls = _classify(rel)
             expected = _read_bytes(snap_path)
-            if mode == "byte-identical":
-                if cls == "lock":
-                    # Compare the base lock separately from the additive report.
-                    failures.extend(
-                        _compare_lock(
-                            f"[{cell.name}] {rel}", expected, actual,
-                            require_report=True,
-                        )
+            if cls == "lock":
+                failures.extend(
+                    _compare_lock(
+                        f"[{cell.name}] {rel}", expected, actual,
+                        require_report=True, cell=cell,
                     )
-                else:
-                    msg = _compare_bytes(f"[{cell.name}] {rel}", expected, actual)
-                    if msg:
-                        failures.append(msg)
-        failures.extend(_extra_overlay_content(cell, cell_dir, project_dir))
+                )
+            else:
+                msg = _compare_bytes(f"[{cell.name}] {rel}", expected, actual)
+                if msg:
+                    failures.append(msg)
     except Exception as exc:  # noqa:  — surface as a failure, not a crash
         failures.append(f"[{cell.name}] compiler driver error: {exc!r}")
     finally:
@@ -294,25 +380,7 @@ def _diff_composed_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) ->
     return failures
 
 
-def _extra_overlay_content(cell: "matrix.Cell", cell_dir: str, project_dir: str) -> list:
-    """Flag produced ``.system2/overlays/`` files absent from the frozen snapshot."""
-    failures = []
-    produced_root = os.path.join(project_dir, ".system2", "overlays")
-    snapshot_root = os.path.join(cell_dir, ".system2", "overlays")
-    # Only reconcile cells whose frozen baseline actually pins the overlay-content tree.
-    if not os.path.isdir(produced_root) or not os.path.isdir(snapshot_root):
-        return failures
-    for root, _, names in os.walk(produced_root):
-        for name in sorted(names):
-            rel = os.path.relpath(os.path.join(root, name), project_dir)
-            if not os.path.isfile(os.path.join(cell_dir, rel)):
-                failures.append(
-                    f"[{cell.name}] extra overlay-content file copied (not in baseline): {rel}"
-                )
-    return failures
-
-
-def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str) -> str:
+def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str, *, seed_lock=True) -> str:
     """Render the neutral stderr warning stream the CLI would emit for *cell*."""
     import importlib
     import io
@@ -320,7 +388,8 @@ def _render_compiler_warnings(cell: "matrix.Cell", cell_dir: str) -> str:
     from system2_compiler import cli
 
     project_dir = tempfile.mkdtemp(prefix=f"warn-{cell.name}-")
-    capture._seed_prior_lock(project_dir, cell_dir)
+    if seed_lock:
+        capture._seed_prior_lock(project_dir, cell_dir)
     home = None
     saved_home = os.environ.get("HOME")
     saved_stderr = sys.stderr
@@ -361,6 +430,7 @@ def _diff_refusal_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) -> 
     failures = []
     project_dir = tempfile.mkdtemp(prefix=f"compiler-{cell.name}-")
     saved_stdout = sys.stdout
+    saved_stderr = sys.stderr
     try:
         argv = [
             "--target", "claude-code",
@@ -369,12 +439,19 @@ def _diff_refusal_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) -> 
             "--project", project_dir,
             "--format", "json",
         ]
-        buf = io.StringIO()
-        sys.stdout = buf
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        sys.stdout = stdout_buf
+        sys.stderr = stderr_buf
         code = cli.main(argv)
         sys.stdout = saved_stdout
-        stdout = buf.getvalue()
+        sys.stderr = saved_stderr
+        stdout = stdout_buf.getvalue()
+        stderr = stderr_buf.getvalue()
 
+        failures.extend(_inventory_failures(
+            cell, _tree_files(project_dir) | {"exit_code.txt", "refusal.txt", "warnings.txt"}
+        ))
         expected_exit = _read_bytes(os.path.join(cell_dir, "exit_code.txt"))
         actual_exit = (str(code) + "\n").encode("utf-8")
         if expected_exit != actual_exit:
@@ -387,8 +464,15 @@ def _diff_refusal_compiler(cell: "matrix.Cell", cell_dir: str, policy: dict) -> 
         )
         if msg:
             failures.append(msg)
+        expected_warn = _read_bytes(os.path.join(cell_dir, "warnings.txt"))
+        msg = _compare_bytes(
+            f"[{cell.name}] warnings.txt", expected_warn, stderr.encode("utf-8")
+        )
+        if msg:
+            failures.append(msg)
     finally:
         sys.stdout = saved_stdout
+        sys.stderr = saved_stderr
         shutil.rmtree(project_dir, ignore_errors=True)
     return failures
 
@@ -407,6 +491,9 @@ def _diff_refusal(cell: "matrix.Cell", cell_dir: str, policy: dict) -> list:
             failures.append(f"[{cell.name}] expected refusal (non-zero exit) but oracle exited 0")
             return failures
 
+        failures.extend(_inventory_failures(
+            cell, _tree_files(project_dir) | {"exit_code.txt", "refusal.txt", "warnings.txt"}
+        ))
         expected_exit = _read_bytes(os.path.join(cell_dir, "exit_code.txt"))
         actual_exit = (str(run.exit_code) + "\n").encode("utf-8")
         if expected_exit != actual_exit:
@@ -455,10 +542,73 @@ def _diff_core(cell_dir: str) -> list:
     return failures
 
 
-def _iter_snapshot_files(cell_dir: str):
-    for root, _, files in os.walk(cell_dir):
-        for name in sorted(files):
-            yield os.path.join(root, name)
+def _fresh_timestamp_tree(cell, cell_dir, driver):
+    if driver == "oracle":
+        run, project_dir, home = _rerun_composed(cell, cell_dir, seed_lock=False)
+        if run.exit_code != 0:
+            raise RuntimeError(f"fresh oracle exited {run.exit_code}: {run.stderr!r}")
+        warnings = run.stderr.encode("utf-8")
+    else:
+        run = None
+        _written, project_dir, home = _compiler_compose_emit(
+            cell, cell_dir, seed_lock=False
+        )
+        warnings = _render_compiler_warnings(
+            cell, cell_dir, seed_lock=False
+        ).encode("utf-8")
+    try:
+        files = _tree_files(project_dir) | {"warnings.txt"}
+        failures = _inventory_failures(cell, files)
+        tree = {
+            rel: (warnings if rel == "warnings.txt" else _read_bytes(os.path.join(project_dir, rel)))
+            for rel in cell.expected_files
+            if rel == "warnings.txt" or os.path.isfile(os.path.join(project_dir, rel))
+        }
+        lock_rel = os.path.join("spec", "overlay-manifest.lock")
+        lock = json.loads(tree[lock_rel].decode("utf-8"))
+        timestamp = lock.get("composed_at", "")
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", timestamp):
+            failures.append(f"[fresh:{driver}] invalid lock composed_at {timestamp!r}")
+        matches = _TIMESTAMP_RE.findall(tree["CLAUDE.md"])
+        if matches != [timestamp.encode("utf-8")]:
+            failures.append(
+                f"[fresh:{driver}] CLAUDE.md and lock timestamps are inconsistent"
+            )
+        lock_bytes = tree[lock_rel]
+        if driver == "compiler":
+            lock_bytes = _strip_top_level_field(lock_bytes, "degradation_report")
+        tree[lock_rel] = _normalize_produced_lock_paths(lock_bytes, cell).replace(
+            timestamp.encode("utf-8"), b"<TS>"
+        )
+        tree["CLAUDE.md"] = tree["CLAUDE.md"].replace(
+            timestamp.encode("utf-8"), b"<TS>"
+        )
+        return tree, failures
+    finally:
+        if run is not None:
+            oracle.cleanup_run(run)
+        shutil.rmtree(project_dir, ignore_errors=True)
+        if home is not None:
+            shutil.rmtree(home, ignore_errors=True)
+
+
+def _diff_fresh_timestamp_parity(cell, cell_dir):
+    try:
+        expected, failures = _fresh_timestamp_tree(cell, cell_dir, "oracle")
+        actual, compiler_failures = _fresh_timestamp_tree(cell, cell_dir, "compiler")
+        failures.extend(compiler_failures)
+        for rel in sorted(set(expected) | set(actual)):
+            if rel not in expected:
+                failures.append(f"[fresh] unexpected compiler artifact: {rel}")
+            elif rel not in actual:
+                failures.append(f"[fresh] missing compiler artifact: {rel}")
+            else:
+                mismatch = _compare_bytes(f"[fresh] {rel}", expected[rel], actual[rel])
+                if mismatch:
+                    failures.append(mismatch)
+        return failures
+    except Exception as exc:
+        return [f"[fresh] timestamp parity driver error: {exc!r}"]
 
 
 def run_goldens(
@@ -485,6 +635,13 @@ def run_goldens(
                 failures.extend(_diff_composed_compiler(cell, cell_dir, policy))
             else:
                 failures.extend(_diff_composed(cell, cell_dir, policy))
+    if driver == "compiler":
+        fresh_cell = matrix.get_cell("core+overlay")
+        failures.extend(
+            _diff_fresh_timestamp_parity(
+                fresh_cell, fresh_cell.snapshot_dir(goldens_dir)
+            )
+        )
     return failures
 
 

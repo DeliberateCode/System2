@@ -154,6 +154,8 @@ def _needs_quote(text):
 
 
 def _looks_numeric(text):
+    if re.fullmatch(r"[-+]?0[xX][0-9a-fA-F]+", text):
+        return True
     try:
         int(text)
         return True

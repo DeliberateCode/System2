@@ -30,10 +30,20 @@ TENSION_B = os.path.join(_COMPILER_FIXTURES, "tension-b")
 # Anchor-file cell: a prompt_sections contribution to an UNKNOWN anchor that carries a content_file.
 ANCHORFILE = os.path.join(_COMPILER_FIXTURES, "anchorfile")
 
-# Artifact classes captured per non-refusal cell.
-ARTIFACTS_COMPOSED = ("CLAUDE.md", "agents", "lock", "warnings")
-# Refusal cells capture the refusal text + exit code instead of files.
-ARTIFACTS_REFUSAL = ("refusal", "warnings")
+# Every cell declares both required classes and an exact closed-world file set.
+ARTIFACTS_CORE = ("base-template", "structural")
+ARTIFACTS_COMPOSED = ("CLAUDE.md", "lock", "warnings")
+ARTIFACTS_REFUSAL = ("refusal", "warnings", "exit-code")
+_FILES_CORE = ("base_template.md", "structural_goldens.json")
+_FILES_REFUSAL = ("exit_code.txt", "refusal.txt", "warnings.txt")
+_FILES_COMPOSED = ("CLAUDE.md", os.path.join("spec", "overlay-manifest.lock"), "warnings.txt")
+_TEST_OVERLAY_FILES = (
+    os.path.join(".claude", "agents", "test-scout.md"),
+    os.path.join(".system2", "overlays", "test-overlay", "agents", "test-scout.md"),
+    os.path.join(".system2", "overlays", "test-overlay", "contributions", "agents", "executor-discipline.md"),
+    os.path.join(".system2", "overlays", "test-overlay", "contributions", "orchestrator", "gate-3-consultation.md"),
+    os.path.join(".system2", "overlays", "test-overlay", "contributions", "orchestrator", "principles.md"),
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +53,7 @@ class Cell:
     profile: "str | None" = None
     profile_store: "str | None" = None
     expected_artifacts: tuple = ARTIFACTS_COMPOSED
+    expected_files: tuple = _FILES_COMPOSED
     refusal: bool = False
     pending: bool = False
     notes: str = ""
@@ -55,11 +66,15 @@ _CELLS = (
     Cell(
         name="core",
         overlays=(),
-        notes="No overlays. Exercises base CLAUDE.md and the 13-agent/6-gate inventory invariant.",
+        expected_artifacts=ARTIFACTS_CORE,
+        expected_files=_FILES_CORE,
+        notes="Static core exception: base template plus structural inventory only.",
     ),
     Cell(
         name="core+overlay",
         overlays=(TEST_OVERLAY,),
+        expected_artifacts=ARTIFACTS_COMPOSED + ("agents", "overlay-content"),
+        expected_files=_FILES_COMPOSED + _TEST_OVERLAY_FILES,
         notes=(
             "Reuses System2/evals/fixtures/test-overlay: principles, gate-3 consultation, "
             "advisory source, the executor.implementation_discipline anchor contribution, a spec "
@@ -71,6 +86,8 @@ _CELLS = (
         overlays=(),
         profile=PROFILE_NAME,
         profile_store=PROFILE_STORE_FIXTURE,
+        expected_artifacts=ARTIFACTS_COMPOSED + ("agents", "overlay-content"),
+        expected_files=_FILES_COMPOSED + _TEST_OVERLAY_FILES,
         pending=True,
         notes="Profile resolving >=1 overlay via the hermetic temp-HOME store.",
     ),
@@ -78,6 +95,7 @@ _CELLS = (
         name="core+conflict",
         overlays=(CONFLICT_A, CONFLICT_B),
         expected_artifacts=ARTIFACTS_REFUSAL,
+        expected_files=_FILES_REFUSAL,
         refusal=True,
         pending=True,
         notes="known_conflicts pair -> refusal.",
@@ -91,6 +109,10 @@ _CELLS = (
     Cell(
         name="core+anchorfile",
         overlays=(ANCHORFILE,),
+        expected_artifacts=ARTIFACTS_COMPOSED + ("overlay-content",),
+        expected_files=_FILES_COMPOSED + (
+            os.path.join(".system2", "overlays", "anchorfile", "contributions", "known.md"),
+        ),
         notes=(
             "An unknown-anchor contribution carrying a content_file is excluded. The applied "
             "collector copies and fingerprints known.md only, never extra.md."
@@ -111,16 +133,35 @@ def get_cell(name: str) -> Cell:
     raise KeyError(name)
 
 
+def resolved_overlay_sources(cell: Cell) -> tuple:
+    if cell.profile is None:
+        return tuple(os.path.abspath(path) for path in cell.overlays)
+    with open(cell.profile_store, encoding="utf-8") as fh:
+        store = __import__("json").load(fh)
+    profile = store["profiles"][cell.profile]
+    return tuple(TEST_OVERLAY for entry in profile.get("overlays", []) if entry.get("path"))
+
+
+def snapshot_files(cell: Cell, goldens_dir: str) -> set:
+    cell_dir = cell.snapshot_dir(goldens_dir)
+    if not os.path.isdir(cell_dir):
+        return set()
+    return {
+        os.path.relpath(os.path.join(root, name), cell_dir)
+        for root, _, names in os.walk(cell_dir)
+        for name in names
+    }
+
+
 def assert_complete(goldens_dir: str) -> None:
-    """Fail if any declared cell lacks a snapshot dir under ``goldens_dir``."""
-    missing = [
-        cell.name
-        for cell in _CELLS
-        if not os.path.isdir(cell.snapshot_dir(goldens_dir))
-    ]
-    if missing:
-        raise AssertionError(
-            "matrix incomplete: missing snapshot dir(s) for cell(s): "
-            + ", ".join(missing)
-            + f" (under {goldens_dir})"
-        )
+    """Require every cell's exact declared snapshot inventory."""
+    failures = []
+    for cell in _CELLS:
+        actual = snapshot_files(cell, goldens_dir)
+        expected = set(cell.expected_files)
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        if missing or extra:
+            failures.append(f"{cell.name}: missing={missing}, extra={extra}")
+    if failures:
+        raise AssertionError("matrix inventory mismatch: " + "; ".join(failures))

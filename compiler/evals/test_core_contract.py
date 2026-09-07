@@ -1,5 +1,7 @@
 """Focused controls for graph-native provenance and target-native CLI plans."""
 
+import dataclasses
+import inspect
 import io
 import json
 import os
@@ -73,6 +75,45 @@ def _assert_cli_error(test_case, code, stdout, stderr, fmt, message_fragment):
         test_case.assertTrue(stderr.startswith("ERROR: "), stderr)
 
 
+class NeutralGraphContractTest(unittest.TestCase):
+    def test_composed_graph_pins_workflow_semantics(self):
+        with tempfile.TemporaryDirectory(prefix="graph-contract-") as project:
+            graph = _compose(project, (_TEST_OVERLAY,))
+
+        self.assertEqual(
+            [(gate.number, gate.name) for gate in graph.gate_graph.gates],
+            [(0, "scope"), (1, "context"), (2, "requirements"),
+             (3, "design"), (4, "tasks"), (5, "ship")],
+        )
+        self.assertEqual(
+            graph.gate_graph.edges, [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]
+        )
+        self.assertEqual(
+            graph.delegation_contract.required_fields,
+            ["Objective", "Inputs", "Outputs", "Constraints", "Non-goals",
+             "Change shape", "Completion summary requirements"],
+        )
+        self.assertEqual(
+            graph.delegation_contract.preferred_order,
+            ["repo-governor", "spec-coordinator", "requirements-engineer",
+             "design-architect", "task-planner", "executor", "test-engineer",
+             "security-sentinel", "eval-engineer", "docs-release",
+             "code-reviewer", "postmortem-scribe", "mcp-toolsmith"],
+        )
+        self.assertEqual(
+            graph.post_execution.execution_order,
+            ["test-engineer", "code-reviewer (simplification)",
+             "security-sentinel", "eval-engineer", "docs-release", "code-reviewer"],
+        )
+        self.assertEqual(graph.post_execution.boomerang_cap, 3)
+        self.assertEqual(graph.maintenance_loop.corrective_cycle_cap, 3)
+        self.assertEqual(graph.maintenance_loop.classification, ["Local", "Non-local"])
+        self.assertEqual(
+            [artifact.name for artifact in graph.spec_artifacts],
+            ["context", "requirements", "design", "tasks"],
+        )
+
+
 class GraphProvenanceTest(unittest.TestCase):
     def test_graph_json_carries_ordered_deterministic_overlay_sources(self):
         with tempfile.TemporaryDirectory(prefix="graph-provenance-") as project:
@@ -89,10 +130,38 @@ class GraphProvenanceTest(unittest.TestCase):
 
 
 class BackendProvenanceTest(unittest.TestCase):
-    def test_all_backends_implement_the_complete_protocol(self):
-        for backend in (ClaudeCodeBackend(), CodexBackend(), PiBackend()):
-            with self.subTest(backend=backend.name):
+    _LIFECYCLE_METHODS = (
+        "emit", "uninstall", "doctor", "recompose_from_lock", "lock_path",
+        "read_lock_overlay_sources",
+    )
+
+    def test_all_registered_backends_implement_the_complete_protocol(self):
+        self.assertEqual(set(cli._BACKENDS), {"claude-code", "codex", "pi"})
+        for name, backend in cli._BACKENDS.items():
+            with self.subTest(backend=name):
                 self.assertIsInstance(backend, Backend)
+                for method in self._LIFECYCLE_METHODS:
+                    implementation = getattr(backend, method, None)
+                    self.assertIsNotNone(implementation, method)
+                    source = inspect.getsource(implementation)
+                    self.assertFalse(
+                        "raise NotImplementedError" in source and source.count("\n") < 6,
+                        f"{name}.{method} is only a lifecycle stub",
+                    )
+
+    def test_neutral_lifecycle_result_shapes_are_pinned(self):
+        from system2_compiler.backends import base
+
+        self.assertEqual(
+            {field.name for field in dataclasses.fields(base.UninstallResult)},
+            {"removed", "remaining", "artifacts_removed", "files_written",
+             "is_last_overlay", "injection_warnings", "preview", "errors"},
+        )
+        self.assertEqual(
+            {field.name for field in dataclasses.fields(base.DoctorReport)},
+            {"status", "details", "system2_version", "overlays", "composed",
+             "exit_code", "validator_available"},
+        )
 
     def test_default_backends_write_exact_graph_provenance(self):
         for backend_cls in (CodexBackend, PiBackend):

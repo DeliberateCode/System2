@@ -6,6 +6,9 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { helper } from "./local-helper";
 
+// import("comment-decoy") and require("comment-decoy-too") are not code.
+const documentation = 'Example only: import("string-decoy") and require("other-decoy")';
+
 export default function (pi: ExtensionAPI) {
-  return { fs, path, fileURLToPath, helper };
+  return { fs, path, fileURLToPath, helper, documentation };
 }

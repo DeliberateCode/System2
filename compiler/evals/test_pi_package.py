@@ -47,19 +47,65 @@ def _build_package(dest):
 
 # Supply-chain policy checkers, tested in isolation against hostile fixtures.
 
-# Import-specifier extractors covering every surface a dependency could sneak in on.
-_IMPORT_PATTERNS = (
-    re.compile(r"""^\s*(?:import|export)\b[^\n;]*?\bfrom\s*["']([^"']+)["']""", re.M),
-    re.compile(r"""^\s*import\s+["']([^"']+)["']""", re.M),          # side-effect import
-    re.compile(r"""\bimport\s*\(\s*["']([^"']+)["']"""),             # dynamic import()
-    re.compile(r"""\brequire\s*\(\s*["']([^"']+)["']"""),           # CJS require()
-)
+def _ts_tokens(source):
+    """Yield code identifiers/punctuation and string values, excluding comments."""
+    tokens = []
+    index = 0
+    while index < len(source):
+        if source.startswith("//", index):
+            end = source.find("\n", index + 2)
+            index = len(source) if end < 0 else end + 1
+        elif source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
+        elif source[index] in "'\"":
+            quote = source[index]
+            index += 1
+            value = []
+            while index < len(source) and source[index] != quote:
+                if source[index] == "\\" and index + 1 < len(source):
+                    index += 1
+                value.append(source[index])
+                index += 1
+            index += index < len(source)
+            tokens.append(("string", "".join(value)))
+        elif source[index].isalpha() or source[index] in "_$":
+            end = index + 1
+            while end < len(source) and (
+                source[end].isalnum() or source[end] in "_$"
+            ):
+                end += 1
+            tokens.append(("identifier", source[index:end]))
+            index = end
+        elif source[index].isspace():
+            index += 1
+        else:
+            tokens.append(("punctuation", source[index]))
+            index += 1
+    return tokens
 
 
 def _all_import_specifiers(ts_source):
+    tokens = _ts_tokens(ts_source)
     specs = []
-    for pat in _IMPORT_PATTERNS:
-        specs.extend(pat.findall(ts_source))
+    for index, (kind, value) in enumerate(tokens):
+        if kind != "identifier" or value not in ("import", "export", "require"):
+            continue
+        tail = tokens[index + 1:]
+        if value == "require" or (value == "import" and tail and tail[0][1] == "("):
+            if len(tail) > 1 and tail[0][1] == "(" and tail[1][0] == "string":
+                specs.append(tail[1][1])
+            continue
+        if value == "import" and tail and tail[0][0] == "string":
+            specs.append(tail[0][1])
+            continue
+        for offset, token in enumerate(tail):
+            if token[1] == ";":
+                break
+            if token == ("identifier", "from"):
+                if offset + 1 < len(tail) and tail[offset + 1][0] == "string":
+                    specs.append(tail[offset + 1][1])
+                break
     return specs
 
 

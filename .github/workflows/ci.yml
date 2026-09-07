@@ -44,7 +44,7 @@ jobs:
 
       # Pin validators so load checks run instead of skipping.
       - name: Install Pi (validator for the Pi load leg)
-        run: npm i -g @earendil-works/pi-coding-agent@0.80.2
+        run: npm i -g @earendil-works/pi-coding-agent@0.85.1
 
       - name: Confirm validators are on PATH (no silent skips)
         working-directory: compiler

@@ -37,25 +37,45 @@ _FORBIDDEN_PLUGIN_MODULES = frozenset({
     "hook_security",
 })
 
-# Source-file inventories (relative to the package root).
-
-_IR_FILES = (
+# Discover every production module, while pinning the inventory so additions require
+# an explicit boundary decision instead of silently escaping review.
+_EXPECTED_IR_FILES = frozenset({
     "system2_compiler/ir/__init__.py",
-    "system2_compiler/ir/graph.py",
-    "system2_compiler/ir/build.py",
-    "system2_compiler/ir/manifest.py",
-    "system2_compiler/ir/contributions.py",
-    "system2_compiler/ir/conflicts.py",
-    "system2_compiler/ir/profiles.py",
     "system2_compiler/ir/_hook_security.py",
-)
-
-_BACKEND_FILES = (
-    "system2_compiler/backends/base.py",
-    "system2_compiler/backends/claude_code.py",
+    "system2_compiler/ir/anchors.py",
+    "system2_compiler/ir/build.py",
+    "system2_compiler/ir/capabilities.py",
+    "system2_compiler/ir/conflicts.py",
+    "system2_compiler/ir/contributions.py",
+    "system2_compiler/ir/graph.py",
+    "system2_compiler/ir/manifest.py",
+    "system2_compiler/ir/profiles.py",
+})
+_EXPECTED_BACKEND_FILES = frozenset({
+    "system2_compiler/backends/__init__.py",
     "system2_compiler/backends/_degradation.py",
-)
+    "system2_compiler/backends/_enforcement.py",
+    "system2_compiler/backends/_yaml.py",
+    "system2_compiler/backends/base.py",
+    "system2_compiler/backends/capabilities/__init__.py",
+    "system2_compiler/backends/claude_code.py",
+    "system2_compiler/backends/codex.py",
+    "system2_compiler/backends/pi.py",
+})
 
+
+def _discover_modules(package):
+    root = os.path.join(_PKG_ROOT, "system2_compiler", package)
+    return tuple(sorted(
+        os.path.relpath(os.path.join(dirpath, name), _PKG_ROOT)
+        for dirpath, _, names in os.walk(root)
+        for name in names
+        if name.endswith(".py")
+    ))
+
+
+_IR_FILES = _discover_modules("ir")
+_BACKEND_FILES = _discover_modules("backends")
 _PRODUCT_FILES = _IR_FILES + _BACKEND_FILES + ("system2_compiler/cli.py",)
 
 
@@ -99,32 +119,37 @@ def _external_imports(rel: str):
     return offenders
 
 
-def _imported_module_paths(rel: str):
-    """Return the set of fully-qualified absolute module paths imported by *rel*."""
-    source = _read(rel)
+def _imported_module_paths_from_source(source: str, rel: str):
+    """Return absolute module paths, resolving the actual parent-relative level."""
+    import importlib.util
+
     tree = ast.parse(source, filename=rel)
-    pkg = os.path.dirname(rel).replace(os.sep, ".")  # e.g. "ir" or "backends"
+    package = os.path.dirname(rel).replace(os.sep, ".")
     paths = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                paths.add(alias.name)
+            paths.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            if node.level and node.level > 0:
-                # Relative: resolve against the importing file's package.
-                base = pkg
-                if node.module:
-                    full = f"{base}.{node.module}" if base else node.module
-                else:
-                    full = base
-                paths.add(full)
-                # Also record per-name targets (``from . import build``).
-                if not node.module:
-                    for alias in node.names:
-                        paths.add(f"{base}.{alias.name}" if base else alias.name)
-            elif node.module:
-                paths.add(node.module)
+            if node.level:
+                relative = "." * node.level + (node.module or "")
+                module = importlib.util.resolve_name(relative, package)
+            else:
+                module = node.module
+            if module:
+                paths.add(module)
+                if not node.module or module == "system2_compiler.ir":
+                    paths.update(f"{module}.{alias.name}" for alias in node.names)
     return paths
+
+
+def _imported_module_paths(rel: str):
+    return _imported_module_paths_from_source(_read(rel), rel)
+
+
+class ProductInventoryTest(unittest.TestCase):
+    def test_all_ir_and_backend_modules_are_discovered(self):
+        self.assertEqual(set(_IR_FILES), set(_EXPECTED_IR_FILES))
+        self.assertEqual(set(_BACKEND_FILES), set(_EXPECTED_BACKEND_FILES))
 
 
 class BackendIsolationTest(unittest.TestCase):
@@ -269,6 +294,13 @@ class NegativeControlTest(unittest.TestCase):
             hit,
             msg="scanner failed to detect a forbidden system2_compiler.ir.manifest import",
         )
+
+    def test_parent_relative_forbidden_loader_is_detected(self):
+        imported = _imported_module_paths_from_source(
+            "from ..ir import manifest\n", "system2_compiler/backends/synthetic.py"
+        )
+        self.assertIn("system2_compiler.ir.manifest", imported)
+        self.assertTrue(imported & _FORBIDDEN_IR_LOADERS)
 
     def test_third_party_import_is_detected(self):
         # A synthetic third-party absolute import must be flagged as external

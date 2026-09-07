@@ -22,8 +22,7 @@ def _run_plugin_suite(use_bundle):
         val = os.environ.get(key)
         if val is not None:
             env[key] = val
-    if use_bundle:
-        env["SYSTEM2_USE_BUNDLE"] = "1"
+    env["SYSTEM2_USE_BUNDLE"] = "1" if use_bundle else "0"
     try:
         return subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "evals", "-p", "test_*.py"],

@@ -916,11 +916,10 @@ def _do_profile(argv: List[str]) -> int:
     if op == "list":
         return _do_profile_list(args)
 
-    if not args.name:
-        _emit_error(f"profile {op} requires a NAME argument.", fmt)
-        return 1
-
     if op == "inspect":
+        if not args.name:
+            _emit_error("profile inspect requires a NAME argument.", fmt)
+            return 1
         return _do_profile_inspect(args, args.name)
 
     # Mutations: enforce the oracle's sub-flag matrix verbatim (mode + offender

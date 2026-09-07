@@ -46,10 +46,18 @@ class YamlQuotingTest(unittest.TestCase):
 
     def test_numeric_lookalike_string_is_quoted(self):
         # A string that looks like a number must be quoted so it stays a string.
-        for word in ("123", "-4", "3.14", "1e5", "0x10".replace("0x10", "10")):
+        for word in ("123", "-4", "3.14", "1e5", "0x10"):
             with self.subTest(word=word):
                 out = _yaml.dump({"k": word})
                 self.assertEqual(out, f'k: "{word}"\n')
+
+    def test_hexadecimal_string_round_trips_as_a_string(self):
+        import json
+
+        rendered = _yaml.dump({"k": "0x10"})
+        self.assertEqual(rendered, 'k: "0x10"\n')
+        scalar = rendered.removeprefix("k: ").rstrip("\n")
+        self.assertEqual(json.loads(scalar), "0x10")
 
     def test_actual_integer_renders_bare(self):
         self.assertEqual(_yaml.dump({"timeout": 300}), "timeout: 300\n")

@@ -15,6 +15,8 @@ _BASE = oracle.PLUGIN_ROOT
 _TEST_OVERLAY = matrix.TEST_OVERLAY
 _CONFLICT_A = matrix.CONFLICT_A
 _CONFLICT_B = matrix.CONFLICT_B
+_TENSION_A = matrix.TENSION_A
+_TENSION_B = matrix.TENSION_B
 
 _LEFTOVER_MARKERS = (".tmp", ".bak", ".staging")
 
@@ -106,6 +108,22 @@ class ConflictRefusalParityTest(unittest.TestCase):
         finally:
             oracle.cleanup_run(run)
             shutil.rmtree(oracle_proj, ignore_errors=True)
+
+
+class DeclarationSingletonTest(unittest.TestCase):
+    """Conflict/tension declarations activate only when a matching peer exists."""
+
+    def test_single_declaration_does_not_refuse_or_warn(self):
+        for overlay in (_CONFLICT_A, _TENSION_A, _TENSION_B):
+            with self.subTest(overlay=os.path.basename(overlay)):
+                project = _mktemp("singleton-")
+                try:
+                    result = ir.compose(_BASE, [overlay], project)
+                    self.assertIsNotNone(result.graph, result.errors)
+                    self.assertEqual(result.warnings.structural_conflicts, [])
+                    self.assertEqual(result.warnings.semantic_tensions, [])
+                finally:
+                    shutil.rmtree(project, ignore_errors=True)
 
 
 class DryRunTest(unittest.TestCase):

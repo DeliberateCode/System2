@@ -77,7 +77,25 @@ def _write_text(path: str, text: str) -> None:
         fh.write(text)
 
 
-def _copy_artifacts(project_dir: str, cell_dir: str) -> None:
+def _captured_lock_bytes(lock_src: str, cell: "matrix.Cell") -> bytes:
+    """Validate exact fixture sources, then replace only this checkout's root."""
+    with open(lock_src, "rb") as fh:
+        raw = fh.read()
+    lock = json.loads(raw.decode("utf-8"))
+    actual_sources = tuple(
+        overlay.get("source_path") for overlay in lock.get("overlays", [])
+    )
+    expected_sources = matrix.resolved_overlay_sources(cell)
+    if actual_sources != expected_sources:
+        raise ValueError(
+            f"cell {cell.name!r} lock source paths differ from capture inputs: "
+            f"expected {expected_sources!r}, got {actual_sources!r}"
+        )
+    root = os.fsencode(os.path.abspath(oracle.PLUGIN_REPO_ROOT))
+    return raw.replace(root, b"<REPO_ROOT>")
+
+
+def _copy_artifacts(project_dir: str, cell_dir: str, cell: "matrix.Cell") -> None:
     """Copy the composed artifact classes from a project tree into the cell golden dir."""
     claude_src = os.path.join(project_dir, "CLAUDE.md")
     if os.path.isfile(claude_src):
@@ -87,7 +105,8 @@ def _copy_artifacts(project_dir: str, cell_dir: str) -> None:
     if os.path.isfile(lock_src):
         dst = os.path.join(cell_dir, "spec", "overlay-manifest.lock")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(lock_src, dst)
+        with open(dst, "wb") as fh:
+            fh.write(_captured_lock_bytes(lock_src, cell))
 
     agents_src = os.path.join(project_dir, ".claude", "agents")
     if os.path.isdir(agents_src):
@@ -153,7 +172,7 @@ def _capture_composed(cell: "matrix.Cell", cell_dir: str) -> None:
                 f"{run.exit_code}; stderr={run.stderr!r} stdout={run.stdout[:200]!r}"
             )
         _reset_dir(cell_dir)
-        _copy_artifacts(project_dir, cell_dir)
+        _copy_artifacts(project_dir, cell_dir, cell)
         _write_text(os.path.join(cell_dir, "warnings.txt"), run.stderr)
         oracle.cleanup_run(run)
     finally:

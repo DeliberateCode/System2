@@ -102,24 +102,22 @@ class AdditiveLockDeltaGate(unittest.TestCase):
             if not os.path.isfile(baseline_lock_path):
                 continue
             seen += 1
-            baseline = run_goldens._normalize_lock_paths(
-                _read_bytes(baseline_lock_path)
-            )
-
-            produced = json.loads(self._emit_lock_bytes(cell).decode("utf-8"))
-            report = produced.pop("degradation_report", None)
+            baseline = _read_bytes(baseline_lock_path)
+            produced_bytes = self._emit_lock_bytes(cell)
+            produced = json.loads(produced_bytes.decode("utf-8"))
+            report = produced.get("degradation_report")
             self.assertIsInstance(
                 report, dict,
                 f"[{cell.name}] the produced lock must carry an additive "
                 "degradation_report",
             )
-            stripped = run_goldens._normalize_lock_paths(
-                (json.dumps(produced, indent=2) + "\n").encode("utf-8")
+            failures = run_goldens._compare_lock(
+                f"[{cell.name}] lock", baseline, produced_bytes,
+                require_report=True, cell=cell,
             )
             self.assertEqual(
-                baseline, stripped,
-                f"[{cell.name}] after stripping the additive degradation_report the "
-                "lock must be byte-identical to the frozen baseline",
+                failures, [],
+                f"[{cell.name}] additive lock comparison failed: {failures}",
             )
 
             caps = report.get("capabilities", {})

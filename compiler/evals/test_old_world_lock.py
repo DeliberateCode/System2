@@ -50,6 +50,14 @@ class OldWorldLockTest(unittest.TestCase):
     def setUp(self):
         self.installed_version = _get_system2_version(_BASE)
         self.fixture = _load_fixture_lock()
+        self.assertEqual(
+            list(self.fixture),
+            [
+                "composed_at", "content_fingerprint", "system2_version",
+                "schema_version", "overlays", "contributions_applied", "warnings",
+            ],
+            "fixture must retain the actual legacy-minimum top-level lock shape",
+        )
         # The old-world provenance the fixture pins.
         self.old_version = self.fixture["system2_version"]
         self.old_fingerprint = self.fixture["content_fingerprint"]
@@ -221,9 +229,8 @@ class OldWorldLockTest(unittest.TestCase):
         self.assertEqual(fp_old_a, fp_old_b)
         # Version-sensitive: same content, different version -> different fingerprint.
         self.assertNotEqual(fp_old_a, fp_new)
-        # The historical fixture records the old template's fingerprint.
-        self.assertTrue(fp_old_a.startswith("sha256:"))
-        self.assertEqual(len(fp_old_a), len("sha256:") + 64)
+        # Authenticate the historical fixture instead of accepting any shaped hash.
+        self.assertEqual(fp_old_a, self.old_fingerprint)
 
 
 if __name__ == "__main__":

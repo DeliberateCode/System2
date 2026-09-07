@@ -12,8 +12,6 @@ import unittest
 # The dry-run preview embeds a live UTC ``<!-- Composed at: … -->`` timestamp (no prior lock exists to reuse it), the one genuinely non-deterministic byte in the CLI contract.
 _COMPOSED_AT_RE = re.compile(r"<!-- Composed at: [0-9TZ:-]+ -->")
 
-# The reused ``test-overlay`` source path is an absolute fixture path that varies by checkout location (the frozen golden baked the original author's path).
-_OVERLAY_PATH_RE = re.compile(r"[^\s\"]*/evals/fixtures/test-overlay")
 _OVERLAY_TOKEN = "<OVERLAY>"
 
 from evals import oracle
@@ -30,11 +28,13 @@ TEST_OVERLAY = os.path.join(
 ANCHORFILE = os.path.join(_THIS_DIR, "fixtures", "anchorfile")
 CONFLICT_A = os.path.join(_THIS_DIR, "fixtures", "conflict-a")
 CONFLICT_B = os.path.join(_THIS_DIR, "fixtures", "conflict-b")
+INJECTION = os.path.join(_THIS_DIR, "fixtures", "injection")
 
 # Placeholders the harness substitutes per-cell so a cell's argv/expectations are
 # independent of the (volatile) temp dirs created at run time.
 _PROJ = "@PROJECT@"
 _HOME = "@HOME@"
+_MISSING_BASE = "@MISSING_BASE@"
 
 
 def _hermetic_env(home_dir):
@@ -47,11 +47,24 @@ def _hermetic_env(home_dir):
 
 
 def _normalize(text, project_dir, home_dir):
-    """Replace the volatile temp-project / temp-HOME prefixes with stable tokens."""
+    """Normalize only exact runtime roots, never a suffix-matching lookalike."""
     out = text.replace(project_dir, "<PROJECT>").replace(home_dir, "<HOME>")
-    out = _COMPOSED_AT_RE.sub("<!-- Composed at: <TS> -->", out)
-    out = _OVERLAY_PATH_RE.sub(_OVERLAY_TOKEN, out)
-    return out
+    for path, token in (
+        (TEST_OVERLAY, _OVERLAY_TOKEN),
+        (INJECTION, "<INJECTION_OVERLAY>"),
+        (BASE, "<BASE>"),
+    ):
+        out = out.replace(path, token)
+    return _COMPOSED_AT_RE.sub("<!-- Composed at: <TS> -->", out)
+
+
+def _resolve_argv(argv, project, home):
+    replacements = {
+        _PROJ: project,
+        _HOME: home,
+        _MISSING_BASE: os.path.join(home, "missing-base"),
+    }
+    return [replacements.get(arg, arg) for arg in argv]
 
 
 class _Cell:
@@ -99,6 +112,27 @@ def _cells():
             ["--base", BASE, "--project", _PROJ, "--format", "text"],
             ["compile", "--target", "claude-code", "--base", BASE, "--project", _PROJ, "--format", "text"],
             kind="refusal",
+        ),
+        _Cell(
+            "compose_io_refusal_json",
+            ["--base", _MISSING_BASE, "--project", _PROJ, "--overlays", OVL, "--format", "json"],
+            ["compile", "--target", "claude-code", "--base", _MISSING_BASE,
+             "--project", _PROJ, "--overlays", OVL, "--format", "json"],
+            kind="refusal",
+        ),
+        _Cell(
+            "compose_injection_blocked_json",
+            ["--base", BASE, "--project", _PROJ, "--overlays", INJECTION, "--format", "json"],
+            ["compile", "--target", "claude-code", "--base", BASE, "--project", _PROJ,
+             "--overlays", INJECTION, "--format", "json"],
+            kind="refusal",
+        ),
+        _Cell(
+            "compose_injection_acknowledged_json",
+            ["--base", BASE, "--project", _PROJ, "--overlays", INJECTION,
+             "--allow-injection", "--format", "json"],
+            ["compile", "--target", "claude-code", "--base", BASE, "--project", _PROJ,
+             "--overlays", INJECTION, "--allow-injection", "--format", "json"],
         ),
         _Cell(
             "doctor_composed_text",
@@ -183,6 +217,12 @@ def _cells():
             kind="profile",
         ),
         _Cell(
+            "profile_missing_name_json",
+            ["--base", BASE, "--project", _PROJ, "--profile-op", "create", "--format", "json"],
+            ["profile", "create", "--format", "json"],
+            kind="profile",
+        ),
+        _Cell(
             "profile_dry_run_rejected_text",
             ["--base", BASE, "--project", _PROJ, "--profile-op", "delete",
              "--profile-name", "x", "--dry-run", "--format", "text"],
@@ -203,7 +243,7 @@ def _run_oracle_setup(step, project_dir, env):
             json.dump(data, fh, indent=2)
             fh.write("\n")
         return
-    resolved = [project_dir if a == _PROJ else a for a in argv]
+    resolved = _resolve_argv(argv, project_dir, env["HOME"])
     subprocess.run(
         [sys.executable, oracle.COMPOSER_PATH] + resolved,
         capture_output=True, text=True, env=env, cwd=os.path.dirname(oracle.COMPOSER_PATH),
@@ -218,7 +258,7 @@ def _capture_oracle(cell):
     try:
         for step in cell.setup:
             _run_oracle_setup(step, project, env)
-        argv = [project if a == _PROJ else (home if a == _HOME else a) for a in cell.oracle_argv]
+        argv = _resolve_argv(cell.oracle_argv, project, home)
         completed = subprocess.run(
             [sys.executable, oracle.COMPOSER_PATH] + argv,
             capture_output=True, text=True, env=env,
@@ -243,7 +283,7 @@ def _capture_compiler(cell):
         # Seed the project with the oracle before invoking the compiler CLI.
         for step in cell.setup:
             _run_oracle_setup(step, project, env)
-        argv = [project if a == _PROJ else (home if a == _HOME else a) for a in cell.compiler_argv]
+        argv = _resolve_argv(cell.compiler_argv, project, home)
         completed = subprocess.run(
             [sys.executable, "-c",
              "import sys; sys.argv=['system2']+sys.argv[1:]; "
@@ -281,12 +321,22 @@ def capture_all():
     return len(_cells())
 
 
+def _compare_contract(expected, actual, label):
+    for stream, wanted, got in zip(
+        ("stdout", "stderr", "exit code"), expected, actual
+    ):
+        if wanted != got:
+            raise AssertionError(
+                f"[{label}] {stream} mismatch: expected {wanted!r}, got {got!r}"
+            )
+
+
 def _read_golden(cell):
     d = _cell_dir(cell)
     with open(os.path.join(d, "stdout.txt"), "r", encoding="utf-8") as fh:
-        stdout = _OVERLAY_PATH_RE.sub(_OVERLAY_TOKEN, fh.read())
+        stdout = fh.read()
     with open(os.path.join(d, "stderr.txt"), "r", encoding="utf-8") as fh:
-        stderr = _OVERLAY_PATH_RE.sub(_OVERLAY_TOKEN, fh.read())
+        stderr = fh.read()
     with open(os.path.join(d, "exit_code.txt"), "r", encoding="utf-8") as fh:
         code = int(fh.read().strip())
     return stdout, stderr, code
@@ -307,30 +357,56 @@ class CliContractTest(unittest.TestCase):
     def test_compiler_matches_frozen_oracle(self):
         for cell in _cells():
             with self.subTest(cell=cell.name):
-                exp_out, exp_err, exp_code = _read_golden(cell)
-                got_out, got_err, got_code = _capture_compiler(cell)
-                self.assertEqual(
-                    exp_code, got_code,
-                    msg=f"[{cell.name}] exit code: oracle {exp_code} != compiler {got_code}",
-                )
-                self.assertEqual(
-                    exp_out, got_out,
-                    msg=f"[{cell.name}] stdout mismatch vs frozen oracle",
-                )
-                self.assertEqual(
-                    exp_err, got_err,
-                    msg=f"[{cell.name}] stderr mismatch vs frozen oracle",
-                )
+                expected = _read_golden(cell)
+                actual = _capture_compiler(cell)
+                _compare_contract(expected, actual, cell.name)
 
-    def test_self_teeth_mutation_fails(self):
-        """Mutating one golden byte makes the diff fail (the net has teeth)."""
-        cell = _cells()[0]
-        exp_out, _exp_err, _exp_code = _read_golden(cell)
-        got_out, _got_err, _got_code = _capture_compiler(cell)
-        # The compiler matches the unmutated golden; a one-byte mutation must not.
-        self.assertEqual(exp_out, got_out)
-        mutated = exp_out + "X" if exp_out else "X"
-        self.assertNotEqual(mutated, got_out)
+    def test_normalization_replaces_only_exact_runtime_roots(self):
+        exact = f'{{"path":"{TEST_OVERLAY}"}}'
+        wrong = '{"path":"/wrong/evals/fixtures/test-overlay"}'
+        normalized = _normalize(
+            exact + "\n" + wrong + "\n/tmp/project with space/file",
+            "/tmp/project with space", "/tmp/home",
+        )
+        self.assertIn('{"path":"<OVERLAY>"}', normalized)
+        self.assertIn(wrong, normalized)
+        self.assertIn("<PROJECT>/file", normalized)
+
+    def test_real_comparator_rejects_each_mutated_channel(self):
+        cell = next(cell for cell in _cells() if cell.name == "compose_text")
+        expected = _read_golden(cell)
+        actual = _capture_compiler(cell)
+        _compare_contract(expected, actual, cell.name)
+        mutations = (
+            (expected[0] + "X", expected[1], expected[2]),
+            (expected[0], expected[1] + "X", expected[2]),
+            (expected[0], expected[1], expected[2] + 1),
+        )
+        for channel, mutated in zip(("stdout", "stderr", "exit"), mutations):
+            with self.subTest(channel=channel):
+                with self.assertRaises(AssertionError):
+                    _compare_contract(mutated, actual, cell.name)
+
+    def test_new_capture_inputs_match_frozen_oracle_before_snapshot_capture(self):
+        names = {
+            "compose_io_refusal_json": 3,
+            "compose_injection_blocked_json": 4,
+            "compose_injection_acknowledged_json": 0,
+            "profile_missing_name_json": 1,
+        }
+        by_name = {cell.name: cell for cell in _cells()}
+        for name, exit_code in names.items():
+            with self.subTest(cell=name):
+                oracle_result = _capture_oracle(by_name[name])
+                compiler_result = _capture_compiler(by_name[name])
+                self.assertEqual(oracle_result[2], exit_code, oracle_result)
+                _compare_contract(oracle_result, compiler_result, name)
+        blocked = _capture_oracle(by_name["compose_injection_blocked_json"])
+        acknowledged = _capture_oracle(by_name["compose_injection_acknowledged_json"])
+        self.assertIn("WARNING:", blocked[1])
+        self.assertIn("WARNING:", acknowledged[1])
+        self.assertEqual(blocked[2], 4)
+        self.assertEqual(acknowledged[2], 0)
 
 
 def _main(argv=None):

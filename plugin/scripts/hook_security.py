@@ -1,4 +1,16 @@
-"""Security checks for hook scripts."""
+"""
+Hook Security Checks
+
+Shared module for validating hook scripts comply with System2 security
+requirements: no external dependencies, no network calls.
+
+Uses only Python 3.8+ stdlib. No external dependencies.
+
+Public API:
+    check_no_external_deps(hook_path) -> list of violation strings
+    check_no_network_calls(hook_path) -> list of violation strings
+    check_hook_security(hook_path) -> dict with 'passed' and 'violations'
+"""
 
 import ast
 import re
@@ -68,7 +80,9 @@ NETWORK_PATTERNS = [
     r"\bwebbrowser\.",
 ]
 
-# Require a process-execution call to avoid matching path strings.
+# Patterns that indicate network access via process execution.
+# These are checked only on lines that also contain subprocess/os.system/os.popen
+# to avoid false positives on path strings like ".ssh/".
 SUBPROCESS_NETWORK_COMMANDS = frozenset({
     "curl", "wget", "nc", "ncat", "netcat", "httpie",
     "ssh", "scp", "sftp", "rsync", "telnet",
@@ -87,7 +101,15 @@ _SUBPROCESS_CALL_RE = re.compile(
 
 
 def check_no_external_deps(hook_path: str) -> List[str]:
-    """Check a hook script for non-stdlib imports."""
+    """Check a hook script for non-stdlib imports.
+
+    Args:
+        hook_path: Absolute or relative path to a Python hook script.
+
+    Returns:
+        List of violation strings. Empty list means the file is clean.
+        Each entry has the format ``"<filename>:<lineno>: non-stdlib import: <line>"``.
+    """
     path = Path(hook_path)
     violations: List[str] = []
     try:
@@ -146,7 +168,12 @@ _NETWORK_MODULES = {
 
 
 def check_no_network_calls(hook_path: str) -> List[str]:
-    """Check a hook script for network call patterns using AST analysis."""
+    """Check a hook script for network call patterns using AST analysis.
+
+    Tracks import aliases (``import socket as s``, ``from urllib import
+    request``) and flags attribute access or calls on network-module
+    bindings.  Falls back to line-based regex if the file has syntax errors.
+    """
     path = Path(hook_path)
     violations: List[str] = []
     try:
@@ -165,7 +192,9 @@ def check_no_network_calls(hook_path: str) -> List[str]:
                 )
         return violations
 
-    # Map local aliases back to their network modules.
+    # Build a map of local names bound to network modules.
+    # e.g. ``import socket as s`` → net_bindings["s"] = "socket"
+    # e.g. ``from urllib import request`` → net_bindings["request"] = "urllib"
     net_bindings: Dict[str, str] = {}
 
     for node in ast.walk(tree):
@@ -222,7 +251,14 @@ _DYNAMIC_IMPORT_RE = re.compile(
 
 
 def check_no_banned_overlay_modules(hook_path: str) -> List[str]:
-    """Check an overlay hook for modules that are banned in overlay context."""
+    """Check an overlay hook for modules that are banned in overlay context.
+
+    Overlay hooks must not use subprocess, multiprocessing, or ctypes because
+    these enable arbitrary process execution and undetectable network access.
+    Also detects os.system/os.popen calls, dynamic imports (__import__,
+    importlib.import_module), and exec/eval which bypass static import checks.
+    Base System2 hooks may use these modules; this check is overlay-specific.
+    """
     path = Path(hook_path)
     violations: List[str] = []
     try:
@@ -378,7 +414,18 @@ def check_no_banned_overlay_modules(hook_path: str) -> List[str]:
 
 
 def check_hook_security(hook_path: str, overlay: bool = False) -> Dict:
-    """Run all security checks on a hook script."""
+    """Run all security checks on a hook script.
+
+    Args:
+        hook_path: Absolute or relative path to a Python hook script.
+        overlay: If True, also check for overlay-banned modules
+            (subprocess, multiprocessing, ctypes).
+
+    Returns:
+        Dict with keys:
+            ``passed`` (bool): True if no violations found.
+            ``violations`` (list of str): All violation strings from all checks.
+    """
     dep_violations = check_no_external_deps(hook_path)
     net_violations = check_no_network_calls(hook_path)
     all_violations = dep_violations + net_violations

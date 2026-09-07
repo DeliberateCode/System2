@@ -33,11 +33,18 @@ _CORPUS_PATH = os.path.join(_FIXTURES, "codex_corpus", "corpus.json")
 _SHELL_HOOK = "system2-shell-guard.js"
 _EDIT_HOOK = "system2-edit-guard.js"
 _HOOK_FILE = {"shell": _SHELL_HOOK, "edit": _EDIT_HOOK}
+_HOOK_TOOL_NAMES = {
+    "shell": frozenset({"shell", "Bash", "local_shell", "exec"}),
+    "edit": frozenset({"apply_patch", "Edit", "Write", "MultiEdit"}),
+}
 
 # Mirror the backend caps so generated-hook drift remains observable.
 _MAX_MATCH_LEN = 16384
 _MAX_INPUT_BYTES = 1048576
 _WATCHDOG_MS = 2000
+
+# Pi's arbitrary custom tool schemas have no Codex hook event equivalent.
+_PI_ONLY_CASES = {"unknown_custom_schema"}
 
 
 # Synthetic candidate envelope. This is not a native Codex capture or acceptance seam.
@@ -157,6 +164,11 @@ class CodexProvenBlockingTest(unittest.TestCase):
             cls._skip = _LOUD_SKIP
             return
         cls.project = tempfile.mkdtemp(prefix="codex-block-")
+        os.makedirs(os.path.join(cls.project, "src"), exist_ok=True)
+        os.symlink(
+            os.path.join(os.path.dirname(cls.project), "off-scope.py"),
+            os.path.join(cls.project, "src", "lease-link.py"),
+        )
         try:
             cls.hooks_dir, cls.hooks_source = _resolve_hooks_dir(cls.project)
         except Exception as exc:  # emission failure is a hard error, never a skip
@@ -164,7 +176,9 @@ class CodexProvenBlockingTest(unittest.TestCase):
             return
 
         for case in cls.corpus:
-            raw = json.dumps(_codex_event(case["event"]))
+            event = _codex_event(case["event"])
+            event["cwd"] = cls.project
+            raw = json.dumps(event)
             try:
                 rc, out, err = _run_hook(
                     cls.hooks_dir, case["hook"], raw, case.get("env"),
@@ -210,9 +224,16 @@ class CodexProvenBlockingTest(unittest.TestCase):
 
     # -- Corpus outcome assertions ------------------------------------------
 
+    def test_fixture_tool_names_match_the_selected_hook(self):
+        for case in self.corpus:
+            self.assertIn(
+                _codex_event(case["event"]).get("tool_name"),
+                _HOOK_TOOL_NAMES[case["hook"]],
+                f"{case['name']}: synthetic tool_name does not match {case['hook']} dispatch",
+            )
+
     def test_all_block_cases_block(self):
-        """Every corpus block case is blocked (decision block OR exit-2 fail-closed),
-        with the expected reason class — driven directly through the candidate script."""
+        """Every normal corpus block is a modern deny with its declared reason."""
         offenders = []
         for case in self._cases(lambda c: c["expect"] == "block"):
             res = self.results[case["name"]]
@@ -225,9 +246,12 @@ class CodexProvenBlockingTest(unittest.TestCase):
                 )
                 continue
             rc_want = case["reason_contains"]
-            # A stdout decision carries the reason substring; a fail-closed exit-2 is
-            # allowed to carry only the generic hook-error reason on stderr.
-            if rc_want and res["rc"] == 0 and rc_want not in (res["reason"] or ""):
+            if res["rc"] != 0:
+                offenders.append(
+                    f"{case['name']}: normal policy case used fault exit {res['rc']} "
+                    "instead of the modern deny response"
+                )
+            elif rc_want not in (res["reason"] or ""):
                 offenders.append(
                     f"{case['name']}: blocked but reason {res['reason']!r} lacks "
                     f"{rc_want!r}"
@@ -239,8 +263,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
         )
 
     def test_all_allow_cases_allow(self):
-        """The negative control: every benign case is ALLOWED (exit 0, no decision).
-        If the gate blocked everything these would fail — proving it discriminates."""
+        """Every declared allow/control or known candidate gap remains observable."""
         offenders = []
         for case in self._cases(lambda c: c["expect"] == "allow"):
             res = self.results[case["name"]]
@@ -256,9 +279,15 @@ class CodexProvenBlockingTest(unittest.TestCase):
             "corpus allow cases that were blocked:\n  " + "\n  ".join(offenders),
         )
 
+    def test_candidate_gaps_are_explicit_not_false_block_claims(self):
+        gaps = self._cases(lambda c: c.get("category") == "candidate_gap")
+        self.assertTrue(gaps, "candidate gaps must remain explicitly classified")
+        for case in gaps:
+            self.assertEqual(case["expect"], "allow", case["name"])
+            self.assertEqual(self.results[case["name"]]["decision"], "allow")
+
     def test_gate_discriminates_block_vs_allow(self):
-        """Cross-cut: every block case blocked AND every allow case allowed. The single
-        assertion that the gate is neither pass-everything nor block-everything."""
+        """Cross-cut: expected blocks deny and expected allows remain allowed."""
         blocks = self._cases(lambda c: c["expect"] == "block")
         allows = self._cases(lambda c: c["expect"] == "allow")
         self.assertTrue(blocks and allows, "corpus must contain both block and allow cases")
@@ -275,8 +304,10 @@ class CodexProvenBlockingTest(unittest.TestCase):
         checked = 0
         for case in self._cases(lambda c: c["expect"] == "block"):
             res = self.results[case["name"]]
-            if res["rc"] != 0:
-                continue  # exit-2 fail-closed cases carry no stdout obligation here
+            self.assertEqual(
+                res["rc"], 0,
+                f"{case['name']}: normal corpus cases must not use fault exit 2",
+            )
             checked += 1
             obj = json.loads(res["stdout"])
             self.assertNotIn(
@@ -412,8 +443,9 @@ class CodexProvenBlockingTest(unittest.TestCase):
     # -- Pi-corpus parity at the normalized-input boundary ------------------
 
     def test_pi_corpus_parity_zero_uncovered(self):
-        """Every Pi proven-blocking corpus case has a Codex-event-shaped counterpart — enumerated with zero uncovered cases."""
+        """Every Codex-supported Pi case has an enumerated counterpart."""
         pi_names = _pi_corpus_names()
+        self.assertLessEqual(_PI_ONLY_CASES, pi_names)
         covered = set()
         for case in self.corpus:
             for pin in case.get("pi_parity", []):
@@ -424,7 +456,7 @@ class CodexProvenBlockingTest(unittest.TestCase):
             stray,
             f"corpus declares pi_parity names not in the Pi corpus (drift): {sorted(stray)}",
         )
-        uncovered = pi_names - covered
+        uncovered = pi_names - covered - _PI_ONLY_CASES
         self.assertFalse(
             uncovered,
             "Pi corpus cases without a Codex-event-shaped counterpart: "

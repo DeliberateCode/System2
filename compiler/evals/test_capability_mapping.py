@@ -1,6 +1,10 @@
 """Mechanism->capability mapping completeness test."""
 
+import os
+import re
 import unittest
+
+from evals import oracle
 
 from system2_compiler.ir.capabilities import (
     INTENT_CAPABILITIES,
@@ -34,6 +38,20 @@ _VALID_ENFORCEMENT_POINTS = frozenset({
 })
 
 
+def _configured_hook_mechanisms():
+    agents_dir = os.path.join(oracle.PLUGIN_ROOT, "agents")
+    configured = set()
+    for name in sorted(os.listdir(agents_dir)):
+        if not name.endswith(".md"):
+            continue
+        with open(os.path.join(agents_dir, name), encoding="utf-8") as fh:
+            text = fh.read()
+        parts = text.split("---", 2)
+        frontmatter = parts[1] if len(parts) == 3 else ""
+        configured.update(re.findall(r"/hooks/([A-Za-z0-9_-]+\.py)", frontmatter))
+    return configured
+
+
 class MechanismMappingTest(unittest.TestCase):
     """each enforced mechanism maps to exactly one intent capability."""
 
@@ -50,14 +68,24 @@ class MechanismMappingTest(unittest.TestCase):
                 f"intent vocabulary {INTENT_CAPABILITIES}",
             )
 
-    def test_no_mechanism_is_left_unrepresented(self):
-        # Every mapped mechanism is represented (the dict cannot hold a None/empty
-        # capability) — guards against an unmapped enforced mechanism.
-        for mechanism, capability in _MECHANISM_TO_CAPABILITY.items():
-            self.assertTrue(
-                capability,
-                f"enforced mechanism {mechanism!r} is left unrepresented (no capability)",
-            )
+    def test_configured_mechanisms_are_exactly_partitioned(self):
+        configured = _configured_hook_mechanisms()
+        classified_hooks = (
+            set(_MECHANISM_TO_CAPABILITY) - {"write-lease-lifecycle"}
+        ) | set(_NON_CAPABILITY_MECHANISMS)
+        self.assertEqual(
+            configured,
+            classified_hooks,
+            "canonical agent hook configuration must be exactly partitioned into "
+            "capabilities and explicit non-capabilities",
+        )
+        with open(
+            os.path.join(oracle.PLUGIN_ROOT, "skills", "init", "SKILL.md"),
+            encoding="utf-8",
+        ) as fh:
+            init_contract = fh.read()
+        self.assertIn("Write-Lease Lifecycle", init_contract)
+        self.assertIn("write-lease-lifecycle", _MECHANISM_TO_CAPABILITY)
 
     def test_union_exactly_covers_the_enforced_surface(self):
         # The union of mapped capabilities equals the enforced intent vocabulary:
@@ -134,22 +162,13 @@ class BlockingSemanticsTest(unittest.TestCase):
 class NegativeControlTest(unittest.TestCase):
     """Prove the completeness assertion fails on an unmapped/invalid mechanism."""
 
-    def test_unmapped_mechanism_breaks_union_coverage(self):
-        # Inject a mechanism that maps to a BOGUS capability outside the vocabulary;
-        # the union-coverage assertion must then fail.
-        bad_table = dict(_MECHANISM_TO_CAPABILITY)
-        bad_table["rogue-hook.py"] = "exfiltrate-data"  # not an intent capability
-        mapped_union = set(bad_table.values())
-        self.assertNotEqual(
-            mapped_union, set(INTENT_CAPABILITIES),
-            "negative control: a mechanism mapped to a non-vocabulary capability must "
-            "break exact union coverage (proving the assertion has teeth)",
-        )
-        # And the per-mechanism validity check must reject the bogus capability.
-        self.assertNotIn(
-            "exfiltrate-data", INTENT_CAPABILITIES,
-            "negative control: the bogus capability must not be in the vocabulary",
-        )
+    def test_unmapped_configured_mechanism_breaks_partition(self):
+        configured = _configured_hook_mechanisms() | {"rogue-hook.py"}
+        classified = (
+            set(_MECHANISM_TO_CAPABILITY) - {"write-lease-lifecycle"}
+        ) | set(_NON_CAPABILITY_MECHANISMS)
+        self.assertNotEqual(configured, classified)
+        self.assertIn("rogue-hook.py", configured - classified)
 
     def test_dropping_an_enforced_capability_breaks_coverage(self):
         # Remove every mechanism for 'budget' -> the union no longer covers the

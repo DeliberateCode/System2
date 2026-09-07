@@ -1,9 +1,8 @@
 # Pre-consolidation ("old-world") lock fixture
 
-`overlay-manifest.lock` is a **real captured** claude-code lock (composed from the
-committed `evals/fixtures/test-overlay` overlay against the plugin base), hand-set
-to the pre-consolidation ("old-world") provenance shape. It guards existing user
-projects whose locks were written by the compiler/composer BEFORE this monorepo
+`overlay-manifest.lock` has the exact minimum top-level shape emitted by the
+frozen pre-consolidation composer for the committed `evals/fixtures/test-overlay`.
+It guards existing user projects whose locks were written before this monorepo
 consolidation.
 
 Consumed by `evals/test_old_world_lock.py`, which proves that feeding
@@ -12,9 +11,7 @@ stale-base nudge — never a schema error or a hard failure.
 
 ## What is "old-world" here
 
-The compiler/composer engine is byte-identical before and after consolidation, so
-its lock format is unchanged. The only distinguishing marks of a pre-consolidation
-lock are its **provenance values**:
+The fixture has the legacy seven-key top-level shape and old provenance values:
 
 - `system2_version: "1.1.0"` — a pre-consolidation plugin version, differing from
   the currently installed plugin version (`plugin/.claude-plugin/plugin.json`), so
@@ -27,9 +24,8 @@ lock are its **provenance values**:
   `evals/goldens/core+overlay/spec/overlay-manifest.lock`) even though the overlay
   content is byte-identical, which is the fingerprint behavior the test asserts.
 
-Everything else (`schema_version 1.0.0`, per-overlay `manifest_hash`/`content_hash`,
-`local_path`, `contributions_applied`, `warnings`, `degradation_report`) is the real
-captured lock, unchanged.
+The legacy shape ends at `warnings`; it intentionally has no additive
+`degradation_report` field.
 
 ## `source_path` placeholder
 

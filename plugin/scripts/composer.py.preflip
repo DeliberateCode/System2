@@ -1968,7 +1968,7 @@ def _generate_lock(
     timestamp: str = "",
     content_fingerprint: str = "",
 ) -> dict:
-    """Generate the stable Claude lock structure.
+    """Generate the lock file structure per spec/design.md schema.
 
     Args:
         overlays: List of overlay info dicts, each with keys:
