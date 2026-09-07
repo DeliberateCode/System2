@@ -615,13 +615,13 @@ class CodexUninstallSweepTest(unittest.TestCase):
 
         for name in _EXPECTED_SKILL_NAMES:
             self.assertFalse(
-                os.path.exists(os.path.join(project_dir, "skills", name)),
-                f"{name}: SKILL.md/dir still present on disk after uninstall",
+                os.path.exists(
+                    os.path.join(project_dir, "skills", name, "SKILL.md")
+                ),
+                f"{name}: owned SKILL.md still present after uninstall",
             )
-        self.assertFalse(
-            os.path.isdir(os.path.join(project_dir, "skills")),
-            "skills/ should be pruned once empty (best-effort prune)",
-        )
+        # Directories are not ownership-tracked. They may remain empty rather than
+        # risking deletion of caller-created empty paths beneath skills/.
 
 
 class CodexDoctorIntegrityTest(unittest.TestCase):
