@@ -12,7 +12,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation
-from .base import DoctorReport, UninstallResult, lock_sources_outside_project
+from .base import (
+    DoctorReport,
+    UninstallResult,
+    lock_sources_outside_project,
+    validate_project_target,
+)
 
 __all__ = ["ClaudeCodeBackend"]
 
@@ -623,6 +628,57 @@ def _default_file_mode(existing_path: Optional[str] = None) -> int:
     return 0o666 & ~umask
 
 
+def _validate_lock_deletion_targets(
+    project_path: str, lock_data: object
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Validate all untrusted Claude lock selectors before path construction."""
+    if not isinstance(lock_data, dict):
+        raise ValueError("Claude lock must be an object")
+
+    overlays = lock_data.get("overlays")
+    if not isinstance(overlays, list):
+        raise ValueError("Claude lock 'overlays' must be a list")
+
+    overlay_names: List[str] = []
+    for overlay in overlays:
+        if not isinstance(overlay, dict):
+            raise ValueError("Claude lock overlay entries must be objects")
+        name = overlay.get("name")
+        if not isinstance(name, str) or not _KEBAB_RE.fullmatch(name):
+            raise ValueError(
+                f"Claude lock contains invalid overlay name: {name!r}"
+            )
+        overlay_names.append(name)
+
+    contributions = lock_data.get("contributions_applied")
+    if not isinstance(contributions, dict):
+        raise ValueError("Claude lock 'contributions_applied' must be an object")
+    auxiliary_agents = contributions.get("auxiliary_agents", [])
+    if not isinstance(auxiliary_agents, list):
+        raise ValueError(
+            "Claude lock 'contributions_applied.auxiliary_agents' must be a list"
+        )
+    for name in auxiliary_agents:
+        if not isinstance(name, str) or not _KEBAB_RE.fullmatch(name):
+            raise ValueError(
+                f"Claude lock contains invalid auxiliary agent name: {name!r}"
+            )
+
+    overlay_targets = {
+        name: validate_project_target(
+            project_path, f".system2/overlays/{name}"
+        )
+        for name in overlay_names
+    }
+    agent_targets = {
+        name: validate_project_target(
+            project_path, f".claude/agents/{name}.md"
+        )
+        for name in auxiliary_agents
+    }
+    return overlay_targets, agent_targets
+
+
 def _write_outputs(
     project_path: str,
     claude_md: str,
@@ -666,30 +722,29 @@ def _write_outputs(
             with open(prev_lock_path, "r", encoding="utf-8") as fh:
                 prev_lock = json.load(fh)
         except (OSError, json.JSONDecodeError):
-            prev_lock = {}
+            prev_lock = None
 
-        current_overlay_names = {info["name"] for info in auxiliary_agents}
+        if prev_lock is None:
+            previous_overlays: Dict[str, str] = {}
+            previous_agents: Dict[str, str] = {}
+        else:
+            previous_overlays, previous_agents = _validate_lock_deletion_targets(
+                project_path, prev_lock
+            )
         current_overlay_dir_names = {
             name for _, name, _ in pending_content_copies
         }
 
-        for prev_ov in prev_lock.get("overlays", []):
-            prev_name = prev_ov.get("name", "")
-            if prev_name not in current_overlay_dir_names:
-                prev_dir = os.path.join(
-                    project_path, ".system2", "overlays", prev_name
-                )
-                if os.path.isdir(prev_dir):
-                    stale_overlay_dirs.append(prev_dir)
+        for prev_name, prev_dir in previous_overlays.items():
+            if (
+                prev_name not in current_overlay_dir_names
+                and os.path.isdir(prev_dir)
+            ):
+                stale_overlay_dirs.append(prev_dir)
 
-        prev_aux_names = set()
-        for prev_id in prev_lock.get("contributions_applied", {}).get("auxiliary_agents", []):
-            prev_aux_names.add(prev_id)
         current_aux_names = {a["name"] for a in auxiliary_agents}
-        for prev_name in prev_aux_names - current_aux_names:
-            prev_agent = os.path.join(
-                project_path, ".claude", "agents", f"{prev_name}.md"
-            )
+        for prev_name in set(previous_agents) - current_aux_names:
+            prev_agent = previous_agents[prev_name]
             if os.path.isfile(prev_agent):
                 stale_agents.append(prev_agent)
 
@@ -797,6 +852,7 @@ def _write_outputs(
 
         # Update lock with final content hashes.
         lock["overlays"] = overlay_info_for_lock
+        lock.setdefault("contributions_applied", {})
         lock_content = json.dumps(lock, indent=2) + "\n"
         for i, (path, _) in enumerate(files_to_write):
             if path.endswith("overlay-manifest.lock"):
@@ -972,7 +1028,10 @@ def _compute_idempotency(
         try:
             with open(prev_lock_path, "r", encoding="utf-8") as fh:
                 prev_lock = json.load(fh)
-            if prev_lock.get("content_fingerprint") == content_fingerprint:
+            if (
+                isinstance(prev_lock, dict)
+                and prev_lock.get("content_fingerprint") == content_fingerprint
+            ):
                 composition_timestamp = prev_lock.get("composed_at", "")
         except (OSError, json.JSONDecodeError):
             pass
@@ -1049,32 +1108,27 @@ def _load_anchor_map(base_path: str) -> dict:
 def _compute_stale_artifacts(
     project_path: str, overlay_name: str, lock_data: dict
 ) -> List[str]:
-    """Return absolute paths of artifacts to remove for *overlay_name*."""
-    if not _KEBAB_RE.match(overlay_name):
-        return []
+    """Return validated absolute artifacts to remove for *overlay_name*."""
+    overlay_targets, agent_targets = _validate_lock_deletion_targets(
+        project_path, lock_data
+    )
+    if overlay_name not in overlay_targets:
+        raise ValueError(
+            f"Claude lock does not contain overlay selector: {overlay_name!r}"
+        )
 
     stale: List[str] = []
-
-    overlay_dir = os.path.join(
-        project_path, ".system2", "overlays", overlay_name
-    )
+    overlay_dir = overlay_targets[overlay_name]
     if os.path.isdir(overlay_dir):
         stale.append(overlay_dir)
 
-    aux_names = (
-        lock_data
-        .get("contributions_applied", {})
-        .get("auxiliary_agents", [])
-    )
-    agents_dir = os.path.join(project_path, ".claude", "agents")
-    for agent_name in aux_names:
-        if not isinstance(agent_name, str) or not _KEBAB_RE.match(agent_name):
-            continue
-        cached_agent = os.path.join(overlay_dir, "agents", f"{agent_name}.md")
-        if os.path.isfile(cached_agent):
-            deployed_agent = os.path.join(agents_dir, f"{agent_name}.md")
-            if os.path.isfile(deployed_agent):
-                stale.append(deployed_agent)
+    for agent_name, deployed_agent in agent_targets.items():
+        cached_agent = validate_project_target(
+            project_path,
+            f".system2/overlays/{overlay_name}/agents/{agent_name}.md",
+        )
+        if os.path.isfile(cached_agent) and os.path.isfile(deployed_agent):
+            stale.append(deployed_agent)
 
     return stale
 
@@ -1529,17 +1583,14 @@ class ClaudeCodeBackend:
         except OSError as exc:
             return _err([f"Cannot read lock file: {exc}"])
 
-        # 3. Validate lock structure.
-        overlays = lock_data.get("overlays", [])
-        if not isinstance(overlays, list):
-            return _err(["Lock file is malformed: 'overlays' is not a list"])
+        # 3. Validate every deletion selector before backup, write, or removal.
+        try:
+            _validate_lock_deletion_targets(project_path, lock_data)
+        except ValueError as exc:
+            return _err([f"Lock file is malformed: {exc}"])
+        overlays = lock_data["overlays"]
 
-        # 4. Validate each overlay entry has required fields.
-        for ov in overlays:
-            if not isinstance(ov, dict) or "name" not in ov:
-                return _err(["Lock file overlay entry missing 'name' field"])
-
-        # 5. Find and remove the target overlay.
+        # 4. Find and remove the target overlay.
         target_entry = None
         remaining = []
         for ov in overlays:
@@ -1555,22 +1606,15 @@ class ClaudeCodeBackend:
                 f"Installed: {installed}"
             ])
 
-        # 6. Validate remaining overlay names (security).
-        for ov in remaining:
-            if not _KEBAB_RE.match(ov.get("name", "")):
-                return _err([
-                    f"Lock file contains invalid overlay name: {ov.get('name')!r}"
-                ])
-
         target_version = target_entry.get("version", "unknown")
 
-        # 7. Dispatch based on remaining count.
+        # 5. Dispatch based on remaining count.
         if len(remaining) == 0:
             return self._uninstall_last_overlay(
                 base_path, project_path, target_entry, lock_data, dry_run,
             )
 
-        # 8. Multi-overlay path: extract source_paths, recompose, emit.
+        # 6. Multi-overlay path: extract source_paths, recompose, emit.
         remaining_paths = []
         for ov in remaining:
             sp = ov.get("source_path", "")
