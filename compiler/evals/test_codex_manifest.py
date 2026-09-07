@@ -36,13 +36,10 @@ _MANIFEST_POINTERS = ("skills",)
 # The pinned 0.2.2 version, imported from the backend (never re-typed).
 _CODEX_PLUGIN_VERSION = codex_backend._CODEX_PLUGIN_VERSION
 
-# exact-name 18-skill inventory (orchestrator + system2-doctor + 13 role skills + the 3 adapted utility skills).
+# Exact-name 15-skill inventory (orchestrator + system2-doctor + 13 role skills).
 _EXPECTED_SKILL_NAMES = frozenset({
     "system2",
     "system2-doctor",
-    "system2-codex",
-    "system2-gemini",
-    "system2-stateless-loop",
     "system2-role-code-reviewer",
     "system2-role-design-architect",
     "system2-role-docs-release",
@@ -542,23 +539,23 @@ class CodexLockNegativeControlsTest(_CodexEmissionBase):
         self.assertEqual(on_disk["backend"], "codex")
 
 
-# Exact-name 18-skill inventory and the 0.2.2 version pin.
+# Exact-name 15-skill inventory and the 0.2.2 version pin.
 
 class CodexSkillInventoryTest(_CodexEmissionBase):
-    """The emitted ``skills/`` directory carries exactly the pinned 18 names,
+    """The emitted ``skills/`` directory carries exactly the pinned 15 names,
     each with a non-empty ``SKILL.md``, and every version field reads 0.2.2."""
 
-    def test_skills_directory_has_exactly_the_18_expected_names(self):
+    def test_skills_directory_has_exactly_the_15_expected_names(self):
         for label, root, _tmp in self.sources:
             with self.subTest(source=label):
                 actual = set(os.listdir(os.path.join(root, "skills")))
                 self.assertEqual(
                     _EXPECTED_SKILL_NAMES, actual,
-                    f"skills/ diverged from the pinned 18-name inventory "
+                    f"skills/ diverged from the pinned 15-name inventory "
                     f"(source={label}): missing={_EXPECTED_SKILL_NAMES - actual}, "
                     f"unexpected={actual - _EXPECTED_SKILL_NAMES}",
                 )
-                self.assertEqual(18, len(actual))
+                self.assertEqual(15, len(actual))
 
     def test_every_expected_skill_has_a_nonempty_skill_md(self):
         for label, root, _tmp in self.sources:
@@ -588,7 +585,7 @@ class CodexSkillInventoryTest(_CodexEmissionBase):
 class CodexUninstallSweepTest(unittest.TestCase):
     """Removing the last overlay sweeps every ``skills/*/SKILL.md`` generically."""
 
-    def test_uninstall_removes_all_18_skills_via_the_generic_sweep(self):
+    def test_uninstall_removes_all_15_skills_via_the_generic_sweep(self):
         project_dir = tempfile.mkdtemp(prefix="codex-uninstall-")
         self.addCleanup(shutil.rmtree, project_dir, True)
         _emit_codex(project_dir)
@@ -611,7 +608,7 @@ class CodexUninstallSweepTest(unittest.TestCase):
         self.assertEqual(
             _EXPECTED_SKILL_NAMES, removed_skill_names,
             "the generic skills/*/SKILL.md sweep did not cover the exact "
-            f"18-skill inventory; diverged: "
+            f"15-skill inventory; diverged: "
             f"{_EXPECTED_SKILL_NAMES ^ removed_skill_names}",
         )
 

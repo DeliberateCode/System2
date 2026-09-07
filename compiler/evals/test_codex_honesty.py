@@ -1,4 +1,4 @@
-"""Codex enforcement-honesty and utility-skill synchronization tests."""
+"""Codex enforcement-honesty tests."""
 
 import json
 import os
@@ -497,86 +497,6 @@ class CodexHonestyTest(unittest.TestCase):
         self.assertEqual(lock_invariant_violations(self.root), [])
 
 
-# Drift control for the derived-literal utility-skill builders.
-
-_SYNC_GUARD_TOKENS = {
-    "codex": (
-        "--ephemeral",
-        "history.persistence=none",
-        "Never pass the prompt unquoted",
-    ),
-    "gemini": (
-        "agy -p",
-        "--print-timeout",
-        "Never pass the prompt unquoted",
-    ),
-    "stateless-loop": (
-        "STATUS: CLEAN",
-        "claude -p",
-        "max_iterations",
-    ),
-}
-
-
-def _source_skill_path(name):
-    return os.path.join(_repo_root(), "plugin", "skills", name, "SKILL.md")
-
-
-def _emitted_skill_path(root, name):
-    return os.path.join(root, "skills", f"system2-{name}", "SKILL.md")
-
-
-class CodexSyncGuardTest(unittest.TestCase):
-    """Require every invariant token in both the merged source and emitted skill."""
-
-    @classmethod
-    def setUpClass(cls):
-        committed = _resolve_committed_root()
-        if committed is not None:
-            cls.root = committed
-            cls._staging = None
-        else:
-            cls._staging = tempfile.mkdtemp(prefix="codex-syncguard-")
-            _emit_to(cls._staging)
-            cls.root = cls._staging
-
-    @classmethod
-    def tearDownClass(cls):
-        if getattr(cls, "_staging", None):
-            shutil.rmtree(cls._staging, ignore_errors=True)
-
-    def test_invariant_tokens_present_in_source_and_emitted_skill(self):
-        for name, tokens in _SYNC_GUARD_TOKENS.items():
-            with open(_source_skill_path(name), encoding="utf-8") as fh:
-                source_text = fh.read()
-            with open(_emitted_skill_path(self.root, name), encoding="utf-8") as fh:
-                emitted_text = fh.read()
-            for token in tokens:
-                with self.subTest(skill=name, token=token, surface="plugin/skills source"):
-                    self.assertIn(
-                        token, source_text,
-                        f"{name}: invariant token {token!r} missing from the merged "
-                        f"source plugin/skills/{name}/SKILL.md",
-                    )
-                with self.subTest(skill=name, token=token, surface="emitted Codex skill"):
-                    self.assertIn(
-                        token, emitted_text,
-                        f"{name}: invariant token {token!r} missing from the emitted "
-                        f"skills/system2-{name}/SKILL.md",
-                    )
-
-    def test_guard_trips_if_a_token_is_dropped_from_the_emitted_copy(self):
-        # Mutation self-test (teeth): on a throwaway copy, drop one invariant token
-        # from the emitted skill and confirm the presence assertion would then fail.
-        name = "codex"
-        token = _SYNC_GUARD_TOKENS[name][0]
-        with open(_emitted_skill_path(self.root, name), encoding="utf-8") as fh:
-            text = fh.read()
-        tampered = text.replace(token, "[token removed]")
-        self.assertNotEqual(tampered, text, "fixture guard: token was not present to remove")
-        self.assertNotIn(token, tampered)
-
-
 # _skill_frontmatter() (backends.codex) emits
 def _parse_leading_frontmatter(text):
     if not text.startswith("---\n"):
@@ -645,16 +565,6 @@ class CodexSkillFrontmatterYamlSafetyTest(unittest.TestCase):
                 with self.subTest(skill=rel, field=key):
                     reason = _yaml_unsafe_reason(value)
                     self.assertIsNone(reason, f"{rel}: frontmatter {key!r} {reason}")
-
-    def test_guard_trips_on_the_regressed_value(self):
-        # Mutation self-test: prove the guard rejects an unquoted colon in a plain
-        # YAML frontmatter value.
-        reason = _yaml_unsafe_reason(
-            "Run an instruction ... until the task reports STATUS: CLEAN or max "
-            "iterations are reached."
-        )
-        self.assertIsNotNone(reason)
-        self.assertIn("STATUS: CLEAN", reason)
 
 
 if __name__ == "__main__":

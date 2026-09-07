@@ -59,7 +59,7 @@ _ORCH_PROMPT = os.path.join(".pi", "prompts", "orchestrator.md")
 _LOCK = "system2.pi.lock.json"
 _SKILLS = tuple(
     os.path.join(".pi", "skills", f"system2-{name}", "SKILL.md")
-    for name in ("init", "compose", "doctor", "codex", "gemini", "stateless-loop")
+    for name in ("init", "compose", "doctor")
 )
 
 
@@ -226,7 +226,7 @@ class PiEmitArtifactSetTest(unittest.TestCase):
             f"{sorted(role_prompts)}",
         )
 
-    def test_six_skill_name_set(self):
+    def test_three_skill_name_set(self):
         # The exact name set fails on either a missing or an extra skill,
         # not just a count.
         skills = {
@@ -236,18 +236,18 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         }
         self.assertEqual(
             skills, set(_SKILLS),
-            f"expected exactly the six system2-* skill paths {sorted(_SKILLS)}, "
+            f"expected exactly the three system2-* skill paths {sorted(_SKILLS)}, "
             f"got {sorted(skills)}",
         )
 
     def test_total_emitted_file_count(self):
         # Recompute the total from actual emission.
         self.assertEqual(
-            len(self.written), 24,
-            f"expected 24 emitted files, got {len(self.written)}",
+            len(self.written), 21,
+            f"expected 21 emitted files, got {len(self.written)}",
         )
 
-    def test_all_six_skills_carry_nonempty_frontmatter(self):
+    def test_all_three_skills_carry_nonempty_frontmatter(self):
         for rel in _SKILLS:
             fields = _parse_leading_frontmatter(self.tree[rel].decode("utf-8"))
             self.assertIsNotNone(
@@ -509,78 +509,6 @@ class PiLoadValidityTest(unittest.TestCase):
             os.path.isdir(_REAL_PI), had_pi,
             "the Pi load leg created/removed the real ~/.pi directory",
         )
-
-
-# Drift control for derived-literal utility-skill builders, mirroring the Codex synchronization guard.
-
-_SYNC_GUARD_TOKENS = {
-    "codex": (
-        "--ephemeral",
-        "history.persistence=none",
-        "Never pass the prompt unquoted",
-    ),
-    "gemini": (
-        "agy -p",
-        "--print-timeout",
-        "Never pass the prompt unquoted",
-    ),
-    "stateless-loop": (
-        "STATUS: CLEAN",
-        "claude -p",
-        "max_iterations",
-    ),
-}
-
-
-def _source_skill_path(name):
-    return os.path.join(_REPO_ROOT, "plugin", "skills", name, "SKILL.md")
-
-
-def _emitted_skill_path(root, name):
-    return os.path.join(root, ".pi", "skills", f"system2-{name}", "SKILL.md")
-
-
-class PiSyncGuardTest(unittest.TestCase):
-    """Every invariant token survives in merged source and emitted Pi skills."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.project = tempfile.mkdtemp(prefix="pi-syncguard-")
-        _emit_core_overlay(cls.project)
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.project, ignore_errors=True)
-
-    def test_invariant_tokens_present_in_source_and_emitted_skill(self):
-        for name, tokens in _SYNC_GUARD_TOKENS.items():
-            with open(_source_skill_path(name), encoding="utf-8") as fh:
-                source_text = fh.read()
-            with open(_emitted_skill_path(self.project, name), encoding="utf-8") as fh:
-                emitted_text = fh.read()
-            for token in tokens:
-                with self.subTest(skill=name, token=token, surface="plugin/skills source"):
-                    self.assertIn(
-                        token, source_text,
-                        f"{name}: invariant token {token!r} missing from the merged "
-                        f"source plugin/skills/{name}/SKILL.md",
-                    )
-                with self.subTest(skill=name, token=token, surface="emitted Pi skill"):
-                    self.assertIn(
-                        token, emitted_text,
-                        f"{name}: invariant token {token!r} missing from the emitted "
-                        f".pi/skills/system2-{name}/SKILL.md",
-                    )
-
-    def test_guard_trips_if_a_token_is_dropped_from_the_emitted_copy(self):
-        # Mutation self-test (teeth): prove the presence assertion would fail if an invariant token were dropped from the emitted skill.
-        name = "codex"
-        token = _SYNC_GUARD_TOKENS[name][0]
-        with open(_emitted_skill_path(self.project, name), encoding="utf-8") as fh:
-            text = fh.read()
-        tampered = text.replace(token, "[token removed]")
-        self.assertNotEqual(tampered, text, "fixture guard: token was not present to remove")
-        self.assertNotIn(token, tampered)
 
 
 if __name__ == "__main__":
