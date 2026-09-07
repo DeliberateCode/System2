@@ -65,25 +65,35 @@ def _compose_graph(project):
 
 
 def _assert_refused_without_mutation(
-    test_case, operation, roots, *, refused_result=lambda _result: False
+    test_case,
+    operation,
+    roots,
+    *,
+    refused_result=lambda _result: False,
+    reason_contains=None,
 ):
     before = {name: _tree_fingerprint(path) for name, path in roots.items()}
     refused = False
     outcome = None
+    reason = ""
     try:
         result = operation()
     except (OSError, ValueError) as exc:
         refused = True
         outcome = type(exc).__name__
+        reason = str(exc)
     else:
         refused = refused_result(result)
         outcome = type(result).__name__
+        reason = "\n".join(getattr(result, "errors", ()))
 
     after = {name: _tree_fingerprint(path) for name, path in roots.items()}
     changed = sorted(name for name in roots if after[name] != before[name])
     failures = []
     if not refused:
         failures.append(f"operation did not refuse (returned {outcome})")
+    if reason_contains is not None and reason_contains not in reason:
+        failures.append(f"refusal reason did not contain {reason_contains!r}")
     if changed:
         failures.append("changed tree(s): " + ", ".join(changed))
     if failures:
@@ -132,6 +142,15 @@ class ComposeSourceOverlapTest(unittest.TestCase):
                         shutil.copytree(_TEST_OVERLAY, project)
                         os.symlink(project, source, target_is_directory=True)
 
+                    sibling_project = os.path.join(root, "sibling-project")
+                    os.mkdir(sibling_project)
+                    control = ir.compose(_BASE, [source], sibling_project)
+                    self.assertIsNotNone(
+                        control.graph,
+                        "compose must accept the same overlay for a sibling "
+                        f"project ({case}): {control.errors!r}",
+                    )
+
                     result = ir.compose(_BASE, [source], project)
                     if result.graph is not None:
                         self.fail(
@@ -139,10 +158,15 @@ class ComposeSourceOverlapTest(unittest.TestCase):
                             f"({case})"
                         )
                     self.assertTrue(result.errors)
+                    reason = "\n".join(result.errors).lower()
+                    self.assertIn("source", reason)
+                    self.assertIn("project", reason)
+                    self.assertIn("overlap", reason)
                     self.assertEqual(result.files_to_write, [])
 
 
 class FirstEmitSymlinkContainmentTest(unittest.TestCase):
+    # Expected failures: resolved parent links can escape the project today.
     def test_codex_emit_refuses_external_skills_parent(self):
         with tempfile.TemporaryDirectory(prefix="codex-parent-link-") as root:
             _require_symlinks(self, root)
@@ -207,19 +231,23 @@ class FirstEmitSymlinkContainmentTest(unittest.TestCase):
                 {"project": project, "external": external},
             )
 
+    # Already-passing control: a dangling planned output is refused safely.
     def test_codex_emit_refuses_dangling_planned_output(self):
         self._assert_dangling_emit_refused(
             CodexBackend, os.path.join(".codex-plugin", "plugin.json")
         )
 
+    # Expected failure: a dangling Codex skills parent still mutates the project.
     def test_codex_emit_refuses_dangling_planned_parent(self):
         self._assert_dangling_emit_refused(CodexBackend, "skills")
 
+    # Already-passing control: a dangling planned output is refused safely.
     def test_pi_emit_refuses_dangling_planned_output(self):
         self._assert_dangling_emit_refused(
             PiBackend, os.path.join(".pi", "SYSTEM.md")
         )
 
+    # Already-passing control: a dangling Pi prompts parent is refused safely.
     def test_pi_emit_refuses_dangling_planned_parent(self):
         self._assert_dangling_emit_refused(
             PiBackend, os.path.join(".pi", "prompts")
@@ -227,6 +255,7 @@ class FirstEmitSymlinkContainmentTest(unittest.TestCase):
 
 
 class OwnedArtifactSymlinkContainmentTest(unittest.TestCase):
+    # Expected failures: digest-matching symlinks are not regular owned files.
     _CASES = (
         (CodexBackend, os.path.join(".codex-plugin", "plugin.json")),
         (PiBackend, os.path.join(".pi", "SYSTEM.md")),
@@ -245,6 +274,7 @@ class OwnedArtifactSymlinkContainmentTest(unittest.TestCase):
                     backend = backend_cls(overlay_sources=[_TEST_OVERLAY])
                     backend.emit(graph, project)
                     sources = backend.read_lock_overlay_sources(project)
+                    recompose_graph = _compose_graph(project)
                     _replace_with_matching_external_symlink(
                         project, external, relative
                     )
@@ -253,10 +283,9 @@ class OwnedArtifactSymlinkContainmentTest(unittest.TestCase):
                         self,
                         lambda: backend_cls(
                             overlay_sources=sources
-                        ).recompose_from_lock(
-                            _compose_graph(project), project
-                        ),
+                        ).recompose_from_lock(recompose_graph, project),
                         {"project": project, "external": external},
+                        reason_contains="regular file",
                     )
 
     def test_uninstall_refuses_matching_external_owned_artifact_symlink(self):
@@ -283,6 +312,7 @@ class OwnedArtifactSymlinkContainmentTest(unittest.TestCase):
                         ).uninstall(project, "test-overlay"),
                         {"project": project, "external": external},
                         refused_result=lambda result: bool(result.errors),
+                        reason_contains="regular file",
                     )
 
 
