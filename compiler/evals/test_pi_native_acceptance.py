@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from evals import matrix, oracle
+from evals.pi_test_support import resolve_pi_pkg_entry
 from evals.test_pi_package import _build_package
 from system2_compiler import ir
 from system2_compiler.backends.pi import PiBackend
@@ -15,22 +16,6 @@ from system2_compiler.backends.pi import PiBackend
 _PI_BIN = os.environ.get("PI_BIN") or shutil.which("pi")
 _NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
 _REQUIRED_PI_VERSION = "0.85.1"
-
-
-def _pi_entry():
-    if not _PI_BIN:
-        return None
-    prefix = os.path.dirname(os.path.dirname(os.path.abspath(_PI_BIN)))
-    candidate = os.path.join(
-        prefix,
-        "lib",
-        "node_modules",
-        "@earendil-works",
-        "pi-coding-agent",
-        "dist",
-        "index.js",
-    )
-    return candidate if os.path.isfile(candidate) else None
 
 
 def _emit(project):
@@ -114,7 +99,7 @@ class PiNativeAcceptanceTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not _PI_BIN or not _NODE_BIN or not _pi_entry():
+        if not _PI_BIN or not _NODE_BIN or not resolve_pi_pkg_entry(_PI_BIN):
             raise AssertionError(
                 "Pi native acceptance requires installed node and pi 0.85.1; skipping is not allowed"
             )
@@ -138,7 +123,7 @@ class PiNativeAcceptanceTest(unittest.TestCase):
         os.makedirs(self.session_dir)
         _emit(self.project)
 
-    def test_rpc_get_commands_and_prompt_delegate(self):
+    def test_rpc_exposes_human_status_without_switching_parent_role(self):
         client = _RpcClient(
             self.project, _env(self.home, self.agent_dir), self.session_dir
         )
@@ -147,17 +132,29 @@ class PiNativeAcceptanceTest(unittest.TestCase):
         commands = client.request({"type": "get_commands"})["data"]["commands"]
         names = {command["name"] for command in commands}
         self.assertIn("delegate", names)
+        self.assertIn("system2-status", names)
+        self.assertIn("system2-recover", names)
         self.assertNotIn("/delegate", names)
 
-        client.request({"type": "prompt", "message": "/delegate design-architect"})
+        client.request({"type": "prompt", "message": "/system2-status"})
         entries = client.request({"type": "get_entries"})["data"]["entries"]
-        role_entries = [
-            entry
-            for entry in entries
-            if entry.get("type") == "custom"
-            and entry.get("customType") == "system2-role"
+        self.assertFalse(
+            any(entry.get("customType") == "system2-role" for entry in entries)
+        )
+        notifications = [
+            event for event in client.events
+            if event.get("type") == "extension_ui_request"
+            and event.get("method") == "notify"
         ]
-        self.assertEqual(role_entries[-1]["data"], {"role": "design-architect"})
+        status = json.loads(notifications[-1]["message"])
+        self.assertEqual(status["mode"], "orchestrator")
+        self.assertTrue(status["healthy"])
+        self.assertTrue(os.path.isabs(status["childExecutable"]))
+        self.assertNotIn("unavailable", status["childExecutable"])
+        # Status is a human command and never requires a model/network turn.
+        self.assertFalse(
+            any(event.get("type") == "agent_start" for event in client.events)
+        )
 
     def test_rpc_discovers_and_invokes_package_init(self):
         package = os.path.join(self.temp, "package")
@@ -188,11 +185,14 @@ class PiNativeAcceptanceTest(unittest.TestCase):
         with open(agents, "rb") as fh:
             self.assertEqual(fh.read(), b"CALLER OWNED\n")
 
-    def test_sdk_reload_reconstructs_branch_role_and_prompt(self):
+    def test_sdk_reload_reconstructs_branch_workflow_and_parent_prompt(self):
         harness = os.path.join(self.temp, "lifecycle.mjs")
         with open(harness, "w", encoding="utf-8") as fh:
             fh.write(
                 r'''
+import fs from "node:fs";
+import path from "node:path";
+import { createHash } from "node:crypto";
 const PKG = process.argv[2];
 const project = process.argv[3];
 const agentDir = process.argv[4];
@@ -213,17 +213,43 @@ const { session } = await pkg.createAgentSession({
 const errors = [];
 await session.bindExtensions({ mode: "rpc", onError: (error) => errors.push(error) });
 const commands = session.extensionRunner.getRegisteredCommands().map((c) => c.invocationName);
-await session.prompt("/delegate design-architect");
+const tools = session.getAllTools().map((tool) => tool.name);
 const before = await session.extensionRunner.emitBeforeAgentStart(
   "test", undefined, "BASE", { cwd: project },
 );
+sm.appendCustomEntry("system2-workflow-state", {
+  schemaVersion: 1,
+  mode: "orchestrator",
+  generation: 1,
+  transitionId: "native-gate-0",
+  provenance: {
+    orchestratorPromptDigest: createHash("sha256").update(fs.readFileSync(path.join(project, ".pi", "SYSTEM.md"))).digest("hex"),
+    extensionDigest: createHash("sha256").update(fs.readFileSync(path.join(project, ".pi", "extensions", "system2.ts"))).digest("hex"),
+  },
+  gate: {
+    current: 1,
+    complete: false,
+    decisions: [{
+      id: "native-human-approval",
+      gate: 0,
+      decision: "approved",
+      scopeSummary: "native acceptance",
+      taskWriteScope: [],
+      artifacts: [],
+      decidedAt: "2026-01-01T00:00:00.000Z",
+      source: "tui",
+    }],
+  },
+  activeDelegation: null,
+  lastDelegation: null,
+});
 await session.reload();
 const after = await session.extensionRunner.emitBeforeAgentStart(
   "test", undefined, "BASE", { cwd: project },
 );
 const restoredBlock = await session.extensionRunner.emitToolCall({
   type: "tool_call", toolCallId: "restored", toolName: "write",
-  input: { path: "src/off-scope.py", content: "x" },
+  input: { path: "spec/context.md", content: "x" },
 });
 const nativeDanger = await session.extensionRunner.emitToolCall({
   type: "tool_call", toolCallId: "danger", toolName: "bash",
@@ -234,10 +260,12 @@ const nativeSensitive = await session.extensionRunner.emitToolCall({
   input: { command: "cat .env" },
 });
 const nativeBenign = await session.extensionRunner.emitToolCall({
-  type: "tool_call", toolCallId: "benign", toolName: "bash",
-  input: { command: "ls -la" },
+  type: "tool_call", toolCallId: "benign", toolName: "read",
+  input: { path: "README.md" },
 });
-sm.appendCustomEntry("system2-role", { role: "executor!" });
+sm.appendCustomEntry("system2-workflow-state", {
+  schemaVersion: 1, mode: "orchestrator", generation: 99,
+});
 await session.reload();
 const malformedBlock = await session.extensionRunner.emitToolCall({
   type: "tool_call", toolCallId: "malformed", toolName: "write",
@@ -250,12 +278,12 @@ process.stdout.write(JSON.stringify({
   before, after, restoredBlock, nativeDanger, nativeSensitive,
   nativeBenign: nativeBenign ?? null,
   malformedBlock, malformedPrompt,
-  commands, errors, entries: sm.getEntries(),
+  commands, tools, errors, entries: sm.getEntries(),
 }));
 '''
             )
         completed = subprocess.run(
-            [_NODE_BIN, harness, _pi_entry(), self.project, self.agent_dir],
+            [_NODE_BIN, harness, resolve_pi_pkg_entry(_PI_BIN), self.project, self.agent_dir],
             env=_env(self.home, self.agent_dir),
             capture_output=True,
             text=True,
@@ -265,19 +293,25 @@ process.stdout.write(JSON.stringify({
         result = json.loads(completed.stdout)
         self.assertEqual(result["errors"], [], result)
         self.assertIn("delegate", result["commands"], result)
+        self.assertIn("system2-status", result["commands"], result)
+        self.assertIn("system2_delegate", result["tools"], result)
+        self.assertIn("system2_request_gate_approval", result["tools"], result)
         for key in ("before", "after"):
             self.assertIn(
-                "System2 role: design-architect", result[key]["systemPrompt"], result
+                "SYSTEM2 PARENT AUTHORITY: mode=orchestrator", result[key]["systemPrompt"], result
             )
+            self.assertNotIn("System2 role: design-architect", result[key]["systemPrompt"], result)
+        self.assertIn("current gate: 0", result["before"]["systemPrompt"])
+        self.assertIn("current gate: 1", result["after"]["systemPrompt"])
         self.assertTrue(result["restoredBlock"]["block"])
-        self.assertIn("design-architect", result["restoredBlock"]["reason"])
+        self.assertIn("Orchestrator", result["restoredBlock"]["reason"])
         self.assertTrue(result["nativeDanger"]["block"])
         self.assertIn("block-dangerous", result["nativeDanger"]["reason"])
         self.assertTrue(result["nativeSensitive"]["block"])
         self.assertIn("protect-sensitive", result["nativeSensitive"]["reason"])
         self.assertIsNone(result["nativeBenign"])
         self.assertTrue(result["malformedBlock"]["block"])
-        self.assertIn("read-only", result["malformedPrompt"]["systemPrompt"])
+        self.assertIn("RECOVERY REQUIRED", result["malformedPrompt"]["systemPrompt"])
 
 
 if __name__ == "__main__":

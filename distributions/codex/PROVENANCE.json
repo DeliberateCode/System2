@@ -1,5 +1,5 @@
 {
-  "source_sha256": "0a2c6aad58f37f3eaf23eb9662316a6337ac83f0793a6ab01bd103f2ded9498b",
+  "source_sha256": "3cc7ca3825b047cad1e0aa9243ded492548934f66d5fd812eb151af3c6ed7cb8",
   "artifact_sha256": "1628c7fb71e4eb9ac4dce61293acb6072ea5aec52c430603cb3de3c7786aa3ae",
   "artifact_inventory": [
     ".codex-plugin/plugin.json",
@@ -24,9 +24,9 @@
     "user-hooks/hooks/system2-edit-guard.js",
     "user-hooks/hooks/system2-shell-guard.js"
   ],
-  "generated_from": "System2@d9f51c8",
+  "generated_from": "System2@bc1b8ac",
   "generator": "compiler/tools/regen_all.py",
   "channel_version": "0.2.3",
   "compiler_version": "0.1.0",
-  "generated_at": "2026-09-07T18:14:34.154060+00:00"
+  "generated_at": "2026-09-08T03:06:12.813321+00:00"
 }

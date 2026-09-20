@@ -10,6 +10,7 @@ import unittest
 from system2_compiler import ir
 from system2_compiler.backends.pi import PiBackend
 from evals import matrix, oracle
+from evals.pi_test_support import resolve_pi_pkg_entry
 
 _BASE = oracle.PLUGIN_ROOT
 _TEST_OVERLAY = matrix.TEST_OVERLAY
@@ -24,29 +25,8 @@ _LOUD_SKIP = (
     "node/pi not installed — Pi extension load/block SKIPPED (not a silent pass)"
 )
 
-# The Pi package entry; imported by absolute file:// path from the node harness to avoid NODE_PATH/ESM resolution headaches.
-_PI_PKG_SUBPATH = os.path.join(
-    "@earendil-works", "pi-coding-agent", "dist", "index.js"
-)
-
-
-def _resolve_pi_pkg_entry():
-    override = os.environ.get("PI_PKG_ENTRY")
-    if override:
-        return override
-    npm = os.environ.get("NPM_BIN") or shutil.which("npm")
-    if not npm:
-        return None
-    try:
-        root = subprocess.run(
-            [npm, "root", "-g"], capture_output=True, text=True, timeout=60
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return os.path.join(root, _PI_PKG_SUBPATH) if root else None
-
-
-_PI_PKG_ENTRY = _resolve_pi_pkg_entry()
+# Imported by absolute file:// path from the node harness to avoid ESM/NODE_PATH issues.
+_PI_PKG_ENTRY = resolve_pi_pkg_entry(_PI_BIN)
 
 _REAL_PI = os.path.join(os.path.expanduser("~"), ".pi")
 _REAL_CONFIG = os.path.join(os.path.expanduser("~"), ".config")
@@ -287,12 +267,16 @@ class PiEmitArtifactSetTest(unittest.TestCase):
         text = self.tree[_EXTENSION].decode("utf-8")
         for seam in (
             'pi.on("tool_call"',
-            'pi.on("agent_end"',
             'pi.on("before_agent_start"',
             'pi.on("session_start"',
+            'pi.on("session_tree"',
+            'name: "system2_delegate"',
+            'name: "system2_request_gate_approval"',
+            'name: "system2_child_complete"',
         ):
             self.assertIn(seam, text, f"extension must register {seam!r}")
         self.assertIn('pi.registerCommand("delegate"', text)
+        self.assertIn('pi.registerCommand("system2-status"', text)
         self.assertNotIn('pi.registerCommand("/delegate"', text)
 
     def test_lock_is_valid_json_with_capabilities(self):
@@ -441,6 +425,7 @@ const out = {
   loaded: !!ext,
   handlers: ext ? [...ext.handlers.keys()] : [],
   commands: ext ? [...ext.commands.keys()] : [],
+  tools: ext ? [...ext.tools.keys()] : [],
 };
 process.stdout.write(JSON.stringify(out));
 """
@@ -490,7 +475,7 @@ class PiLoadValidityTest(unittest.TestCase):
                 f"{result['errors']}",
             )
             self.assertTrue(result["loaded"], "the extension was not loaded")
-            for event in ("tool_call", "agent_end", "before_agent_start", "session_start"):
+            for event in ("tool_call", "before_agent_start", "session_start", "session_tree"):
                 self.assertIn(
                     event, result["handlers"],
                     f"extension did not register the {event!r} handler; "
@@ -501,6 +486,9 @@ class PiLoadValidityTest(unittest.TestCase):
                 f"extension did not register the delegate command; "
                 f"registered: {result['commands']}",
             )
+            self.assertIn("system2-status", result["commands"])
+            self.assertIn("system2_delegate", result["tools"])
+            self.assertIn("system2_request_gate_approval", result["tools"])
         finally:
             shutil.rmtree(project, ignore_errors=True)
             shutil.rmtree(home, ignore_errors=True)

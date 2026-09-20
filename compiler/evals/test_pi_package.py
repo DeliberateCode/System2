@@ -28,8 +28,9 @@ _LOUD_SKIP = (
     "silent pass; the CI skip-count-0 gate escalates this to a failure)"
 )
 
-# The ONLY npm specifier the generated extensions may reference (the pi-injected types).
+# Pi's documented extension API/type packages supplied by the host runtime.
 _PI_TYPE_PACKAGE = "@earendil-works/pi-coding-agent"
+_PI_RUNTIME_PACKAGES = {_PI_TYPE_PACKAGE, "typebox"}
 _FORBIDDEN_PACKAGE_KEYS = ("scripts", "dependencies", "devDependencies")
 
 # Package builder — mirrors regen_all._build_pi exactly (BASE plugin, EMPTY overlays).
@@ -311,9 +312,9 @@ class PiPackagePolicyTest(unittest.TestCase):
         for name, src in self.ext_sources.items():
             external = _external_imports(src)
             self.assertEqual(
-                external, [],
-                f"{name} imports external npm modules {external} — only "
-                f"{_PI_TYPE_PACKAGE!r} + node: builtins are permitted",
+                [item for item in external if item not in _PI_RUNTIME_PACKAGES], [],
+                f"{name} imports unsupported npm modules {external} — only "
+                f"Pi's coding-agent/typebox runtime + node: builtins are permitted",
             )
 
     def test_extension_sources_reference_only_pi_type_package(self):
@@ -324,7 +325,7 @@ class PiPackagePolicyTest(unittest.TestCase):
                 if not s.startswith((".", "/", "node:"))
             ]
             self.assertTrue(
-                set(bare) <= {_PI_TYPE_PACKAGE},
+                set(bare) <= _PI_RUNTIME_PACKAGES,
                 f"{name} references unexpected packages: {sorted(set(bare))}",
             )
 

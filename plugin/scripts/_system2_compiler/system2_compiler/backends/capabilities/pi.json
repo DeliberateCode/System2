@@ -4,7 +4,7 @@
   "capabilities": {
     "enforce-lease": {
       "status": "adapted",
-      "mechanism": "ADAPTED/PARTIAL generated Pi tool_call gate: structured write/edit targets and supported literal shell redirection/tee targets are project-normalized, checked through existing symlink components, matched against the active role's start-anchored write_scope, and hard-blocked before execution when off-scope. Empty-scope roles, malformed supported targets, absolute/traversal escapes, and symlink escapes fail closed. This is not comprehensive shell-write enforcement: touch, cp, mv, install, sed -i, interpreters, build tools, shell expansion, and other unsupported command forms are not extracted and must not be claimed as lease-gated."
+      "mechanism": "ADAPTED/PARTIAL generated Pi child-process tool_call gate: structured write/edit targets and supported literal shell redirection/tee targets are project-normalized, checked through existing symlink components, matched against both the canonical role write_scope and the latest human-gate-approved delegation taskWriteScope (their intersection), and hard-blocked before execution when off-scope. The persistent parent Orchestrator excludes and hard-blocks bash/write/edit. Empty task/role scopes, malformed supported targets, absolute/traversal escapes, and symlink escapes fail closed. This is not comprehensive shell-write enforcement: touch, cp, mv, install, sed -i, interpreters, build tools, shell expansion, and other unsupported command forms are not extracted and must not be claimed as lease-gated."
     },
     "block-dangerous": {
       "status": "native",
@@ -24,7 +24,7 @@
     },
     "budget": {
       "status": "advisory",
-      "mechanism": "ADVISORY only: agent_end emits a reminder to include files touched and lines added/removed in the completion summary. It computes no report, appends no model-visible result, and is not gated."
+      "mechanism": "ADVISORY only: each isolated specialist must return one schema-bounded completion report whose self-reported file/line totals are checked against the delegated budget. Pi/System2 does not compute those totals from the repository diff, so the report is evidence for parent verification, not a native budget gate."
     }
   }
 }

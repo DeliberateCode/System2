@@ -50,6 +50,7 @@ class Role:
     capabilities: list
     pipeline: bool
     contract_text: str = ""
+    tools: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)

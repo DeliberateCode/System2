@@ -241,6 +241,49 @@ def _load_write_scope(name: str, base_path: str) -> str:
     return "|".join(f"(?:{pattern})" for pattern in patterns)
 
 
+def _load_role_tools(name: str, base_path: str) -> List[str]:
+    """Load the canonical role's frontmatter tool list in source order."""
+    relative_path = os.path.join("plugin", "agents", f"{name}.md")
+    path = os.path.join(base_path, "agents", f"{name}.md")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeError):
+        raise RoleContractError(
+            f"Role contract {name!r} is missing or unreadable: {relative_path}"
+        )
+    if not lines or lines[0].strip() != "---":
+        raise RoleContractError(
+            f"Role contract {name!r} has no frontmatter: {relative_path}"
+        )
+    tools: List[str] = []
+    in_tools = False
+    closed = False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            closed = True
+            break
+        if line == "tools:":
+            in_tools = True
+            continue
+        if in_tools:
+            match = re.match(r"^\s+-\s+([A-Za-z][A-Za-z0-9_-]*)\s*$", line)
+            if match:
+                tools.append(match.group(1))
+                continue
+            if line and not line[0].isspace():
+                in_tools = False
+    if not closed:
+        raise RoleContractError(
+            f"Role contract {name!r} has unterminated frontmatter: {relative_path}"
+        )
+    if not tools:
+        raise RoleContractError(
+            f"Role contract {name!r} has no tools: {relative_path}"
+        )
+    return tools
+
+
 def _load_role_contract(name: str, base_path: str) -> str:
     """Load and validate a harness-neutral canonical role body."""
     relative_path = os.path.join("plugin", "agents", f"{name}.md")
@@ -295,6 +338,7 @@ def _derive_roles(
             capabilities=list(capabilities.by_agent.get(name, [])),
             pipeline=True,
             contract_text=_load_role_contract(name, base_path),
+            tools=_load_role_tools(name, base_path),
         )
         for name in names
     ]

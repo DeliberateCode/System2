@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
+from evals.pi_test_support import resolve_pi_pkg_entry
 from evals.test_pi_goldens import materialize_pi_project
 
 _NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
@@ -16,42 +17,7 @@ _LOUD_SKIP = (
     "node/pi not installed — Pi extension load/block SKIPPED (not a silent pass)"
 )
 
-_PI_PKG_REL = os.path.join(
-    "@earendil-works", "pi-coding-agent", "dist", "index.js"
-)
-
-
-def _resolve_pi_pkg_entry():
-    """Resolve the Pi package's dist entry portably (no hard-coded $HOME path)."""
-    override = os.environ.get("PI_PKG_ENTRY")
-    if override and os.path.isfile(override):
-        return override
-
-    roots = []
-    npm = shutil.which("npm")
-    if npm:
-        try:
-            out = subprocess.run(
-                [npm, "root", "-g"], capture_output=True, text=True, timeout=30
-            )
-            if out.returncode == 0 and out.stdout.strip():
-                roots.append(out.stdout.strip())
-        except (OSError, subprocess.SubprocessError):
-            pass
-    if _PI_BIN:
-        # <prefix>/bin/pi  ->  <prefix>/lib/node_modules
-        prefix = os.path.dirname(os.path.dirname(os.path.abspath(_PI_BIN)))
-        roots.append(os.path.join(prefix, "lib", "node_modules"))
-        roots.append(os.path.join(prefix, "node_modules"))
-
-    for root in roots:
-        cand = os.path.join(root, _PI_PKG_REL)
-        if os.path.isfile(cand):
-            return cand
-    return None
-
-
-_PI_PKG_ENTRY = _resolve_pi_pkg_entry()
+_PI_PKG_ENTRY = resolve_pi_pkg_entry(_PI_BIN)
 
 _REAL_PI = os.path.join(os.path.expanduser("~"), ".pi")
 _EXTENSION = os.path.join(".pi", "extensions", "system2.ts")
@@ -81,12 +47,15 @@ _BLOCK_CASES = (
     ("traversal_py_write", "write", {"path": "../secret.py", "content": "x"}, "enforce-lease"),
 )
 _ALLOW_CASES = (
+    # Historical cross-target parity names. Parent bash is now intentionally denied.
     ("benign_bash", "bash", {"command": "ls -la"}),
-    ("ordinary_read", "read", {"path": "README.md"}),
     ("benign_rm_file", "bash", {"command": "rm file.txt"}),
     ("benign_sensitive_word", "bash", {"command": "printf environment"}),
+    ("ordinary_read", "read", {"path": "README.md"}),
     ("unknown_custom_schema", "custom-tool", {"resource": ".env"}),
 )
+_ALLOWED_NAMES = ("ordinary_read", "unknown_custom_schema")
+_PARENT_DENIED_NAMES = ("benign_bash", "benign_rm_file", "benign_sensitive_word")
 
 # Role-switched cases: /delegate to a role, then fire a write.
 _ROLE_CASES = (
@@ -150,7 +119,7 @@ const ext = (extensions || []).find(
   (e) => e.path && e.path.endsWith("system2.ts"),
 ) || extensions[0];
 
-const out = { loadErrors, blocks: {}, allows: {}, roleBlocks: {}, delegate: {}, appended, seams: {} };
+const out = { loadErrors, blocks: {}, allows: {}, roleBlocks: {}, delegate: {}, appended, sent: [], seams: {} };
 
 if (!ext) {
   out.fatal = "extension did not load";
@@ -164,6 +133,11 @@ out.seams.toolCallRegistered = !!toolCall;
 out.seams.agentEndRegistered = (ext.handlers.get("agent_end") || []).length > 0;
 
 const toolCtx = { cwd: projectRoot };
+runtime.getCommands = () => [...ext.commands.keys()].map((name) => ({ name, source: "extension" }));
+runtime.getActiveTools = () => ["read", "bash", "system2_delegate", "system2_request_gate_approval"];
+runtime.getAllTools = () => [...ext.tools.values()].map((item) => item.definition);
+runtime.setActiveTools = () => {};
+runtime.sendUserMessage = (message) => out.sent.push(message);
 // Fire the blocking cases.
 for (const c of blockCases) {
   const r = await toolCall({ toolName: c.toolName, input: c.input }, toolCtx);
@@ -187,6 +161,7 @@ if (delegate && delegate.handler) {
     cwd: projectRoot,
     sessionManager: { getBranch: () => appended.map((e) => ({ type: "custom", ...e })) },
     ui: { notify: (msg, level) => notes.push({ level, msg }) },
+    waitForIdle: async () => {},
   };
   await delegate.handler("executor", ctx);
   out.delegate.valid = notes.slice();
@@ -194,20 +169,8 @@ if (delegate && delegate.handler) {
   await delegate.handler("no-such-role", ctx);
   out.delegate.unknown = notes.slice();
 
-  // Role-switched lease cases: /delegate flips activeRole, then fire a write at
-  // the same tool_call handler and observe block/allow. Proves the multi-line-scope
-  // role (design-architect) allows its in-scope write and blocks an off-scope one,
-  // and that an empty-scope (read-only) role's write fails closed.
-  for (const c of roleCases) {
-    await delegate.handler(c.role, ctx);
-    const r = await toolCall({ toolName: c.toolName, input: c.input }, toolCtx);
-    out.roleBlocks[c.name] = {
-      block: !!(r && r.block),
-      reason: (r && r.reason) || null,
-    };
-  }
-  // Restore the default active role so later seams observe a clean state.
-  await delegate.handler("executor", ctx);
+  // The compatibility command asks the unchanged parent to construct a contract;
+  // it does not mutate role authority or append a role-switch state entry.
 }
 
 // The before_agent_start injection seam survives and augments the prompt.
@@ -351,12 +314,7 @@ class PiProvenBlockingTest(unittest.TestCase):
 
     def test_allowed_cases_are_not_blocked(self):
         # The negative control: if the gate blocked everything these would FAIL.
-        for name in (
-            "benign_bash",
-            "ordinary_read",
-            "benign_sensitive_word",
-            "unknown_custom_schema",
-        ):
+        for name in _ALLOWED_NAMES:
             case = self.result["allows"][name]
             self.assertFalse(
                 case["block"],
@@ -364,13 +322,19 @@ class PiProvenBlockingTest(unittest.TestCase):
                 "block-everything stub, not a real discriminating gate",
             )
 
+    def test_parent_bash_is_denied_even_for_non_dangerous_commands(self):
+        for name in _PARENT_DENIED_NAMES:
+            case = self.result["allows"][name]
+            self.assertTrue(case["block"], name)
+            self.assertIn("persistent parent Orchestrator", case["raw"]["reason"])
+
     def test_gate_discriminates_block_vs_allow(self):
         # Ensure the gate discriminates between blocked and allowed cases.
         all_blocked = all(
             self.result["blocks"][n]["block"] for (n, *_r) in _BLOCK_CASES
         )
         none_allowed_blocked = not any(
-            self.result["allows"][n]["block"] for (n, *_r) in _ALLOW_CASES
+            self.result["allows"][name]["block"] for name in _ALLOWED_NAMES
         )
         self.assertTrue(
             all_blocked and none_allowed_blocked,
@@ -405,60 +369,11 @@ class PiProvenBlockingTest(unittest.TestCase):
             )
             self.assertIn("enforce-lease", case["reason"])
 
-    def test_executor_allows_supported_in_scope_writes(self):
-        for name in (
-            "executor_in_scope",
-            "executor_redirect_in_scope",
-            "executor_tee_in_scope",
-        ):
-            self.assertFalse(self.result["roleBlocks"][name]["block"], name)
-
-    def test_structured_symlink_escape_is_blocked(self):
-        case = self.result["roleBlocks"]["executor_symlink_escape"]
-        self.assertTrue(case["block"])
-        self.assertIn("enforce-lease", case["reason"])
-
-    def test_multiline_scope_role_allows_in_scope_blocks_off_scope(self):
-        # Multiline scopes allow matching paths and block non-matches.
-        in_scope = self.result["roleBlocks"]["da_in_scope"]
+    def test_parent_never_switches_into_a_specialist_role(self):
+        self.assertTrue(self.result["sent"])
+        self.assertIn("remain the System2 parent Orchestrator", self.result["sent"][0])
         self.assertFalse(
-            in_scope["block"],
-            "design-architect's in-scope write (spec/design.md) was blocked",
-        )
-        off_scope = self.result["roleBlocks"]["da_off_scope"]
-        self.assertTrue(
-            off_scope["block"],
-            "design-architect's off-scope write (src/x.py) was NOT blocked",
-        )
-        self.assertIn("enforce-lease", off_scope["reason"])
-
-    def test_empty_scope_role_write_fails_closed(self):
-        # Structured and supported shell writes both fail closed for read-only roles.
-        for name in (
-            "reviewer_write_fail_closed",
-            "reviewer_redirect_fail_closed",
-        ):
-            case = self.result["roleBlocks"][name]
-            self.assertTrue(
-                case["block"],
-                "an empty-scope (read-only) role's write was NOT blocked",
-            )
-            self.assertIn("enforce-lease", case["reason"])
-
-    def test_tee_write_obeys_role_scope(self):
-        case = self.result["roleBlocks"]["da_tee_off_scope"]
-        self.assertTrue(case["block"])
-        self.assertIn("enforce-lease", case["reason"])
-
-    def test_delegate_accepts_valid_role(self):
-        notes = self.result["delegate"]["valid"]
-        self.assertTrue(notes, "/delegate to a valid role produced no notification")
-        self.assertEqual(notes[0]["level"], "info")
-        self.assertIn("executor", notes[0]["msg"])
-        self.assertTrue(
-            any(e["customType"] == "system2-role" and e["data"] == {"role": "executor"}
-                for e in self.result["appended"]),
-            "a valid role switch must persist session state via appendEntry",
+            any(entry["customType"] == "system2-role" for entry in self.result["appended"])
         )
 
     def test_delegate_rejects_unknown_role(self):
@@ -475,22 +390,22 @@ class PiProvenBlockingTest(unittest.TestCase):
         augmented = self.result["seams"]["beforeAgentStart"]
         self.assertIsNotNone(augmented, "before_agent_start did not augment the prompt")
         self.assertIn("ORIGINAL_PROMPT", augmented, "the seam dropped the base prompt")
-        self.assertIn(".pi/SYSTEM.md", augmented, "the seam did not inject System2 context")
-        self.assertIn(
-            "System2 role: executor", augmented,
-            "the seam did not inject the active role contract",
-        )
+        self.assertIn("System2 orchestrator context", augmented)
+        self.assertIn("SYSTEM2 PARENT AUTHORITY: mode=orchestrator", augmented)
+        self.assertNotIn("System2 role: executor", augmented)
 
     def test_subagent_isolation_reported_honestly(self):
-        # /delegate is an in-session role switch, not an isolated sub-session, so the honest report value is `adapted`.
+        # Process/session/context are isolated; filesystem and credentials are not.
         with open(
             os.path.join(self.project, "system2.pi.lock.json"), encoding="utf-8"
         ) as fh:
             report = json.load(fh)
+        self.assertEqual(report["subagent_isolation"], "adapted")
+        self.assertTrue(report["independent_agent"])
         self.assertEqual(
-            report["subagent_isolation"], "adapted",
-            "the report must honestly call /delegate isolation `adapted` (an "
-            "in-session role switch, not a native isolated sub-session)",
+            report["isolation"],
+            {"process": True, "session": True, "context": True,
+             "filesystem": False, "credentials": False},
         )
 
     def test_real_pi_untouched(self):

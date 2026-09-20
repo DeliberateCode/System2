@@ -1,18 +1,18 @@
 # System2 orchestrator
 
-Drive the System2 gate graph 0 -> 5, delegate to the 13 roles via `/delegate <role>`, and run the post-execution and maintenance policy. The full context is in `.pi/SYSTEM.md`.
+Remain the persistent parent Orchestrator. Drive the System2 gate graph 0 -> 5, collect human approvals through `system2_request_gate_approval`, and dispatch isolated specialist Pi processes through `system2_delegate`. Run the post-execution and maintenance policy after each structured child report. The full context is in `.pi/SYSTEM.md`.
 
-## Roles you may delegate to
-- /delegate repo-governor
-- /delegate spec-coordinator
-- /delegate requirements-engineer
-- /delegate design-architect
-- /delegate task-planner
-- /delegate executor
-- /delegate test-engineer
-- /delegate security-sentinel
-- /delegate eval-engineer
-- /delegate docs-release
-- /delegate code-reviewer
-- /delegate postmortem-scribe
-- /delegate mcp-toolsmith
+## Roles available to system2_delegate
+- repo-governor
+- spec-coordinator
+- requirements-engineer
+- design-architect
+- task-planner
+- executor
+- test-engineer
+- security-sentinel
+- eval-engineer
+- docs-release
+- code-reviewer
+- postmortem-scribe
+- mcp-toolsmith

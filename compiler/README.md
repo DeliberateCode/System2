@@ -10,7 +10,7 @@ repository, not a claim that every generated channel is released or mechanically
 |--------|----------------|------------|
 | `claude-code` | Current reference channel | Native isolated subagents and the end-user overlay/profile UX. The compiler preserves the plugin's composed output. |
 | `codex` | Pre-release; native acceptance pending | Base distribution uses role skills and in-session role switching. No supported install channel yet. |
-| `pi` | Pre-release; validated on Pi 0.85.1; npm publication pending | Base distribution uses an in-session `/delegate` role switch and a Pi safety extension. No npm install command yet. |
+| `pi` | Pre-release; validated on Pi 0.85.1; npm publication pending | Persistent parent Orchestrator delegates all 13 roles to ephemeral Pi subprocesses with bounded reports and a Pi safety/lifecycle extension. No npm install command yet. |
 
 The source compiler accepts overlay input for all targets. That developer capability does not
 provide `/system2:compose` or `/system2:profile` UX on Codex or Pi; their generated end-user
@@ -28,10 +28,11 @@ distributions are base-workflow projections.
 Each backend reports capabilities as `native`, `adapted`, `advisory`, or `unsupported`.
 Those statuses describe target-specific evidence; they do not imply mechanism parity.
 Claude Code is the reference output. Pi 0.85.1 is exercised through public command dispatch,
-package discovery, session reload, generated-prompt restoration, and native `tool_call`
-events for structured writes and bounded dangerous/sensitive controls. Additional synthetic
-event controls cover supported shell redirection/`tee` extraction and the broader matcher
-corpus. Codex remains pending native acceptance.
+package discovery, Orchestrator-first startup, branch-local state restoration, all-role
+subprocess contracts, a real JSON-mode child with terminating structured completion, and
+native `tool_call` events for structured writes and bounded dangerous/sensitive controls.
+Additional hermetic controls cover subprocess failures, shell redirection/`tee` extraction,
+and the broader matcher corpus. Codex remains pending native acceptance.
 
 ## Source usage
 

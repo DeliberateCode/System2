@@ -110,7 +110,8 @@ class PiDegradationReportTest(unittest.TestCase):
         self.assertIn("unknown custom tool schemas", sensitive["mechanism"].lower())
         budget = self.descriptor["capabilities"]["budget"]
         self.assertEqual(budget["status"], "advisory")
-        self.assertIn("reminder", budget["mechanism"].lower())
+        self.assertIn("self-reported", budget["mechanism"].lower())
+        self.assertIn("does not compute", budget["mechanism"].lower())
 
     def test_flags_follow_status_rule(self):
         # (c) enforced/gated derived from status, total over the enum.
