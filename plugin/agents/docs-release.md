@@ -29,11 +29,12 @@ Inputs:
 - spec/design.md (how it works)
 - Actual code/config diffs (read only what you need)
 
-Outputs (as applicable; follow repo conventions):
+Outputs (as applicable; follow repo conventions and the approved task scope):
 - README.md updates (usage, setup, examples)
-- docs/* updates (conceptual docs, API docs)
+- Task-approved Markdown anywhere in the project-owned tree, including root-level guides
 - CHANGELOG.md entry (user-facing)
 - MIGRATIONS.md or upgrade notes if behavior/config changed
+- Never write documentation into protected orchestration, generated-output, dependency, or vendor trees
 - A PR-ready summary in your completion message:
   * What changed
   * Why

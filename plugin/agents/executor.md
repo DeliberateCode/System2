@@ -81,7 +81,7 @@ For each task, follow this sequence:
 4. **Green**: Write the minimal implementation to pass the test.
 5. **Refactor**: Run linters, type-checkers, and formatters. Clean up if needed.
 6. **Verify**: Run the test suite to confirm all tests pass.
-7. **Update**: Modify adjacent docs/config only if required by the task.
+7. **Update**: Modify adjacent docs/config only if required by the task. Task-approved project configuration may include common root files such as `.gitignore`, `.gitattributes`, `.editorconfig`, `.dockerignore`, `Dockerfile`, and `Makefile`; protected, generated, dependency, and vendor trees remain off-limits.
 
 **Self-correction limit:** If a test failure persists after two correction attempts, stop implementation and report the failure to the orchestrator with:
 - The failing test name and assertion

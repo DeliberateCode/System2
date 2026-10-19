@@ -10,7 +10,7 @@ repository, not a claim that every generated channel is released or mechanically
 |--------|----------------|------------|
 | `claude-code` | Current reference channel | Native isolated subagents and the end-user overlay/profile UX. The compiler preserves the plugin's composed output. |
 | `codex` | Pre-release; native acceptance pending | Base distribution uses role skills and in-session role switching. No supported install channel yet. |
-| `pi` | Pre-release; validated on Pi 0.85.1; npm publication pending | Persistent parent Orchestrator delegates all 13 roles to ephemeral Pi subprocesses with bounded reports and a Pi safety/lifecycle extension. No npm install command yet. |
+| `pi` | Pre-release; validated on Pi 0.85.1; npm publication pending | Persistent parent Orchestrator delegates all 13 roles to ephemeral Pi subprocesses, can independently verify with gated Bash, exposes sanitized model status, records visible human gate decisions/skips, and supports repeatable archived workflow cycles. No npm install command yet. |
 
 The source compiler accepts overlay input for all targets. That developer capability does not
 provide `/system2:compose` or `/system2:profile` UX on Codex or Pi; their generated end-user
@@ -29,8 +29,17 @@ Each backend reports capabilities as `native`, `adapted`, `advisory`, or `unsupp
 Those statuses describe target-specific evidence; they do not imply mechanism parity.
 Claude Code is the reference output. Pi 0.85.1 is exercised through public command dispatch,
 package discovery, Orchestrator-first startup, branch-local state restoration, all-role
-subprocess contracts, a real JSON-mode child with terminating structured completion, and
-native `tool_call` events for structured writes and bounded dangerous/sensitive controls.
+subprocess contracts, a real JSON-mode child with a terminating completion claim,
+recoverable report rejection, extension-derived delegation authority and change evidence,
+visible gate-decision audit messages, explicit human gate skipping, repeatable full/maintenance
+workflow cycles with retained decision/evidence history, and native `tool_call` events for
+structured writes and bounded dangerous/sensitive controls.
+The Pi model supplies concise delegation intent; the extension derives gate/approval identity
+and exact output scopes. Optional context inputs are ordinary repository files that need no gate
+approval: System2 normalizes and launch-snapshots them separately from byte-for-byte human-approved
+gate evidence. Gate 4 requires concrete planned outputs and presents compatible-role coverage
+before approval; delegation repeats that preflight
+before spawning so an impossible role/path assignment fails with an actionable alternative.
 Additional hermetic controls cover subprocess failures, shell redirection/`tee` extraction,
 and the broader matcher corpus. Codex remains pending native acceptance.
 
@@ -110,8 +119,20 @@ python3 -m evals.run_goldens --driver oracle
 
 The test suite covers deterministic output, Claude reference fidelity, lifecycle behavior,
 capability reporting, bundle freshness, Pi 0.85.1 command/session/package loading, and Pi
-guard behavior. These checks do not substitute for the pending Codex native acceptance or Pi
-publication gates.
+guard behavior. The study-derived Pi acceptance can also be run directly:
+
+```sh
+cd compiler
+PI_PKG_ENTRY="$(npm root -g)/@earendil-works/pi-coding-agent/dist/index.js" \
+PYTHONPATH=. python3 -m unittest evals.test_pi_study_acceptance -v
+```
+
+That non-skipping test reproduces the complete `tasker` Gate 0–5 journey plus a follow-up
+maintenance workflow through real Pi JSON agent loops and an offline deterministic provider. It
+requires no manual `.gitignore`, no pasted verification output, and directly verifies the
+29-test suite. This hermetic evidence does not replace a pre-publication interactive study with
+a supported live model. These checks also do not substitute for the pending Codex native
+acceptance or Pi publication gates.
 
 ## Invariants
 

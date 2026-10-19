@@ -55,11 +55,11 @@
       },
       {
         "path": "user-hooks/hooks/system2-shell-guard.js",
-        "sha256": "66ec452cebe1c2a89fba9cd51a34ef38f007f5e2658b605e61b7bff70f0fa043"
+        "sha256": "86373d3ac9c39f78eff253fd029676c654d8ae276e0d0bc8ca26e49df5d0787d"
       },
       {
         "path": "user-hooks/hooks/system2-edit-guard.js",
-        "sha256": "8d2d3d89e642bb30ccccdac877825d7dd33129760d1926e2add232ed492d61f6"
+        "sha256": "15286b28cd090777ab1b555054550e243fd9c3a1f885b918c9e08f28fbbfd90d"
       },
       {
         "path": "user-hooks/hooks/system2-budget.js",
@@ -91,11 +91,11 @@
       },
       {
         "path": "skills/system2-role-task-planner/SKILL.md",
-        "sha256": "5051b9419978e370358e8c9d35ba6467d8a62653a92fc6e0582eb41ad3b4e9d4"
+        "sha256": "4e410ff89e1018b8789d856b8120aac1339ee24a8a63f523a59d84932c4c164b"
       },
       {
         "path": "skills/system2-role-executor/SKILL.md",
-        "sha256": "a1eda5ddcaa87cd9616c61ccbc1ea096d888bd2e9dae8735b7d984850accdee1"
+        "sha256": "675201d555028f16dacb70af6d756b80b09710a37c45e2a4988b01a955712045"
       },
       {
         "path": "skills/system2-role-test-engineer/SKILL.md",
@@ -111,7 +111,7 @@
       },
       {
         "path": "skills/system2-role-docs-release/SKILL.md",
-        "sha256": "d3b6cf41cfdfb1816453aba894b24c3c40681011f1de6bb259c2c11bc9551095"
+        "sha256": "fb0f2954d6a639a0b420420257e145b338d0c9956b1d1bd6cd0b22e9b006aa00"
       },
       {
         "path": "skills/system2-role-code-reviewer/SKILL.md",

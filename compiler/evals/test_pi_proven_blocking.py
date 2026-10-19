@@ -24,7 +24,7 @@ _EXTENSION = os.path.join(".pi", "extensions", "system2.ts")
 
 # The synthetic event scenarios fired at the real handler.
 _BLOCK_CASES = (
-    ("off_scope_write", "write", {"path": "/etc/passwd", "content": "x"}, "enforce-lease"),
+    ("off_scope_write", "write", {"path": "/etc/passwd", "content": "x"}, "outside the project"),
     ("dangerous_bash", "bash", {"command": "rm -rf /"}, "block-dangerous"),
     ("sensitive_read", "read", {"path": ".env"}, "protect-sensitive"),
     ("sensitive_bash_env", "bash", {"command": "cat .env"}, "protect-sensitive"),
@@ -33,7 +33,7 @@ _BLOCK_CASES = (
     ("uninspectable_bash", "bash", {"command": 7}, "protect-sensitive"),
     ("malformed_shell", "bash", {"command": "printf 'unterminated"}, "protect-sensitive"),
     ("shell_token_overflow", "bash", {"command": "x " * 257}, "protect-sensitive"),
-    ("off_scope_redirect", "bash", {"command": "printf x > /tmp/off-scope"}, "enforce-lease"),
+    ("off_scope_redirect", "bash", {"command": "printf x > /tmp/off-scope"}, "outside the project"),
     # Dangerous-command flag and whitespace variants.
     ("danger_rm_fr", "bash", {"command": "rm -fr /"}, "block-dangerous"),
     ("danger_rm_double_space", "bash", {"command": "rm  -rf /"}, "block-dangerous"),
@@ -54,8 +54,7 @@ _ALLOW_CASES = (
     ("ordinary_read", "read", {"path": "README.md"}),
     ("unknown_custom_schema", "custom-tool", {"resource": ".env"}),
 )
-_ALLOWED_NAMES = ("ordinary_read", "unknown_custom_schema")
-_PARENT_DENIED_NAMES = ("benign_bash", "benign_rm_file", "benign_sensitive_word")
+_ALLOWED_NAMES = tuple(name for name, _tool, _input in _ALLOW_CASES)
 
 # Role-switched cases: /delegate to a role, then fire a write.
 _ROLE_CASES = (
@@ -282,7 +281,7 @@ class PiProvenBlockingTest(unittest.TestCase):
             "gate has no teeth",
         )
         self.assertIsNotNone(case["reason"], "a block must carry a lease reason")
-        self.assertIn("enforce-lease", case["reason"])
+        self.assertIn("outside the project", case["reason"])
 
     def test_dangerous_bash_is_blocked(self):
         case = self.result["blocks"]["dangerous_bash"]
@@ -310,7 +309,7 @@ class PiProvenBlockingTest(unittest.TestCase):
     def test_off_scope_shell_redirection_is_blocked(self):
         case = self.result["blocks"]["off_scope_redirect"]
         self.assertTrue(case["block"])
-        self.assertIn("enforce-lease", case["reason"])
+        self.assertIn("outside the project", case["reason"])
 
     def test_allowed_cases_are_not_blocked(self):
         # The negative control: if the gate blocked everything these would FAIL.
@@ -322,11 +321,10 @@ class PiProvenBlockingTest(unittest.TestCase):
                 "block-everything stub, not a real discriminating gate",
             )
 
-    def test_parent_bash_is_denied_even_for_non_dangerous_commands(self):
-        for name in _PARENT_DENIED_NAMES:
+    def test_parent_verification_bash_allows_non_dangerous_commands(self):
+        for name in ("benign_bash", "benign_rm_file", "benign_sensitive_word"):
             case = self.result["allows"][name]
-            self.assertTrue(case["block"], name)
-            self.assertIn("persistent parent Orchestrator", case["raw"]["reason"])
+            self.assertFalse(case["block"], name)
 
     def test_gate_discriminates_block_vs_allow(self):
         # Ensure the gate discriminates between blocked and allowed cases.
@@ -367,7 +365,7 @@ class PiProvenBlockingTest(unittest.TestCase):
                 case["block"],
                 f"traversal write {name!r} escaped the lease",
             )
-            self.assertIn("enforce-lease", case["reason"])
+            self.assertIn("outside the project", case["reason"])
 
     def test_parent_never_switches_into_a_specialist_role(self):
         self.assertTrue(self.result["sent"])

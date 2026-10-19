@@ -13,11 +13,11 @@
     "credentials": false
   },
   "isolation_note": "Adapted Pi subprocess orchestration provides a distinct process, no-session child, and fresh model context. The child shares the project filesystem and inherits the parent environment/credentials; it is not a filesystem or credential sandbox. Ambient extensions are disabled, so a model registered only by a custom-provider extension is unavailable.",
-  "FIDELITY": "On Pi, the parent remains the Orchestrator and model-callable delegation runs a separate ephemeral Pi process with isolated process, session, and model context. Filesystem and credential isolation are NOT provided. Ambient extensions are disabled in children, so models supplied only by a custom-provider extension are unavailable and delegation fails closed. block-dangerous and protect-sensitive are bounded NATIVE gates for their declared literal patterns. enforce-lease is ADAPTED/PARTIAL: structured write/edit and supported shell redirection/tee targets are checked against both role and task scopes, but other shell write mechanisms are unsupported. budget is ADVISORY: child reports are bounded self-reports, not a computed gate. format/typecheck are ADVISORY instructions only. EMPTY-SCOPE (UNSCOPED) ROLES FAIL CLOSED: one or more roles carry an empty write_scope (read-only roles, e.g. code-reviewer); having no per-path scope, they are UNSCOPED, so the lease gate BLOCKS every write/edit before it runs (an unscoped role cannot write). This is enforcement (fail-closed), NOT an unenforced gap and NOT a silent allow.",
+  "FIDELITY": "On Pi, the parent remains the Orchestrator and model-callable delegation runs a separate ephemeral Pi process with isolated process, session, and model context. Filesystem and credential isolation are NOT provided. Ambient extensions are disabled in children, so models supplied only by a custom-provider extension are unavailable and delegation fails closed. block-dangerous and protect-sensitive are bounded NATIVE gates for their declared literal patterns. enforce-lease is ADAPTED/PARTIAL: structured write/edit and supported shell redirection/tee targets are checked against both role and task scopes, but other shell write mechanisms are unsupported. budget is ADAPTED/PARTIAL: bounded task-scope snapshots derive changed paths and a conservative changed-line count when text evidence is computable. format/typecheck are ADVISORY instructions only. EMPTY-SCOPE (UNSCOPED) ROLES FAIL CLOSED: one or more roles carry an empty write_scope (read-only roles, e.g. code-reviewer); having no per-path scope, they are UNSCOPED, so the lease gate BLOCKS every write/edit before it runs (an unscoped role cannot write). This is enforcement (fail-closed), NOT an unenforced gap and NOT a silent allow.",
   "capabilities": {
     "enforce-lease": {
       "status": "adapted",
-      "mechanism": "ADAPTED/PARTIAL generated Pi child-process tool_call gate: structured write/edit targets and supported literal shell redirection/tee targets are project-normalized, checked through existing symlink components, matched against both the canonical role write_scope and the latest human-gate-approved delegation taskWriteScope (their intersection), and hard-blocked before execution when off-scope. The persistent parent Orchestrator excludes and hard-blocks bash/write/edit. Empty task/role scopes, malformed supported targets, absolute/traversal escapes, and symlink escapes fail closed. This is not comprehensive shell-write enforcement: touch, cp, mv, install, sed -i, interpreters, build tools, shell expansion, and other unsupported command forms are not extracted and must not be claimed as lease-gated.",
+      "mechanism": "ADAPTED/PARTIAL generated Pi child-process tool_call gate: structured write/edit targets and supported literal shell redirection/tee targets are project-normalized, checked through existing symlink components, matched against the intersection of the canonical role write_scope, the latest human-approved restricted path globs, and an exact task scope derived by System2 from concrete expected outputs, and hard-blocked before execution when off-scope. Human approvals use project paths with segment-aware * and ** wildcards rather than regexes; absolute paths that resolve inside the project are normalized to repository-relative paths. Gate 4 preflights every concrete planned output against both proposed human scope and all canonical role leases, displays compatible-role coverage, and binds the approved planned-output list; delegation repeats the selected-role check before spawning. The persistent parent Orchestrator can run Bash for verification under the dangerous-command and sensitive-path gates; structured parent write/edit calls and supported explicit shell-write targets require one interactive human approval for the exact normalized operation and are audit-recorded with a request digest, while non-interactive parent writes fail closed. Implicit writes by tests/build tools and unsupported shell forms are not comprehensively classified. Empty task/role scopes, malformed supported targets, outside-project absolute/traversal escapes, protected System2 paths, and symlink escapes fail closed. This is not comprehensive shell-write enforcement: touch, cp, mv, install, sed -i, interpreters, build tools, shell expansion, and other unsupported command forms are not extracted and must not be claimed as lease-gated.",
       "enforced": false,
       "gated": true
     },
@@ -46,10 +46,10 @@
       "gated": false
     },
     "budget": {
-      "status": "advisory",
-      "mechanism": "ADVISORY only: each isolated specialist must return one schema-bounded completion report whose self-reported file/line totals are checked against the delegated budget. Pi/System2 does not compute those totals from the repository diff, so the report is evidence for parent verification, not a native budget gate.",
+      "status": "adapted",
+      "mechanism": "ADAPTED/PARTIAL: System2 captures bounded before/after snapshots of the delegated task-scope around each child, derives changed paths and artifact hashes, records contracted Bash verification outcomes from Pi's tool event stream, and computes a conservative prefix/suffix changed-line count for bounded text files. Computable file/line totals are checked against the delegated budget. Only directories that can intersect the approved task scope are traversed, including dependency/build directories when approved; .git remains excluded. Oversized, binary, symbolic-link, or otherwise incomplete changed-file evidence cannot produce a complete outcome. The child process group/tree is terminated before after-state capture, and common explicit process-detachment forms are blocked, but arbitrary daemon/session escape is not proven. This is not a native VCS diff, out-of-scope writes through unsupported shell forms are outside the task-scope snapshot as well as the lease claim, and shared-filesystem concurrency can still affect attribution.",
       "enforced": false,
-      "gated": false
+      "gated": true
     }
   },
   "ownership": {
@@ -57,67 +57,67 @@
     "artifacts": [
       {
         "path": ".pi/extensions/system2.ts",
-        "sha256": "75053ee9bfa1284bc61af27b30937e732ba770f61b04a01b6c995b27630da4d4"
+        "sha256": "8dcecf890ad39028d509c1cd741d3a266cf1face1ec1440ae21da61827c9aba1"
       },
       {
         "path": ".pi/SYSTEM.md",
-        "sha256": "ba2936b00aef206a292920dbf8572ec5c374d82ea86ea52deae89bf6258d7a48"
+        "sha256": "e5e486abeea59c4868edfcdfc8108378523dd56be919fca5d6d927b3c47d32c4"
       },
       {
         "path": ".pi/prompts/orchestrator.md",
-        "sha256": "6fd0917d3b665c174f3b4b03459e1f237122dc50235894243f336059b331eb33"
+        "sha256": "af2e36191823561eb237d96d402d36eb8ef89388ee046412aa21950b3ed8016d"
       },
       {
         "path": ".pi/prompts/role-repo-governor.md",
-        "sha256": "2bd3e598ecb733f1484feedf0df024fa9459cef25d4b518269a68b6064b74ecd"
+        "sha256": "afe87b2a411179db9682a9af9e28cbc500ad4670a03ed11f3a4ab81f9b8600b1"
       },
       {
         "path": ".pi/prompts/role-spec-coordinator.md",
-        "sha256": "37a344d8b792c8dd5cca1bb9fb9644861f145721cd0f65811a378724c7bcce4e"
+        "sha256": "242030281cb90e94b829d080947a181791099a572e9eb67a74f28dcb09951675"
       },
       {
         "path": ".pi/prompts/role-requirements-engineer.md",
-        "sha256": "abdbd22e53383262f9a34508574ec742fb03f0bb4797b669a7be962b866585cc"
+        "sha256": "bb915f38b701ac22ac6f188126b3cf46c92fe9b714fe439240a3a17059a0aa1c"
       },
       {
         "path": ".pi/prompts/role-design-architect.md",
-        "sha256": "81e2523f236590c2cacfefa247ec2a3c0a4a4f9a015de73144192d43f8f7cd88"
+        "sha256": "af940499ae2c9cb2170ff35e9e62ed66e48788103e92d0e6e98a63098e8223ce"
       },
       {
         "path": ".pi/prompts/role-task-planner.md",
-        "sha256": "595f1fd9787abc6a039029a4944a68194fbaef0a039f88a1bb71368e19dd3d13"
+        "sha256": "f2a05934b9937b67b7e9ff7de554bebcfe0097074bd2422d7d9f04fc65b90fa9"
       },
       {
         "path": ".pi/prompts/role-executor.md",
-        "sha256": "a01110d2cc7e0ca579f15f882bff25df646631612f216b6eea855c05cef6694f"
+        "sha256": "74b03d918fd47bd09c73a633c592476509cac602263126152c320a7b42622716"
       },
       {
         "path": ".pi/prompts/role-test-engineer.md",
-        "sha256": "344e0795b6707423c65560f8ceb1ae11f6f4b512c6881444cbfbc6d1e8368513"
+        "sha256": "a183deed3676ef0a5709d5f203ffa853f97f917f58ec4649edd3f1852e0dbc9b"
       },
       {
         "path": ".pi/prompts/role-security-sentinel.md",
-        "sha256": "fc89861128e959835de972d0de42de43bfcac86db1dc286841f06d5c04ecfa5e"
+        "sha256": "1e37bdf76d64275bacbb6c5f4733c1bd3f1b20c099827732703246c442eeaabb"
       },
       {
         "path": ".pi/prompts/role-eval-engineer.md",
-        "sha256": "81606c64882fe12e730c4ec25a771c25b5de74513bf8becb98e953e6338b5938"
+        "sha256": "b56e5548ba99f1c0c4b570bbe79f7a81a46b7e092e6ba71d2ed26b45bc9fb8f3"
       },
       {
         "path": ".pi/prompts/role-docs-release.md",
-        "sha256": "19eceb98b752fbe62c82d2c29072a5cfb958414c333d0bff22f05516b39ef825"
+        "sha256": "fc20ab15c341c0ee7296e1acb3412701a91eaead126a42725812e3c33e53fe7a"
       },
       {
         "path": ".pi/prompts/role-code-reviewer.md",
-        "sha256": "4a9541c944f32fec9372b4ae60197046b16d295b7a25335c08a414e10e4482ed"
+        "sha256": "1c77e2dc9acdcece6ad270845f4db73f92ad4f61c41b38e16c2e2adbaac03ee1"
       },
       {
         "path": ".pi/prompts/role-postmortem-scribe.md",
-        "sha256": "818691b21fe6f7398380aea78dd772a7cc8a8c2f280e20929cf482b783c61794"
+        "sha256": "bef4b9c6ed35e75b42dc8f7fdc2d3f0875e86cecb72463aaf7edcca0aa5cafbc"
       },
       {
         "path": ".pi/prompts/role-mcp-toolsmith.md",
-        "sha256": "2f58523f0b88f24c001d359316db0804660be4dca0e5e631a7faac333f79321c"
+        "sha256": "f6338b0d9d7a766cf2fcaf07bd2ca89bc686fd2c701249bb2ed573396d9ed4e1"
       },
       {
         "path": ".pi/skills/system2-init/SKILL.md",

@@ -1,6 +1,6 @@
 {
-  "source_sha256": "2046a9fe6fcc86a69dc5e9667861b62dbb074e205ac15a33d598914bd5add441",
-  "artifact_sha256": "b12193643e1ebf6f2aac3e30faf8c73bc31a26576a984849a354c3dc237598b9",
+  "source_sha256": "d8f17da19a0d728e0c7ea203e1e0d4daceb24752eca91dc5fa499f15daff067c",
+  "artifact_sha256": "0633afc9130c8e3a4b71fd035791010b7fed328b25a907b955b27972c5b4ee60",
   "artifact_inventory": [
     "LICENSE",
     "README.md",
@@ -27,9 +27,9 @@
     "skills/system2-doctor/SKILL.md",
     "skills/system2-init/SKILL.md"
   ],
-  "generated_from": "System2@bc1b8ac",
+  "generated_from": "System2@437f5a5",
   "generator": "compiler/tools/regen_all.py",
   "channel_version": "0.2.3",
   "compiler_version": "0.1.0",
-  "generated_at": "2026-09-08T03:06:12.863537+00:00"
+  "generated_at": "2026-10-19T01:22:54.267723+00:00"
 }

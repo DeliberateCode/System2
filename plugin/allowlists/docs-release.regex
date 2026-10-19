@@ -1,1 +1,1 @@
-^(README\.md|CHANGELOG\.md|MIGRATIONS\.md|docs/.*\.md|spec/.*\.md)$
+^(?!.*(?:^|/)(?:third_party|vendor|node_modules|dist|build|out|\.git|\.pi|\.claude|\.system2)(?:/|$))(?!(?:CLAUDE|AGENTS)\.md$)(?!system2\.(?:pi|codex)\.lock\.json$)(?:.*\.md|LICENSE(?:\.[A-Za-z0-9_.-]+)?)$

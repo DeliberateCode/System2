@@ -329,7 +329,7 @@ class PiPackagePolicyTest(unittest.TestCase):
                 f"{name} references unexpected packages: {sorted(set(bare))}",
             )
 
-    def test_package_wording_matches_discovery_and_advisory_budget(self):
+    def test_package_wording_matches_discovery_and_adapted_budget(self):
         with open(os.path.join(self.dest, "README.md"), encoding="utf-8") as fh:
             readme = fh.read()
         with open(
@@ -339,7 +339,8 @@ class PiPackagePolicyTest(unittest.TestCase):
             doctor = fh.read()
         self.assertIn("package-discovered", readme)
         self.assertIn("does not materialize or replace caller-owned `AGENTS.md`", readme)
-        self.assertIn("Budget is advisory", readme)
+        self.assertIn("Budget enforcement is adapted/partial", readme)
+        self.assertIn("extension-derived partial-change inventories", readme)
         self.assertIn("Native acceptance is pinned to **Pi 0.85.1**", readme)
         self.assertIn("https://github.com/earendil-works/pi", readme)
         self.assertNotIn("earendil-works/pi-coding-agent", readme)

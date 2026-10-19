@@ -115,6 +115,57 @@ class WriteScopeEnrichmentTest(unittest.TestCase):
             "the design-architect scope must REJECT an off-scope path",
         )
 
+    def test_executor_covers_task_approved_project_configuration(self):
+        scope = self.roles["executor"].write_scope
+        rx = re.compile("^(?:" + scope + ")")
+        for in_path in (
+            ".gitignore",
+            ".gitattributes",
+            ".editorconfig",
+            ".dockerignore",
+            "Dockerfile",
+            "Makefile",
+            "pyproject.toml",
+            "requirements.txt",
+            "Cargo.lock",
+            "go.mod",
+        ):
+            self.assertTrue(rx.match(in_path), in_path)
+        for denied in (
+            ".pi/SYSTEM.md",
+            ".claude/settings.json",
+            "system2.pi.lock.json",
+            ".git/config",
+            "vendor/dependency.py",
+            "dist/generated.js",
+            "packages/client/dist/generated.js",
+            "permission-boundaries.md",
+        ):
+            self.assertIsNone(rx.match(denied), denied)
+
+    def test_docs_release_covers_task_approved_markdown_but_not_protected_trees(self):
+        scope = self.roles["docs-release"].write_scope
+        rx = re.compile("^(?:" + scope + ")")
+        for in_path in (
+            "README.md",
+            "permission-boundaries.md",
+            "guides/operators/runbook.md",
+            "LICENSE.md",
+        ):
+            self.assertTrue(rx.match(in_path), in_path)
+        for denied in (
+            ".pi/SYSTEM.md",
+            ".claude/slop-catalog.md",
+            "CLAUDE.md",
+            "AGENTS.md",
+            ".git/notes.md",
+            "vendor/README.md",
+            "dist/generated.md",
+            "packages/client/dist/generated.md",
+            "src/application.py",
+        ):
+            self.assertIsNone(rx.match(denied), denied)
+
     def test_read_only_roles_have_empty_scope(self):
         for name in _READ_ONLY_ROLES:
             role = self.roles.get(name)

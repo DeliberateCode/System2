@@ -133,6 +133,9 @@ class PiNativeAcceptanceTest(unittest.TestCase):
         names = {command["name"] for command in commands}
         self.assertIn("delegate", names)
         self.assertIn("system2-status", names)
+        self.assertIn("system2-history", names)
+        self.assertIn("system2-new", names)
+        self.assertIn("system2-resume", names)
         self.assertIn("system2-recover", names)
         self.assertNotIn("/delegate", names)
 
@@ -151,6 +154,10 @@ class PiNativeAcceptanceTest(unittest.TestCase):
         self.assertTrue(status["healthy"])
         self.assertTrue(os.path.isabs(status["childExecutable"]))
         self.assertNotIn("unavailable", status["childExecutable"])
+        self.assertIn("system2_status", status["modelControlTools"])
+        self.assertIn("system2_request_gate_skip", status["modelControlTools"])
+        for tool in ("bash", "write", "edit", "system2_status"):
+            self.assertIn(tool, status["activeTools"])
         # Status is a human command and never requires a model/network turn.
         self.assertFalse(
             any(event.get("type") == "agent_start" for event in client.events)
@@ -218,7 +225,7 @@ const before = await session.extensionRunner.emitBeforeAgentStart(
   "test", undefined, "BASE", { cwd: project },
 );
 sm.appendCustomEntry("system2-workflow-state", {
-  schemaVersion: 1,
+  schemaVersion: 2,
   mode: "orchestrator",
   generation: 1,
   transitionId: "native-gate-0",
@@ -226,6 +233,7 @@ sm.appendCustomEntry("system2-workflow-state", {
     orchestratorPromptDigest: createHash("sha256").update(fs.readFileSync(path.join(project, ".pi", "SYSTEM.md"))).digest("hex"),
     extensionDigest: createHash("sha256").update(fs.readFileSync(path.join(project, ".pi", "extensions", "system2.ts"))).digest("hex"),
   },
+  workflow: { id: "native-workflow", sequence: 1, kind: "full", startedAt: "2026-01-01T00:00:00.000Z" },
   gate: {
     current: 1,
     complete: false,
@@ -234,11 +242,20 @@ sm.appendCustomEntry("system2-workflow-state", {
       gate: 0,
       decision: "approved",
       scopeSummary: "native acceptance",
-      taskWriteScope: [],
+      allowedPaths: [],
+      plannedOutputs: [],
       artifacts: [],
       decidedAt: "2026-01-01T00:00:00.000Z",
       source: "tui",
     }],
+  },
+  orchestration: {
+    infrastructureFailureStreak: 0,
+    infrastructureCircuitOpen: false,
+    circuitOpenedAt: null,
+    lastInfrastructureFailure: null,
+    resumeCount: 0,
+    lastResumedAt: null,
   },
   activeDelegation: null,
   lastDelegation: null,
@@ -260,11 +277,11 @@ const nativeSensitive = await session.extensionRunner.emitToolCall({
   input: { command: "cat .env" },
 });
 const nativeBenign = await session.extensionRunner.emitToolCall({
-  type: "tool_call", toolCallId: "benign", toolName: "read",
-  input: { path: "README.md" },
+  type: "tool_call", toolCallId: "benign", toolName: "bash",
+  input: { command: "python3 -B -m unittest --help" },
 });
 sm.appendCustomEntry("system2-workflow-state", {
-  schemaVersion: 1, mode: "orchestrator", generation: 99,
+  schemaVersion: 2, mode: "orchestrator", generation: 99,
 });
 await session.reload();
 const malformedBlock = await session.extensionRunner.emitToolCall({
@@ -294,8 +311,13 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(result["errors"], [], result)
         self.assertIn("delegate", result["commands"], result)
         self.assertIn("system2-status", result["commands"], result)
+        self.assertIn("system2-history", result["commands"], result)
+        self.assertIn("system2-new", result["commands"], result)
+        self.assertIn("system2-resume", result["commands"], result)
         self.assertIn("system2_delegate", result["tools"], result)
         self.assertIn("system2_request_gate_approval", result["tools"], result)
+        self.assertIn("system2_request_gate_skip", result["tools"], result)
+        self.assertIn("system2_status", result["tools"], result)
         for key in ("before", "after"):
             self.assertIn(
                 "SYSTEM2 PARENT AUTHORITY: mode=orchestrator", result[key]["systemPrompt"], result

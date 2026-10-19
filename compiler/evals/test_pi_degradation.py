@@ -19,8 +19,8 @@ _TEST_OVERLAY = matrix.TEST_OVERLAY
 # The expected status partition (mirrors backends/capabilities/pi.json — asserted
 # equal to the descriptor below, so this is the independent expectation).
 _EXPECTED_NATIVE = frozenset({"block-dangerous", "protect-sensitive"})
-_EXPECTED_ADAPTED = frozenset({"enforce-lease"})
-_EXPECTED_ADVISORY = frozenset({"budget", "format", "typecheck"})
+_EXPECTED_ADAPTED = frozenset({"enforce-lease", "budget"})
+_EXPECTED_ADVISORY = frozenset({"format", "typecheck"})
 
 _FLAG_BY_STATUS = {
     "native": (True, False),
@@ -109,9 +109,10 @@ class PiDegradationReportTest(unittest.TestCase):
         sensitive = self.descriptor["capabilities"]["protect-sensitive"]
         self.assertIn("unknown custom tool schemas", sensitive["mechanism"].lower())
         budget = self.descriptor["capabilities"]["budget"]
-        self.assertEqual(budget["status"], "advisory")
-        self.assertIn("self-reported", budget["mechanism"].lower())
-        self.assertIn("does not compute", budget["mechanism"].lower())
+        self.assertEqual(budget["status"], "adapted")
+        for token in ("before/after", "changed paths", "artifact hashes", "conservative"):
+            self.assertIn(token, budget["mechanism"].lower())
+        self.assertIn("not a native vcs diff", budget["mechanism"].lower())
 
     def test_flags_follow_status_rule(self):
         # (c) enforced/gated derived from status, total over the enum.
@@ -257,7 +258,7 @@ class PiDegradationNegativeControlsTest(unittest.TestCase):
             )
 
     def test_flipping_a_status_flips_the_derived_flags(self):
-        # Flip budget advisory -> native: derived flags become enforced:true,gated:false.
+        # Flip budget adapted -> native: derived flags become enforced:true,gated:false.
         flipped = copy.deepcopy(self.descriptor)
         flipped["capabilities"]["budget"]["status"] = "native"
         records = _degradation.build_capability_records(
@@ -271,7 +272,7 @@ class PiDegradationNegativeControlsTest(unittest.TestCase):
             (True, False),
             "flipping a status must flip the derived enforced/gated flags",
         )
-        # Sanity: with the real advisory status both flags are false.
+        # Sanity: with the real adapted status only the gated flag is true.
         real = _degradation.build_capability_records(
             self.descriptor,
             self.ir_union,
@@ -279,7 +280,7 @@ class PiDegradationNegativeControlsTest(unittest.TestCase):
             allow_native=True,
         )
         self.assertEqual(
-            (real["budget"]["enforced"], real["budget"]["gated"]), (False, False),
+            (real["budget"]["enforced"], real["budget"]["gated"]), (False, True),
         )
 
 
