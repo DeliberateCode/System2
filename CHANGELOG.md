@@ -5,6 +5,19 @@ All notable changes to System2 are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Consolidated the compiler subtree into this repository under `compiler/`.
+- Moved the plugin version from 1.1.1 to 1.2.0.
+- Updated copyright notices to Deliberate Code.
+- Added a Codex base-workflow projection; it remains pre-release pending native acceptance.
+- Added a Pi base-workflow projection; it remains pre-release pending npm publication.
+- Added a shared human communication policy for natural explanations without weakening structured evidence, verification, approvals, or permission boundaries. Claude projections retain it in project instructions; Pi injects one generated policy into both parent and specialist contexts.
+- Replaced mandatory visible thinking blocks and conversational status templates with decision-relevant explanations and auditable decision summaries. Added communication scenarios, manual-review guidance, and prompt-assembly/runtime regression coverage.
+- Kept Pi 0.85.1 as a reproducible CI acceptance pin while allowing runtime and local acceptance to use the user's installed Pi version.
+
 ## [1.1.1] - 2026-06-26
 
 ### Changed

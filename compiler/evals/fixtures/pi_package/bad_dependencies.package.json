@@ -1,0 +1,14 @@
+{
+  "name": "@deliberatecode/pi-system2",
+  "version": "0.1.0",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": { "extensions": ["./extensions"] },
+  "files": ["extensions", "payload"],
+  "dependencies": {
+    "left-pad": "^1.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,1 @@
+ERROR: --dry-run is not supported with profile mutations (--save-profile / --profile-op); these never write project artifacts and apply immediately.

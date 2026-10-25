@@ -1,0 +1,44 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "shell|Bash|local_shell|exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{SYSTEM2_HOOKS_DIR}}/system2-shell-guard.js"
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{SYSTEM2_HOOKS_DIR}}/system2-edit-guard.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{SYSTEM2_HOOKS_DIR}}/system2-budget.js"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{SYSTEM2_HOOKS_DIR}}/system2-budget.js"
+          }
+        ]
+      }
+    ]
+  }
+}

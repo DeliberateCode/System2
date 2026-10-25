@@ -1,19 +1,8 @@
-"""The System2Graph IR schema: frozen, JSON-serializable dataclasses.
-
-Harness-neutral. Contains no Claude mechanism fields (``tools`` / ``hooks`` /
-``permissionMode``) on roles or contributions (REQ-028/040).
-
-The Phase 2 types this schema references — ``AnchorTable`` / ``AnchorDef`` /
-``AnchorRef`` and ``CapabilitySet`` / ``BlockingSemantic`` — are defined in their
-owning sibling modules ``ir/anchors.py`` and ``ir/capabilities.py`` and imported
-here (per ``module-boundaries.json``: ``ir/graph.py`` may import those two siblings
-plus stdlib). They superseded the Phase-1 placeholders that briefly lived in this
-module.
-"""
+"""The System2Graph IR schema: frozen, JSON-serializable dataclasses."""
 
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, Tuple
 
 from .anchors import AnchorDef, AnchorRef, AnchorTable
 from .capabilities import BlockingSemantic, CapabilitySet
@@ -60,6 +49,8 @@ class Role:
     model_hint: Optional[str]
     capabilities: list
     pipeline: bool
+    contract_text: str = ""
+    tools: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -74,6 +65,7 @@ class GateNode:
 class GateGraph:
     gates: list
     edges: list
+    approval_rule: str = ""
 
 
 @dataclass(frozen=True)
@@ -136,21 +128,14 @@ class Warnings:
 
 @dataclass(frozen=True)
 class BaseTemplate:
-    # CLAUDE-TARGETED: byte-fidelity mechanism for this cycle (design T4);
-    # excluded from neutrality assertions.
+    # Opaque Claude content excluded from neutrality assertions.
     text: str
     section_offsets: dict
 
 
 @dataclass(frozen=True)
 class OverlayInput:
-    # CLAUDE-TARGETED byte-fidelity carrier (same quarantine as base_template,
-    # design T4): the validated overlay manifest dict and its resolved source
-    # directory, in front-end (validated_manifests) order. The lock's per-overlay
-    # metadata, the content fingerprint, the content copies, and the auxiliary
-    # agent file references are all derived from these by the backend exactly as
-    # the oracle derives them. Excluded from neutrality assertions; carries no
-    # Claude mechanism fields itself (the raw manifest is opaque overlay data).
+    # Opaque Claude input retained for byte-compatible locks and content copies.
     manifest: dict
     source_path: str
 
@@ -172,16 +157,11 @@ class System2Graph:
     blocking_semantics: list
     warnings: Warnings
     base_template: BaseTemplate
+    overlay_sources: Tuple[str, ...] = field(default_factory=tuple)
     overlay_inputs: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Return a JSON-serializable dict.
-
-        ``OrderedContributions.scopes`` is keyed by ``(type_path, target_key)``
-        tuples, which JSON cannot represent as object keys; those scopes are
-        emitted as a list of ``[key_pair, contributions]`` entries so the graph
-        round-trips.
-        """
+        """Return a JSON-serializable dict."""
         data = asdict(self)
         scopes = data.get("contributions", {}).get("scopes", {})
         data["contributions"]["scopes"] = [

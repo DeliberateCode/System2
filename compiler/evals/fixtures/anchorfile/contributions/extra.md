@@ -1,0 +1,1 @@
+Unknown-anchor guidance: this contribution targets a non-existent anchor and must be excluded from composition, the content copy, the content_hash, and the content fingerprint — exactly as the frozen oracle excludes it.

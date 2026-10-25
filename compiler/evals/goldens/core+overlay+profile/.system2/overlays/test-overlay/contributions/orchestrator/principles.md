@@ -1,0 +1,1 @@
+Test overlay principle: always validate inputs before processing.

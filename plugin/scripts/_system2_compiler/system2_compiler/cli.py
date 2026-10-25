@@ -1,33 +1,4 @@
-"""The ``system2`` CLI — full lifecycle parity with the frozen ``composer.py``.
-
-Phase 1 shipped a single implicit ``compile`` verb. Phase 5 grows this into a
-subcommand dispatcher reaching FULL parity with the plugin's ``composer.py``
-``main()`` contract:
-
-    system2 compile   --target {claude-code|goose|pi} [--profile N | --overlays P
-                      | --from-lock] --base B --project P [--dry-run]
-                      [--allow-newer-schema] [--allow-injection] [--format text|json]
-    system2 uninstall --target {…} --base B --project P --name OVERLAY
-                      [--dry-run] [--allow-injection] [--allow-newer-schema] [--format …]
-    system2 doctor    --target {…} --base B --project P [--format …]
-    system2 from-lock --target {…} --base B --project P
-                      [--dry-run] [--allow-injection] [--allow-newer-schema] [--format …]
-    system2 profile   {list | inspect NAME | save NAME | create NAME --paths P |
-                       edit NAME [--add P]… [--remove OVERLAY]… | delete NAME}
-                      [--project P] [--force] [--format …]   # harness-neutral; no --target
-
-For back-compat, a leading ``--target`` (or no subcommand) dispatches to
-``compile`` so the Phase-0..4 ``main(["--target", …])`` invocation is unchanged.
-
-The ``claude-code`` path of every verb reproduces the frozen oracle's EXACT arg
-names, exit codes, stdout/stderr report bodies, and JSON envelopes (the contract
-the plugin skills parse, and the post-flip shim later mirrors). Goose/Pi get the
-same verbs, target-aware. Profiles are harness-NEUTRAL (an activated profile
-feeds compose for ANY ``--target``) and write only ``~/.system2/profiles.json``.
-
-Imports only ``ir`` (``__init__`` + ``graph`` + ``profiles``), ``backends.*``,
-and stdlib (module-boundaries).
-"""
+"""The ``system2`` CLI — full lifecycle parity with the frozen ``composer.py``."""
 
 import argparse
 import json
@@ -42,75 +13,34 @@ from system2_compiler.ir import profiles as ir_profiles
 from system2_compiler.ir.graph import System2Graph
 from system2_compiler.backends.base import Backend, DoctorReport, UninstallResult
 from system2_compiler.backends.claude_code import ClaudeCodeBackend
-from system2_compiler.backends.goose import GooseBackend
 from system2_compiler.backends.pi import PiBackend
+from system2_compiler.backends import codex as codex_ops
+from system2_compiler.backends.codex import CodexBackend
 
 __all__ = ["main"]
 
-_TARGETS = ("claude-code", "goose", "pi")
+_TARGETS = ("claude-code", "pi", "codex")
 _VERBS = ("compile", "uninstall", "doctor", "from-lock", "profile")
 
-# Static backend registry (the Phase-3/4 CLI surface): target -> a default-
-# constructed backend instance. ``emit`` is fully IR-driven and needs no
-# constructor injection, so these defaults serve ``compile`` and the registry
-# tests. The lifecycle verbs build base_path/compose_fn-injected instances via
-# ``_backend_for`` (the lifecycle methods require those).
-_BACKENDS = {
-    "claude-code": ClaudeCodeBackend(),
-    "goose": GooseBackend(),
-    "pi": PiBackend(),
-}
-
-
-def _select_backend(target: str) -> Backend:
-    """Return the registered default backend for *target* (Phase-3/4 surface)."""
-    return _BACKENDS[target]
-
-# Contribution-type suffixes deferred (declared but not applied this phase). The
-# CLI reconstructs the oracle's report.contributions_applied / report.deferred
-# from the IR's ordered scopes (the same rule the backend's lock uses), so the
-# CLI's report envelope is byte-identical to composer.py's.
+# These declared contribution types are deferred by the CLI report.
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
 
-def _backend_for(
-    target: str, base_path: str, overlay_sources: Optional[List[str]] = None
-) -> Backend:
-    """Construct the active backend, injecting ``base_path``/``compose_fn``.
-
-    The lifecycle verbs (uninstall/doctor/from-lock) need the System2 plugin root
-    (base template + version + anchor map) and ``ir.compose`` to recompose the
-    remaining/lock overlay set; ``emit`` itself is fully IR-driven and needs
-    neither. Goose/Pi additionally accept the neutral ``overlay_sources`` list so
-    their from-lock/uninstall recompose targets the right overlay set.
-    """
+def _backend_for(target: str, base_path: str) -> Backend:
+    """Construct the active backend, injecting ``base_path``/``compose_fn``."""
     if target == "claude-code":
         return ClaudeCodeBackend(base_path=base_path, compose_fn=ir.compose)
-    if target == "goose":
-        return GooseBackend(
-            base_path=base_path, compose_fn=ir.compose,
-            overlay_sources=overlay_sources,
-        )
     if target == "pi":
-        return PiBackend(
-            base_path=base_path, compose_fn=ir.compose,
-            overlay_sources=overlay_sources,
-        )
+        return PiBackend(base_path=base_path, compose_fn=ir.compose)
+    if target == "codex":
+        return CodexBackend(base_path=base_path, compose_fn=ir.compose)
     raise ValueError(f"unknown target {target!r}")
 
 
-# ---------------------------------------------------------------------------
 # Oracle-shaped report reconstruction (byte-parity with composer.py)
-# ---------------------------------------------------------------------------
 
 def _contributions_applied(graph: System2Graph) -> dict:
-    """Reconstruct ``report.contributions_applied`` from the IR ordered scopes.
-
-    Mirrors the oracle: skip deferred suffixes; per non-deferred scope collect
-    ``id`` | ``name`` | ``tool`` per contribution; include the scope only when at
-    least one id is present. Scope iteration follows the IR's insertion order,
-    which the front-end built identically to the oracle.
-    """
+    """Reconstruct ``report.contributions_applied`` from the IR ordered scopes."""
     applied: dict = {}
     for (type_path, _target), records in graph.contributions.scopes.items():
         if any(type_path.endswith(s) for s in _DEFERRED_SUFFIXES):
@@ -145,19 +75,14 @@ def _composed_lines(claude_md_text: str) -> int:
 
 
 def _build_compose_report(
-    result, claude_md_text: str
+    result,
+    claude_md_text: str,
+    *,
+    target: str = "claude-code",
+    files_to_write: Optional[List[str]] = None,
 ) -> dict:
-    """Build the oracle-shaped compose ``report`` dict.
-
-    Key insertion order matches ``composer.compose``'s report exactly so the JSON
-    envelope is byte-identical: ``overlays``, ``contributions_applied``,
-    ``deferred``, ``injection_warnings``, ``validation_warnings``, ``conflicts``,
-    ``composed_lines``, ``files_to_write`` (+ optional ``size_warning``,
-    ``profile``). ``files_written`` is appended by the caller after a successful
-    write.
-    """
+    """Build a Claude-oracle report or a truthful target-native report."""
     graph = result.graph
-    composed_lines = _composed_lines(claude_md_text)
     report = {
         "overlays": [
             {"name": ov["name"], "version": ov["version"]}
@@ -168,10 +93,16 @@ def _build_compose_report(
         "injection_warnings": list(result.warnings.injection),
         "validation_warnings": list(result.warnings.validation),
         "conflicts": result.report.get("conflicts", {}),
-        "composed_lines": composed_lines,
-        "files_to_write": list(result.files_to_write),
     }
-    if composed_lines > 500:
+    if target == "claude-code":
+        composed_lines = _composed_lines(claude_md_text)
+        report["composed_lines"] = composed_lines
+    else:
+        report["target"] = target
+    report["files_to_write"] = list(
+        result.files_to_write if files_to_write is None else files_to_write
+    )
+    if target == "claude-code" and composed_lines > 500:
         report["size_warning"] = (
             f"Composed CLAUDE.md is {composed_lines} lines "
             f"(exceeds 500-line threshold)."
@@ -182,15 +113,7 @@ def _build_compose_report(
 
 
 def _render_composed_text(graph: System2Graph, backend: Backend) -> str:
-    """Render the composed CLAUDE.md text without writing into the project.
-
-    The oracle's report carries ``composed_lines`` and the dry-run text preview;
-    the IR-driven ``emit`` only returns paths. To obtain the composed text
-    byte-faithfully WITHOUT touching the real project, emit into a throwaway temp
-    dir (claude-code writes a ``CLAUDE.md`` there) and read it back. Non-claude
-    targets have no CLAUDE.md; they return an empty string (composed_lines is a
-    claude-only report field).
-    """
+    """Render the composed CLAUDE.md text without writing into the project."""
     if backend.name != "claude-code":
         return ""
     tmp = tempfile.mkdtemp(prefix="system2-render-")
@@ -205,16 +128,10 @@ def _render_composed_text(graph: System2Graph, backend: Backend) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------
-# Shared stderr warning emission (relocated verbatim from the oracle, REQ-046)
-# ---------------------------------------------------------------------------
+# Preserve the frozen oracle's warning order.
 
 def _emit_stderr_warnings(report: dict) -> None:
-    """Emit all warning categories to stderr (verbatim from ``composer._emit_stderr_warnings``).
-
-    Order is load-bearing for byte-identity with the oracle (REQ-046):
-    size_warning, validation_warnings, injection_warnings, then semantic tensions.
-    """
+    """Emit all warning categories to stderr (verbatim from ``composer._emit_stderr_warnings``)."""
     if "size_warning" in report:
         sys.stderr.write(f"  WARNING: {report['size_warning']}\n")
     for vw in report.get("validation_warnings", []):
@@ -260,21 +177,13 @@ def _emit_refusal(errors: List[str], report: dict, fmt: str) -> int:
     return exit_code
 
 
-# ---------------------------------------------------------------------------
 # compose / from-lock (shared write pipeline)
-# ---------------------------------------------------------------------------
 
 def _resolve_overlay_paths(
     target: str, base_path: str, project_path: str,
     overlays: str, from_lock: bool, profile: Optional[str], fmt: str,
 ) -> Tuple[Optional[List[str]], Optional[int]]:
-    """Resolve the overlay source set for a write verb.
-
-    Returns ``(overlay_paths, None)`` on success or ``(None, exit_code)`` after
-    emitting the oracle's exact refusal. ``--from-lock`` reads the active
-    backend's lock; otherwise ``--overlays`` is split. Profile activation is
-    handled upstream (it goes through ``ir.compose(profile=…)``).
-    """
+    """Resolve the overlay source set for a write verb."""
     if from_lock:
         backend = _backend_for(target, base_path)
         try:
@@ -291,6 +200,9 @@ def _resolve_overlay_paths(
             return None, 1
         except (OSError, json.JSONDecodeError) as exc:
             _emit_error(f"Cannot read lock file: {exc}", fmt)
+            return None, 1
+        except ValueError as exc:
+            _emit_error(str(exc), fmt)
             return None, 1
         if not paths:
             _emit_error("Lock file contains no overlay source paths", fmt)
@@ -313,13 +225,7 @@ def _resolve_overlay_paths(
 
 
 def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
-    """Run the compose→emit pipeline (shared by ``compile`` and ``from-lock``).
-
-    Reproduces ``composer.main()``'s compose/profile-activation/from-lock branch:
-    overlay resolution, refusal classification, stderr warnings, the dry-run
-    preview, the injection-block (exit 4), the write, and the success report — all
-    byte-identical for the claude-code target (REQ-049/046).
-    """
+    """Run the compose→emit pipeline (shared by ``compile`` and ``from-lock``)."""
     base_path = os.path.abspath(args.base)
     project_path = os.path.abspath(args.project)
     fmt = args.format
@@ -358,7 +264,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
             return report["exit_code"]
         return _emit_refusal(result.errors, report, fmt)
 
-    backend = _backend_for(target, base_path, overlay_paths)
+    backend = _backend_for(target, base_path)
 
     # Profile activation note (text mode), then the report.
     if profile is not None and fmt == "text":
@@ -369,7 +275,19 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
         )
 
     claude_text = _render_composed_text(result.graph, backend)
-    report = _build_compose_report(result, claude_text)
+    target_files = result.files_to_write
+    if target != "claude-code":
+        try:
+            target_files = backend.plan(result.graph, project_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            _emit_error(f"Cannot plan/write {target} artifacts: {exc}", fmt)
+            return 3
+    report = _build_compose_report(
+        result,
+        claude_text,
+        target=target,
+        files_to_write=target_files,
+    )
 
     _emit_stderr_warnings(report)
 
@@ -378,9 +296,15 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
         sys.stdout.write("=" * 40 + "\n")
         for ov in report.get("overlays", []):
             sys.stdout.write(f"  Overlay: {ov['name']}@{ov['version']}\n")
-        sys.stdout.write(
-            f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
-        )
+        if target == "claude-code":
+            sys.stdout.write(
+                f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
+            )
+        else:
+            sys.stdout.write(
+                f"\nPlanned {target} artifacts: "
+                f"{len(report['files_to_write'])} files\n"
+            )
         sys.stdout.write("\nContributions applied:\n")
         for scope, ids in report.get("contributions_applied", {}).items():
             sys.stdout.write(f"  {scope}: {ids}\n")
@@ -404,12 +328,15 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
                 "report": report,
             }, indent=2) + "\n")
         else:
-            sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
-            preview_lines = claude_text.split("\n")[:20]
-            for pl in preview_lines:
-                sys.stdout.write(pl + "\n")
-            if len(claude_text.split("\n")) > 20:
-                sys.stdout.write("... (truncated)\n")
+            if target == "claude-code":
+                sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
+                preview_lines = claude_text.split("\n")[:20]
+                for pl in preview_lines:
+                    sys.stdout.write(pl + "\n")
+                if len(claude_text.split("\n")) > 20:
+                    sys.stdout.write("... (truncated)\n")
+            else:
+                sys.stdout.write(f"\n--- {target} target plan ---\n")
             sys.stdout.write("\nFiles that would be written:\n")
             for fp in report["files_to_write"]:
                 sys.stdout.write(f"  {fp}\n")
@@ -441,6 +368,9 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
     except OSError as exc:
         _emit_error(f"I/O error writing outputs: {exc}", fmt)
         return 3
+    except (ValueError, json.JSONDecodeError) as exc:
+        _emit_error(f"Cannot plan/write {target} artifacts: {exc}", fmt)
+        return 3
 
     if fmt == "json":
         report["files_written"] = written
@@ -455,18 +385,10 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
 # uninstall
-# ---------------------------------------------------------------------------
 
 def _remaining_source_paths(backend: Backend, project_path: str, target_name: str):
-    """Read the lock's overlay source paths for the overlays OTHER than *target_name*.
-
-    Mirrors the oracle's multi-overlay recompose-set extraction so the CLI can
-    rebuild the recomposed compose report (the oracle's uninstall JSON/text dry-run
-    embed the FULL recomposed compose report). Returns ``None`` when the lock has
-    no overlays other than the target (the last-overlay edge).
-    """
+    """Read the lock's overlay source paths for the overlays OTHER than *target_name*."""
     try:
         lp = backend.lock_path(project_path)
         with open(lp, "r", encoding="utf-8") as fh:
@@ -485,14 +407,7 @@ def _uninstall_report(
     args, target: str, base_path: str, project_path: str, backend: Backend,
     result: UninstallResult,
 ) -> Tuple[dict, str]:
-    """Reconstruct the oracle's uninstall ``report`` dict + the composed CLAUDE.md text.
-
-    Last-overlay edge: the fixed base-only report (``overlays:[]``,
-    ``contributions_applied:{}``, base-template ``composed_lines``, ``files_to_write
-    = [CLAUDE.md]``). Multi-overlay: the FULL recomposed compose report (recomposing
-    the remaining source set in-process) with ``report["uninstall"]`` inserted after
-    ``files_to_write``. The key insertion order is byte-identical to ``composer.py``.
-    """
+    """Reconstruct the oracle's uninstall ``report`` dict + the composed CLAUDE.md text."""
     uninstall_meta = {
         "removed": result.removed,
         "remaining": result.remaining,
@@ -500,15 +415,21 @@ def _uninstall_report(
     }
 
     if result.is_last_overlay:
-        # Render the base template text the backend reverted CLAUDE.md to.
+        # Render the base template text the Claude backend reverted CLAUDE.md to.
         claude_text = result.preview
         report = {
             "uninstall": uninstall_meta,
             "overlays": [],
             "contributions_applied": {},
-            "composed_lines": _composed_lines(claude_text),
-            "files_to_write": [os.path.join(project_path, "CLAUDE.md")],
         }
+        if target == "claude-code":
+            report["composed_lines"] = _composed_lines(claude_text)
+            report["files_to_write"] = [
+                os.path.join(project_path, "CLAUDE.md")
+            ]
+        else:
+            report["target"] = target
+            report["files_to_write"] = list(result.files_written)
         return report, claude_text
 
     remaining_paths = _remaining_source_paths(backend, project_path, args.name)
@@ -518,9 +439,16 @@ def _uninstall_report(
     )
     claude_text = ""
     if recomposed.graph is not None:
-        render_backend = _backend_for(target, base_path, remaining_paths)
+        render_backend = _backend_for(target, base_path)
         claude_text = _render_composed_text(recomposed.graph, render_backend)
-    report = _build_compose_report(recomposed, claude_text)
+    report = _build_compose_report(
+        recomposed,
+        claude_text,
+        target=target,
+        files_to_write=(
+            None if target == "claude-code" else list(result.files_written)
+        ),
+    )
     # The oracle inserts `uninstall` AFTER files_to_write (preserving the compose
     # report key order), then `files_written` last.
     report["uninstall"] = uninstall_meta
@@ -528,13 +456,7 @@ def _uninstall_report(
 
 
 def _do_uninstall(args, target: str) -> int:
-    """Run the uninstall pipeline (ports ``composer.main()``'s ``--uninstall`` block).
-
-    Renders the oracle's exact dry-run preview (the embedded recomposed Composition
-    Report + uninstall metadata + CLAUDE.md preview), the injection-block (exit 4),
-    the "Uninstall complete." body, and the JSON envelope. Refusals (not-installed /
-    malformed / no-lock) match the oracle's text + exit codes.
-    """
+    """Run the uninstall pipeline (ports ``composer.main()``'s ``--uninstall`` block)."""
     base_path = os.path.abspath(args.base)
     project_path = os.path.abspath(args.project)
     fmt = args.format
@@ -547,6 +469,9 @@ def _do_uninstall(args, target: str) -> int:
         )
     except OSError as exc:
         _emit_error(f"I/O error during uninstall: {exc}", fmt)
+        return 3
+    except ValueError as exc:
+        _emit_error(f"Lock file is malformed: {exc}", fmt)
         return 3
 
     if result.errors:
@@ -573,9 +498,16 @@ def _do_uninstall(args, target: str) -> int:
             sys.stdout.write("=" * 40 + "\n")
             for ov in report.get("overlays", []):
                 sys.stdout.write(f"  Overlay: {ov['name']}@{ov['version']}\n")
-            sys.stdout.write(
-                f"\nComposed CLAUDE.md: {report.get('composed_lines', 0)} lines\n"
-            )
+            if target == "claude-code":
+                sys.stdout.write(
+                    f"\nComposed CLAUDE.md: "
+                    f"{report.get('composed_lines', 0)} lines\n"
+                )
+            else:
+                sys.stdout.write(
+                    f"\nPlanned {target} artifacts: "
+                    f"{len(result.files_written)} files\n"
+                )
             contribs = report.get("contributions_applied", {})
             if contribs:
                 sys.stdout.write("\nContributions applied:\n")
@@ -596,12 +528,15 @@ def _do_uninstall(args, target: str) -> int:
                 sys.stdout.write("Files/directories to remove:\n")
                 for a in artifacts:
                     sys.stdout.write(f"  {a}\n")
-            sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
-            preview_lines = claude_text.split("\n")[:20]
-            for pl in preview_lines:
-                sys.stdout.write(pl + "\n")
-            if len(claude_text.split("\n")) > 20:
-                sys.stdout.write("... (truncated)\n")
+            if target == "claude-code":
+                sys.stdout.write("\n--- Composed CLAUDE.md (preview) ---\n")
+                preview_lines = claude_text.split("\n")[:20]
+                for pl in preview_lines:
+                    sys.stdout.write(pl + "\n")
+                if len(claude_text.split("\n")) > 20:
+                    sys.stdout.write("... (truncated)\n")
+            else:
+                sys.stdout.write(f"\n--- {target} target plan ---\n")
             sys.stdout.write("\nFiles that would be written:\n")
             for fp in result.files_written:
                 sys.stdout.write(f"  {fp}\n")
@@ -658,9 +593,7 @@ def _do_uninstall(args, target: str) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
 # doctor
-# ---------------------------------------------------------------------------
 
 def _doctor_result_dict(rpt: DoctorReport) -> dict:
     """Reconstruct the oracle's ``drift_check`` result dict from a ``DoctorReport``."""
@@ -742,13 +675,7 @@ def _print_doctor_report(result: dict) -> None:
 
 
 def _do_doctor(args, target: str) -> int:
-    """Run the read-only drift check (ports ``composer.main()``'s ``--doctor`` block).
-
-    For claude-code the JSON / text output and the exit-code rule (0 iff
-    ``current``) match the oracle byte-for-byte. Goose/Pi additionally surface the
-    LOUD ``validator_unavailable`` finding (exit 0 with the loud finding, never a
-    silent "current"); their exit code comes from the backend's ``DoctorReport``.
-    """
+    """Run the read-only drift check (ports ``composer.main()``'s ``--doctor`` block)."""
     base_path = os.path.abspath(args.base)
     project_path = os.path.abspath(args.project)
     fmt = args.format
@@ -764,7 +691,7 @@ def _do_doctor(args, target: str) -> int:
             _print_doctor_report(result)
         return rpt.exit_code
 
-    # Goose/Pi: surface the neutral report shape (incl. validator availability).
+    # Pi/Codex: surface the neutral report shape (incl. validator availability).
     if fmt == "json":
         sys.stdout.write(json.dumps({
             "status": rpt.status,
@@ -788,22 +715,10 @@ def _do_doctor(args, target: str) -> int:
     return rpt.exit_code
 
 
-# ---------------------------------------------------------------------------
 # profile (harness-neutral; no --target)
-# ---------------------------------------------------------------------------
 
 def _reject_inapplicable_subflags(args, mode: str, offenders, fmt: str) -> Optional[int]:
-    """Return exit 1 if any profile sub-flag in *offenders* is present for *mode*.
-
-    Ported verbatim from ``composer._reject_inapplicable_subflags``. *offenders* and
-    *mode* are stated in the frozen oracle's composer-flag vocabulary
-    (``--profile-name``/``--profile-paths``/``--profile-add``/``--profile-remove``/
-    ``--force``; modes ``--save-profile``/``--profile-op create|edit|delete``) so the
-    relayed error text stays byte-identical to the plugin's dispatch (the skills
-    parse it). Presence is read off the compiler CLI's own args: ``--paths`` maps to
-    ``--profile-paths``, ``--add``→``--profile-add``, ``--remove``→``--profile-remove``,
-    ``--force`` is store_true.
-    """
+    """Return exit 1 if any profile sub-flag in *offenders* is present for *mode*."""
     present = {
         "--profile-name": bool(getattr(args, "profile_name", "")),
         "--profile-paths": bool(getattr(args, "paths", "")),
@@ -826,13 +741,7 @@ def _run_profile_mutation(
     project_path: str, op: str, name: str,
     paths=None, adds=None, removes=None, force=False,
 ) -> dict:
-    """Dispatch a profile mutation to ``ir.profiles`` (ports ``composer._run_profile_mutation``).
-
-    The ``active_in_project`` signal is the PRE-mutation active state, computed
-    BEFORE the mutation via ``active_profile_for_lock`` so editing the active
-    profile away from the lock still fires the recompose prompt. The only write is
-    ``~/.system2/profiles.json``; ``delete`` yields ``active_in_project=False``.
-    """
+    """Dispatch a profile mutation to ``ir.profiles`` (ports ``composer._run_profile_mutation``)."""
     base_cwd = os.getcwd()
     try:
         was_active = (
@@ -870,12 +779,7 @@ def _run_profile_mutation(
 
 
 def _do_profile_mutation(args, op: str, name: str) -> int:
-    """Run a profile mutation (save/create/edit/delete) and render the summary.
-
-    Mutations reject ``--dry-run`` (they never write a project artifact), honor
-    ``--force`` on save/create, and emit the pre-mutation ``active_in_project``
-    recompose signal — all byte-identical to the plugin's profile dispatch.
-    """
+    """Run a profile mutation (save/create/edit/delete) and render the summary."""
     fmt = args.format
     project_path = os.path.abspath(args.project) if args.project else os.getcwd()
 
@@ -975,13 +879,7 @@ def _do_profile_inspect(args, name: str) -> int:
 
 
 def _do_profile(argv: List[str]) -> int:
-    """Dispatch the harness-neutral ``profile`` verb.
-
-    Subcommands: ``list`` / ``inspect NAME`` / ``save NAME`` / ``create NAME
-    --paths P`` / ``edit NAME [--add P]… [--remove OVERLAY]…`` / ``delete NAME``.
-    No ``--target`` (profiles are harness-neutral; an activated profile feeds
-    compose for ANY target). Mutations write only ``~/.system2/profiles.json``.
-    """
+    """Dispatch the harness-neutral ``profile`` verb."""
     parser = argparse.ArgumentParser(
         prog="system2 profile",
         description="Harness-neutral overlay-profile management.",
@@ -992,11 +890,7 @@ def _do_profile(argv: List[str]) -> int:
         help="Profile operation.",
     )
     parser.add_argument("name", nargs="?", default="", help="Profile name.")
-    # The composer flag surface's separate ``--profile-name`` flag (distinct from
-    # the NAME positional, which is the mutation target). It is only meaningful as
-    # the offender signal for ``save``: present (non-empty) when the user passed
-    # ``--profile-name`` alongside ``--save-profile``. The sub-flag matrix reads
-    # this — NOT the positional — so ``save NAME`` is never self-rejected.
+    # Preserve the separate --profile-name signal used to reject invalid save flags.
     parser.add_argument("--profile-name", dest="profile_name", default="", help=argparse.SUPPRESS)
     parser.add_argument("--paths", default="", help="Comma-separated overlay paths (create).")
     parser.add_argument("--add", action="append", default=None, help="Overlay path to add (edit); repeatable.")
@@ -1013,11 +907,10 @@ def _do_profile(argv: List[str]) -> int:
     if op == "list":
         return _do_profile_list(args)
 
-    if not args.name:
-        _emit_error(f"profile {op} requires a NAME argument.", fmt)
-        return 1
-
     if op == "inspect":
+        if not args.name:
+            _emit_error("profile inspect requires a NAME argument.", fmt)
+            return 1
         return _do_profile_inspect(args, args.name)
 
     # Mutations: enforce the oracle's sub-flag matrix verbatim (mode + offender
@@ -1050,14 +943,77 @@ def _do_profile(argv: List[str]) -> int:
     return _do_profile_mutation(args, op, args.name)
 
 
-# ---------------------------------------------------------------------------
+# codex (user-scope enforcement install; harness-specific, no --target/--base)
+
+def _do_codex(argv: List[str]) -> int:
+    """Dispatch ``system2 codex {init|uninstall}`` (single global user-scope install)."""
+    parser = argparse.ArgumentParser(
+        prog="system2 codex",
+        description="Install/uninstall the user-scope Codex enforcement hooks.",
+    )
+    parser.add_argument("op", choices=["init", "uninstall"], help="Codex operation.")
+    parser.add_argument(
+        "--codex-home", dest="codex_home", default="",
+        help="Target Codex home (default: $CODEX_HOME or ~/.codex).",
+    )
+    parser.add_argument(
+        "--reference", default="",
+        help="Committed user-hooks reference (default: repo distributions/codex/user-hooks).",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Back up + overwrite a pre-existing non-System2 ~/.codex/hooks.json.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Show would-write set; write nothing.")
+    parser.add_argument("--format", choices=["text", "json"], default="text")
+    args = parser.parse_args(argv)
+    fmt = args.format
+
+    if args.op == "init":
+        try:
+            result = codex_ops.codex_init(
+                codex_home=args.codex_home or None,
+                reference_dir=args.reference or None,
+                force=args.force,
+                dry_run=args.dry_run,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            # a missing/invalid --reference is a clean CLI error, not a traceback.
+            sys.stderr.write(f"error: {exc}\n")
+            return 2
+    else:
+        result = codex_ops.codex_uninstall(
+            codex_home=args.codex_home or None, dry_run=args.dry_run,
+        )
+
+    for w in result.get("warnings", []):
+        sys.stderr.write(f"  WARNING: {w}\n")
+
+    if fmt == "json":
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+    elif args.op == "init" and result["status"] != "refused":
+        sys.stdout.write(f"{result['message']}\n")
+        for fp in result.get("hook_files", []):
+            sys.stdout.write(f"  hook: {fp}\n")
+        sys.stdout.write(f"  config: {result['hooks_json']}\n")
+    elif args.op == "uninstall":
+        sys.stdout.write(f"Codex uninstall: {result['status']}.\n")
+        for fp in result.get("removed", []):
+            sys.stdout.write(f"  removed: {fp}\n")
+        if result.get("restored_backup"):
+            sys.stdout.write(f"  restored backup: {result['restored_backup']}\n")
+
+    if result.get("status") == "refused":
+        return 3
+    return 0
+
+
 # Argument parsing for the write/lifecycle verbs
-# ---------------------------------------------------------------------------
 
 def _add_common(parser: argparse.ArgumentParser, *, require_base: bool = True) -> None:
     parser.add_argument(
         "--target", required=True, choices=sorted(_TARGETS),
-        help="Backend to lower onto (claude-code, goose, or pi).",
+        help="Backend to lower onto (claude-code, pi, or codex).",
     )
     parser.add_argument(
         "--base", required=require_base, help="Path to the System2 plugin root.",
@@ -1088,13 +1044,14 @@ def _build_compile_parser(prog: str) -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """Dispatch a ``system2`` subcommand.
-
-    A leading ``--target`` (or no args) routes to ``compile`` for back-compat with
-    the Phase-0..4 ``main(["--target", …])`` invocation.
-    """
+    """Dispatch a ``system2`` subcommand."""
     if argv is None:
         argv = sys.argv[1:]
+
+    # Harness-specific user-scope install (no --target/--base). Additive; the
+    # existing verb/target surface is untouched.
+    if argv and argv[0] == "codex":
+        return _do_codex(argv[1:])
 
     # Back-compat: a leading flag (or empty argv) means the implicit `compile`.
     if not argv or argv[0].startswith("-"):

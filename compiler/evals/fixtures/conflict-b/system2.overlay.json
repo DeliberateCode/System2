@@ -1,0 +1,7 @@
+{
+  "name": "conflict-b",
+  "version": "1.0.0",
+  "description": "Conflict-cell overlay B; the target of conflict-a's known-conflict declaration.",
+  "schema_version": "1.0.0",
+  "contributions": {}
+}

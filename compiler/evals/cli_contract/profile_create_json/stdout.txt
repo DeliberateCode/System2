@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "operation": "create",
+  "summary": {
+    "name": "cell-prof",
+    "overlays": [
+      {
+        "path": "<OVERLAY>",
+        "name": "test-overlay"
+      }
+    ],
+    "store_path": "<HOME>/.system2/profiles.json"
+  },
+  "active_in_project": false
+}

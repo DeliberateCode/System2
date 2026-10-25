@@ -1,0 +1,1 @@
+ERROR: No lock file found at spec/overlay-manifest.lock; cannot use --from-lock

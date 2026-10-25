@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "backend": "pi",
+  "capabilities": {
+    "enforce-lease": {
+      "status": "adapted",
+      "mechanism": "ADAPTED/PARTIAL generated Pi child-process tool_call gate: structured write/edit targets and supported literal shell redirection/tee targets are project-normalized, checked through existing symlink components, matched against the intersection of the canonical role write_scope, the latest human-approved restricted path globs, and an exact task scope derived by System2 from concrete expected outputs, and hard-blocked before execution when off-scope. Human approvals use project paths with segment-aware * and ** wildcards rather than regexes; absolute paths that resolve inside the project are normalized to repository-relative paths. Gate 4 preflights every concrete planned output against both proposed human scope and all canonical role leases, displays compatible-role coverage, and binds the approved planned-output list; delegation repeats the selected-role check before spawning. The persistent parent Orchestrator can run Bash for verification under the dangerous-command and sensitive-path gates; structured parent write/edit calls and supported explicit shell-write targets require one interactive human approval for the exact normalized operation and are audit-recorded with a request digest, while non-interactive parent writes fail closed. Implicit writes by tests/build tools and unsupported shell forms are not comprehensively classified. Empty task/role scopes, malformed supported targets, outside-project absolute/traversal escapes, protected System2 paths, and symlink escapes fail closed. This is not comprehensive shell-write enforcement: touch, cp, mv, install, sed -i, interpreters, build tools, shell expansion, and other unsupported command forms are not extracted and must not be claimed as lease-gated."
+    },
+    "block-dangerous": {
+      "status": "native",
+      "mechanism": "Bounded native Pi tool_call gate: bash commands matching the declared dangerous-command regex corpus are hard-blocked before execution, while tested benign controls are allowed. This claim covers those literal matcher forms only; it does not claim sound arbitrary-shell parsing, quote concatenation, expansion, or command normalization."
+    },
+    "protect-sensitive": {
+      "status": "native",
+      "mechanism": "Bounded native Pi tool_call gate: declared sensitive structured path fields and ordinary literal shell tokens such as cat .env, cat .npmrc, and .ssh/config are hard-blocked before execution. Missing built-in path inputs, malformed shell quoting/substitution, non-string bash commands, and token overflow fail closed. Unknown custom tool schemas are explicitly outside this claim; the tokenizer does not expand variables or claim sound arbitrary-shell interpretation."
+    },
+    "format": {
+      "status": "advisory",
+      "mechanism": ".pi/SYSTEM.md + per-role prompt instruction block only, clearly labelled \"ADVISORY — NOT ENFORCED ON PI (instruction only)\": Pi's on(\"tool_call\") gate blocks but does not run post-edit formatters, and the IR carries no per-language formatter command, so formatting is NOT enforced. The agent is instructed to format edited files. Making this native needs IR-enrichment (per-language formatter command) deferred this cycle."
+    },
+    "typecheck": {
+      "status": "advisory",
+      "mechanism": ".pi/SYSTEM.md + per-role prompt instruction block only, clearly labelled \"ADVISORY — NOT ENFORCED ON PI (instruction only)\": Pi has no post-edit type-check hook the compiler can wire deterministically, and the IR carries no per-language checker command, so type-checking is NOT enforced. The agent is instructed to type-check edited files. Making this native needs IR-enrichment deferred this cycle."
+    },
+    "budget": {
+      "status": "adapted",
+      "mechanism": "ADAPTED/PARTIAL: System2 captures bounded before/after snapshots of the delegated task-scope around each child, derives changed paths and artifact hashes, records contracted Bash verification outcomes from Pi's tool event stream, and computes a conservative prefix/suffix changed-line count for bounded text files. Computable file/line totals are checked against the delegated budget. Only directories that can intersect the approved task scope are traversed, including dependency/build directories when approved; .git remains excluded. Oversized, binary, symbolic-link, or otherwise incomplete changed-file evidence cannot produce a complete outcome. The child process group/tree is terminated before after-state capture, and common explicit process-detachment forms are blocked, but arbitrary daemon/session escape is not proven. This is not a native VCS diff, out-of-scope writes through unsupported shell forms are outside the task-scope snapshot as well as the lease claim, and shared-filesystem concurrency can still affect attribution."
+    }
+  }
+}

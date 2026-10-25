@@ -1,0 +1,7 @@
+{
+  "status": "error",
+  "errors": [
+    "Cannot load schema or anchor map: [Errno 2] No such file or directory: '<HOME>/missing-base/schemas/overlay.schema.json'"
+  ],
+  "report": {}
+}

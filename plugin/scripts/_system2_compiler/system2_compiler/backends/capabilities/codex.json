@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "backend": "codex",
+  "capabilities": {
+    "enforce-lease": {
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested recognized edit paths, apply-patch headers, shell redirection targets, and limited tee targets. Other shell writes are not inspected, and same-session prompt/skill role adoption cannot update hook authorization. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false."
+    },
+    "block-dangerous": {
+      "status": "advisory",
+      "mechanism": "An unverified candidate Node shell guard emits hookSpecificOutput.permissionDecision=deny when recognized command strings match the backend-owned dangerous-command regex corpus. Uninspectable routed shapes and extraction/resource overflows fail closed inside the candidate. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false."
+    },
+    "protect-sensitive": {
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested sensitive strings in recognized shell command text, explicit edit paths, and apply-patch headers. They do not parse every shell path or write mechanism. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false."
+    },
+    "format": {
+      "status": "advisory",
+      "mechanism": "orchestrator + per-role skill instruction block only, clearly labelled \"ADVISORY — NOT ENFORCED ON CODEX (instruction only)\": Codex has no post-edit formatter hook the compiler can wire deterministically, and the IR carries no per-language formatter command, so formatting is NOT enforced. The agent is instructed to format edited files. Making this native needs IR-enrichment (per-language formatter command) deferred this cycle."
+    },
+    "typecheck": {
+      "status": "advisory",
+      "mechanism": "orchestrator + per-role skill instruction block only, clearly labelled \"ADVISORY — NOT ENFORCED ON CODEX (instruction only)\": Codex has no post-edit type-check hook the compiler can wire deterministically, and the IR carries no per-language checker command, so type-checking is NOT enforced. The agent is instructed to type-check edited files. Making this native needs IR-enrichment deferred this cycle."
+    },
+    "budget": {
+      "status": "advisory",
+      "mechanism": "The candidate Stop/SubagentStop hook emits only a systemMessage instruction asking the agent to report files and line counts; it does not calculate budget data. Native delivery is unverified and this is not a release guarantee. enforced:false, gated:false."
+    }
+  }
+}

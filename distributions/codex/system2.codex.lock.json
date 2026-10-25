@@ -1,0 +1,134 @@
+{
+  "backend": "codex",
+  "codex_plugin_version": "0.2.3",
+  "enforcement": "unverified-candidate-hooks",
+  "subagent_isolation": "adapted",
+  "FIDELITY": "System2 workflows for Codex. NOTE: bundled hooks are unverified candidate artifacts, not a release enforcement guarantee; Codex safety capabilities remain advisory-only pending native acceptance. PENDING NATIVE ACCEPTANCE: enforce-lease, block-dangerous, protect-sensitive, and budget are ADVISORY with enforced:false and gated:false. Candidate guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested inputs, but native event routing, trust, and deny semantics are unverified and not a release guarantee. Same-session role adoption does not provide role-aware hook authorization. Candidate guards inspect command strings from recognized command keys, shell redirection and limited tee targets, and explicit edit paths or apply-patch headers. Other shell writes are not inspected. Synthetic corpus tests are not native Codex acceptance.",
+  "capabilities": {
+    "enforce-lease": {
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested recognized edit paths, apply-patch headers, shell redirection targets, and limited tee targets. Other shell writes are not inspected, and same-session prompt/skill role adoption cannot update hook authorization. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false.",
+      "enforced": false,
+      "gated": false
+    },
+    "block-dangerous": {
+      "status": "advisory",
+      "mechanism": "An unverified candidate Node shell guard emits hookSpecificOutput.permissionDecision=deny when recognized command strings match the backend-owned dangerous-command regex corpus. Uninspectable routed shapes and extraction/resource overflows fail closed inside the candidate. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false.",
+      "enforced": false,
+      "gated": false
+    },
+    "protect-sensitive": {
+      "status": "advisory",
+      "mechanism": "Unverified candidate Node guards emit hookSpecificOutput.permissionDecision=deny for corpus-tested sensitive strings in recognized shell command text, explicit edit paths, and apply-patch headers. They do not parse every shell path or write mechanism. Native Codex event routing, trust, and deny semantics are unaccepted; this is not a release guarantee. enforced:false, gated:false.",
+      "enforced": false,
+      "gated": false
+    },
+    "format": {
+      "status": "advisory",
+      "mechanism": "orchestrator + per-role skill instruction block only, clearly labelled \"ADVISORY \u2014 NOT ENFORCED ON CODEX (instruction only)\": Codex has no post-edit formatter hook the compiler can wire deterministically, and the IR carries no per-language formatter command, so formatting is NOT enforced. The agent is instructed to format edited files. Making this native needs IR-enrichment (per-language formatter command) deferred this cycle.",
+      "enforced": false,
+      "gated": false
+    },
+    "typecheck": {
+      "status": "advisory",
+      "mechanism": "orchestrator + per-role skill instruction block only, clearly labelled \"ADVISORY \u2014 NOT ENFORCED ON CODEX (instruction only)\": Codex has no post-edit type-check hook the compiler can wire deterministically, and the IR carries no per-language checker command, so type-checking is NOT enforced. The agent is instructed to type-check edited files. Making this native needs IR-enrichment deferred this cycle.",
+      "enforced": false,
+      "gated": false
+    },
+    "budget": {
+      "status": "advisory",
+      "mechanism": "The candidate Stop/SubagentStop hook emits only a systemMessage instruction asking the agent to report files and line counts; it does not calculate budget data. Native delivery is unverified and this is not a release guarantee. enforced:false, gated:false.",
+      "enforced": false,
+      "gated": false
+    }
+  },
+  "ownership": {
+    "schema_version": 1,
+    "artifacts": [
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha256": "1d45f9b54224dbcbc5b94d420a9ff7241f256a25873c29ec21f6ee550bb982a3"
+      },
+      {
+        "path": "user-hooks/hooks.json.tmpl",
+        "sha256": "9425545fe4c2c790e67137616268abbbe94ada7222c1e6a0fd7cec8b42254dd4"
+      },
+      {
+        "path": "user-hooks/hooks/system2-shell-guard.js",
+        "sha256": "86373d3ac9c39f78eff253fd029676c654d8ae276e0d0bc8ca26e49df5d0787d"
+      },
+      {
+        "path": "user-hooks/hooks/system2-edit-guard.js",
+        "sha256": "15286b28cd090777ab1b555054550e243fd9c3a1f885b918c9e08f28fbbfd90d"
+      },
+      {
+        "path": "user-hooks/hooks/system2-budget.js",
+        "sha256": "6bb85b5b58fe3d7f01e2291c273ca0e5d25188d946fcc03dcf1a4be468732d55"
+      },
+      {
+        "path": "skills/system2/SKILL.md",
+        "sha256": "f9639a57cc54504df774d0c8fb57cb49abc055c5e012b73ddc029d51f29d74fa"
+      },
+      {
+        "path": "skills/system2-doctor/SKILL.md",
+        "sha256": "f8d261220d1a28098572896111d6d408350e9f1cfadbf74582783478e8f77af6"
+      },
+      {
+        "path": "skills/system2-role-repo-governor/SKILL.md",
+        "sha256": "d2b70a297463ac6a9c6049ae6239c6fe36518f9c146f6f098294b5154358ac98"
+      },
+      {
+        "path": "skills/system2-role-spec-coordinator/SKILL.md",
+        "sha256": "077fc4dfab7718d9d157c8cfcb91ae4910598615b046fc01911ee1d21e1f86e1"
+      },
+      {
+        "path": "skills/system2-role-requirements-engineer/SKILL.md",
+        "sha256": "b0792592db74ee7281b9de4c1b220a07b4c6c63d18a5523e068de6a273c5ff63"
+      },
+      {
+        "path": "skills/system2-role-design-architect/SKILL.md",
+        "sha256": "de405cfd17826f5600caa61477c45378a7f5d476a219fab02742c2b323eeeec7"
+      },
+      {
+        "path": "skills/system2-role-task-planner/SKILL.md",
+        "sha256": "baced7771ac9dd0acdc374fb8d2b8faf1f483d646e19c2063b3302d6bd83e800"
+      },
+      {
+        "path": "skills/system2-role-executor/SKILL.md",
+        "sha256": "4856cf5f3a69663ebb675975eba892c5711472a15813d2c93896f54d6c6a7478"
+      },
+      {
+        "path": "skills/system2-role-test-engineer/SKILL.md",
+        "sha256": "e255cbef793ee6a3c21bbf5a647078fea49d5e2c71fe9ddb6ca8e512bf2ee000"
+      },
+      {
+        "path": "skills/system2-role-security-sentinel/SKILL.md",
+        "sha256": "09472461dab1fd1d22365f6188ca93e4cfd99d8fc38c6331e54d0e136787bb6a"
+      },
+      {
+        "path": "skills/system2-role-eval-engineer/SKILL.md",
+        "sha256": "a5bfcbad5b769ac679bdce515fda5d2edb8b71e1b31a3930fb520932af960eb0"
+      },
+      {
+        "path": "skills/system2-role-docs-release/SKILL.md",
+        "sha256": "98884982e79f474c7503079e7fe37cfbbd7b3c6ef3186907c3879767c753f58e"
+      },
+      {
+        "path": "skills/system2-role-code-reviewer/SKILL.md",
+        "sha256": "4ff8ce0f2d66a339daad0070b277c991408f40c3e1064f3c2126ef41796f89e6"
+      },
+      {
+        "path": "skills/system2-role-postmortem-scribe/SKILL.md",
+        "sha256": "7faa8b7e46c3dc888da0f46968cf61449afb6c5191819a3ae53e35a336d7f834"
+      },
+      {
+        "path": "skills/system2-role-mcp-toolsmith/SKILL.md",
+        "sha256": "fbc71cc55ae0bf0a441aeef40225e624f90707e6fe7cf460e189c4b75a9f9ee8"
+      },
+      {
+        "path": "system2.codex.lock.json"
+      }
+    ]
+  },
+  "overlay_sources": []
+}

@@ -1,12 +1,4 @@
-"""Public front-end entry point for the System2 compiler.
-
-Re-exports ``compose()`` and the ``System2Graph`` schema. Harness-neutral: this
-package imports no backend (REQ-010/013/040). ``compose`` orchestrates
-load -> validate -> conflict -> index -> sort -> assemble and returns a
-``CompileResult``; on any refusal (validation error, known conflict, ordering
-cycle, ``project_path`` inside/equal to base) ``graph`` is ``None``, ``errors`` is
-non-empty, and no backend is invoked.
-"""
+"""Public front-end entry point for the System2 compiler."""
 
 import json
 import os
@@ -51,12 +43,17 @@ def _refusal(errors: List[str], report: dict) -> CompileResult:
     )
 
 
+def _resolved_path_is_within(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((path, root)) == root
+    except ValueError:
+        return False
+
+
 def _resolve_overlays(
     profile: str, overlay_paths: List[str]
 ) -> Tuple[Optional[List[str]], Optional[ProfileRef], Optional[List[str]]]:
-    """Resolve a profile name to ordered overlay paths (lifted ``_activate_profile``
-    resolution half). Returns (ordered_paths, ProfileRef, errors). On any failure
-    ``ordered_paths`` is ``None`` and ``errors`` is populated."""
+    """Resolve a profile name to ordered overlay paths and return any errors."""
     try:
         result = _profiles.resolve_profile(profile)
     except _profiles.ProfileError as exc:
@@ -97,28 +94,13 @@ def compose(
     dry_run: bool = False,
     allow_newer_schema: bool = False,
 ) -> CompileResult:
-    """Orchestrate the front-end composition pipeline and return a ``CompileResult``.
-
-    Mirrors the front-end half of ``composer.compose`` / ``_activate_profile``:
-    load schema + anchor map, guard ``project_path`` against the base, optionally
-    resolve a profile, read + validate each manifest, detect conflicts, and (when
-    clean) assemble a ``System2Graph``. No backend is invoked; ``dry_run`` only
-    affects whether the backend later writes content — the graph and
-    ``files_to_write`` are computed regardless.
-    """
+    """Orchestrate the front-end composition pipeline and return a ``CompileResult``."""
     errors: List[str] = []
 
-    # 1. Load schema and anchor map.
-    try:
-        schema = _manifest.load_schema(base_path)
-        anchor_map = _manifest.load_anchor_map(base_path)
-    except (OSError, json.JSONDecodeError) as exc:
-        return _refusal([f"Cannot load schema or anchor map: {exc}"], {})
-
-    # Guard: project_path must not be inside or equal to base_path.
+    # Refuse every resolved project/source overlap before reading source files.
     real_base = os.path.realpath(base_path)
     real_project = os.path.realpath(project_path)
-    if real_project == real_base or real_project.startswith(real_base + os.sep):
+    if _resolved_path_is_within(real_project, real_base):
         return _refusal(
             [
                 f"project path {project_path!r} is inside or equal to the "
@@ -127,8 +109,17 @@ def compose(
             ],
             {},
         )
+    if _resolved_path_is_within(real_base, real_project):
+        return _refusal(
+            [
+                f"project path {project_path!r} overlaps the plugin directory "
+                f"{base_path!r}; composition requires separate project and "
+                f"source directories"
+            ],
+            {},
+        )
 
-    # 1a. Profile resolution (lifted _activate_profile resolution half).
+    # Profile resolution (lifted _activate_profile resolution half).
     active_profile: Optional[ProfileRef] = None
     if profile is not None:
         resolved_paths, active_profile, perr = _resolve_overlays(
@@ -137,6 +128,28 @@ def compose(
         if perr is not None:
             return _refusal(perr, {})
         overlay_paths = resolved_paths
+
+    for overlay_path in overlay_paths:
+        real_overlay = os.path.realpath(overlay_path)
+        if (
+            _resolved_path_is_within(real_project, real_overlay)
+            or _resolved_path_is_within(real_overlay, real_project)
+        ):
+            return _refusal(
+                [
+                    f"project path {project_path!r} and overlay source "
+                    f"{overlay_path!r} overlap; composition requires separate "
+                    f"project and source directories"
+                ],
+                {},
+            )
+
+    # 1. Load schema and anchor map.
+    try:
+        schema = _manifest.load_schema(base_path)
+        anchor_map = _manifest.load_anchor_map(base_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        return _refusal([f"Cannot load schema or anchor map: {exc}"], {})
 
     # 2. Read and validate each overlay manifest.
     validated_manifests: List[dict] = []
@@ -246,16 +259,20 @@ def compose(
         injection=list(injection_warnings),
     )
 
-    graph = _build.build_graph(
-        base_path=base_path,
-        validated_manifests=validated_manifests,
-        overlay_path_map=overlay_path_map,
-        anchor_map=anchor_map,
-        schema=schema,
-        project_path=project_path,
-        profile=active_profile,
-        warnings=warnings,
-    )
+    try:
+        graph = _build.build_graph(
+            base_path=base_path,
+            validated_manifests=validated_manifests,
+            overlay_path_map=overlay_path_map,
+            anchor_map=anchor_map,
+            schema=schema,
+            project_path=project_path,
+            profile=active_profile,
+            warnings=warnings,
+        )
+    except _build.RoleContractError as exc:
+        role_errors = [str(exc)]
+        return _refusal(role_errors, {"validation_errors": role_errors})
 
     files_to_write = _compute_files_to_write(
         project_path, validated_manifests, overlay_path_map
@@ -292,11 +309,7 @@ def _compute_files_to_write(
     validated_manifests: List[dict],
     overlay_path_map: Dict[str, str],
 ) -> List[str]:
-    """Compute the intended write set (lifted from ``composer.compose``).
-
-    Always includes CLAUDE.md and the lock; one ``.claude/agents/<name>.md`` per
-    auxiliary agent; one overlay-content marker per overlay. The actual writing
-    is the backend's job (TASK-108); this is the dry-run-safe intent list."""
+    """Compute the intended write set (lifted from ``composer.compose``)."""
     files_to_write = [
         os.path.join(project_path, "CLAUDE.md"),
         os.path.join(project_path, "spec", "overlay-manifest.lock"),

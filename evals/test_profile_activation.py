@@ -1,15 +1,4 @@
-"""Integration tests for overlay-profile activation and mutation.
-
-Exercises composer.py's profile activation (_activate_profile), the profile
-mutation dispatch (_run_profile_mutation), the CLI mutual-exclusion matrix, and
-the byte-identity guarantee between activating a profile and composing that
-profile's ordered overlay paths directly.
-
-Every store-touching call is redirected to a temp store: in-process via the
-_temp_store_defaults context manager (which rewrites the profiles.* store_path
-defaults) and via subprocess by setting HOME to a tempdir. The real
-~/.system2/profiles.json is never read or written.
-"""
+"""Integration tests for overlay-profile activation and mutation."""
 
 import contextlib
 import hashlib
@@ -40,14 +29,9 @@ _EXCLUDED_LOCK_FIELDS = ("composed_at", "content_fingerprint")
 _CLAUDE_TIMESTAMP_PREFIX = "<!-- Composed at:"
 
 
-# ---------------------------------------------------------------------------
 # Store redirection helpers
-# ---------------------------------------------------------------------------
 
-# Functions in profiles.py whose signature carries a store_path default. The
-# store_path default is located by matching the current real default value, not
-# by assuming a fixed position (resolve_profile has store_path before
-# stale_policy, others have it last).
+# Functions in profiles.py whose signature carries a store_path default.
 _STORE_DEFAULT_FNS = (
     "resolve_profile",
     "active_profile_for_lock",
@@ -73,11 +57,7 @@ def _store_default_index(fn):
 
 @contextlib.contextmanager
 def _temp_store_defaults(store_path):
-    """Temporarily rewrite the store_path default of every profiles mutation/
-    read function so composer's _activate_profile / _run_profile_mutation (which
-    call profiles.* WITHOUT an explicit store_path) hit *store_path* instead of
-    the real ~/.system2/profiles.json. Restores all defaults on exit.
-    """
+    """Redirect profile operations to a temporary store."""
     saved = {}
     for fn_name in _STORE_DEFAULT_FNS:
         fn = getattr(profiles, fn_name)
@@ -95,17 +75,10 @@ def _temp_store_defaults(store_path):
             getattr(profiles, fn_name).__defaults__ = defaults
 
 
-# ---------------------------------------------------------------------------
 # Overlay / project fixtures
-# ---------------------------------------------------------------------------
 
 def _make_overlay(parent_dir, name, principle_text=None):
-    """Create a minimal valid overlay rooted at parent_dir/<name>.
-
-    The overlay's manifest *name*, its auxiliary agent name, and all
-    contribution IDs are derived from *name* so two distinct overlays never
-    collide on name or contribution ID. Returns the overlay directory path.
-    """
+    """Create a minimal valid overlay rooted at parent_dir/<name>."""
     overlay_dir = os.path.join(parent_dir, name)
     contrib_orch = os.path.join(overlay_dir, "contributions", "orchestrator")
     contrib_agents = os.path.join(overlay_dir, "contributions", "agents")
@@ -236,9 +209,7 @@ def _write_result(project_dir, result):
     )
 
 
-# ---------------------------------------------------------------------------
 # Comparison helpers
-# ---------------------------------------------------------------------------
 
 def _md5(path):
     with open(path, "rb") as fh:
@@ -274,9 +245,7 @@ def _expanduser_store_default():
     return os.path.join(os.path.expanduser("~"), ".system2", "profiles.json")
 
 
-# ---------------------------------------------------------------------------
 # Real-store guard mixin
-# ---------------------------------------------------------------------------
 
 class _RealStoreGuard:
     """Asserts the real ~/.system2/profiles.json is not created/modified by a
@@ -304,12 +273,10 @@ class _RealStoreGuard:
             )
 
 
-# ---------------------------------------------------------------------------
 # Byte-identity
-# ---------------------------------------------------------------------------
 
 class TestActivationByteIdentity(unittest.TestCase, _RealStoreGuard):
-    """T13-1: activating a profile equals composing its ordered paths."""
+    """activating a profile equals composing its ordered paths."""
 
     def setUp(self):
         self._capture_real_store()
@@ -392,12 +359,10 @@ class TestActivationByteIdentity(unittest.TestCase, _RealStoreGuard):
             )
 
 
-# ---------------------------------------------------------------------------
 # Activation effects: dry-run, note, hard-fail, unknown
-# ---------------------------------------------------------------------------
 
 class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
-    """T13-2..T13-5: dry-run, activation note, stale hard-fail, unknown."""
+    """..: dry-run, activation note, stale hard-fail, unknown."""
 
     def setUp(self):
         self._capture_real_store()
@@ -423,7 +388,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         return ordered
 
     def test_dry_run_writes_nothing(self):
-        """T13-2: dry-run activation produces no project artifacts."""
+        """dry-run activation produces no project artifacts."""
         self._create()
         lock_path = os.path.join(self.project, "spec", "overlay-manifest.lock")
         claude_path = os.path.join(self.project, "CLAUDE.md")
@@ -438,7 +403,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(os.path.exists(claude_path))
 
     def test_dry_run_subprocess_writes_nothing(self):
-        """T13-2: --profile P --dry-run subprocess: exit 0, no artifact."""
+        """--profile P --dry-run subprocess: exit 0, no artifact."""
         self._create()
         env = dict(os.environ)
         # Point the store at our temp store by copying it under a temp HOME.
@@ -464,7 +429,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(os.path.exists(os.path.join(self.project, "CLAUDE.md")))
 
     def test_activation_note_in_report(self):
-        """T13-3: success sets report.profile.activated + source_paths."""
+        """success sets report.profile.activated + source_paths."""
         ordered = self._create()
         with _temp_store_defaults(self.store):
             result = composer._activate_profile(
@@ -476,7 +441,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(prof["source_paths"], ordered)
 
     def test_activation_note_printed_text_path(self):
-        """T13-3: text CLI prints the one-line activation note."""
+        """text CLI prints the one-line activation note."""
         self._create()
         home = os.path.join(self.tmp, "home2")
         os.makedirs(os.path.join(home, ".system2"), exist_ok=True)
@@ -495,7 +460,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertIn("Activating profile 'eff-profile'", proc.stdout)
 
     def test_hard_fail_on_stale_path(self):
-        """T13-4: removing an overlay dir makes activation hard-fail."""
+        """removing an overlay dir makes activation hard-fail."""
         self._create()
         # Remove one overlay directory to make its path stale.
         shutil.rmtree(self.ov2)
@@ -515,7 +480,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(os.path.exists(claude_path))
 
     def test_hard_fail_on_stale_subprocess_no_traceback(self):
-        """T13-4: stale activation exits 1 with no Python traceback."""
+        """stale activation exits 1 with no Python traceback."""
         self._create()
         shutil.rmtree(self.ov2)
         home = os.path.join(self.tmp, "home3")
@@ -537,7 +502,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertNotIn("Traceback (most recent call last)", combined)
 
     def test_unknown_profile_errors(self):
-        """T13-5: activating a non-existent profile -> exit 1, clear message."""
+        """activating a non-existent profile -> exit 1, clear message."""
         # No profile created; store is empty/absent.
         with _temp_store_defaults(self.store):
             result = composer._activate_profile(
@@ -556,7 +521,7 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_unknown_profile_lists_available(self):
-        """T13-5: with profiles defined, unknown message lists them."""
+        """with profiles defined, unknown message lists them."""
         self._create(name="known-one")
         with _temp_store_defaults(self.store):
             result = composer._activate_profile(
@@ -568,12 +533,10 @@ class TestActivationEffects(unittest.TestCase, _RealStoreGuard):
         self.assertIn("known-one", msg)
 
 
-# ---------------------------------------------------------------------------
 # Injection propagation
-# ---------------------------------------------------------------------------
 
 class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
-    """T13-6: injection-flagged overlay -> exit 4 without --allow-injection."""
+    """injection-flagged overlay -> exit 4 without --allow-injection."""
 
     def setUp(self):
         self._capture_real_store()
@@ -615,7 +578,7 @@ class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_injection_blocks_without_flag(self):
-        """T13-6: activation without --allow-injection -> exit 4, no lock."""
+        """activation without --allow-injection -> exit 4, no lock."""
         proc = self._run()
         self.assertEqual(proc.returncode, 4, proc.stdout + proc.stderr)
         self.assertIn(
@@ -628,7 +591,7 @@ class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_injection_allowed_with_flag(self):
-        """T13-6: activation with --allow-injection -> exit 0, lock written."""
+        """activation with --allow-injection -> exit 0, lock written."""
         proc = self._run("--allow-injection")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertTrue(
@@ -638,15 +601,10 @@ class TestInjectionPropagation(unittest.TestCase, _RealStoreGuard):
         )
 
 
-# ---------------------------------------------------------------------------
 # Mutation + active signal, no auto-recompose
-# ---------------------------------------------------------------------------
 
 class TestCorruptStoreMutationPath(unittest.TestCase, _RealStoreGuard):
-    """A corrupt/unreadable store on a mutation op must surface the clean
-    ProfileError exit code, never an uncaught traceback. The PRE-mutation
-    active-signal read happens inside the try, so its ProfileError is caught.
-    """
+    """A corrupt/unreadable store on a mutation op must surface the clean ProfileError exit code, never an uncaught traceback."""
 
     def setUp(self):
         self._capture_real_store()
@@ -704,11 +662,7 @@ class TestCorruptStoreMutationPath(unittest.TestCase, _RealStoreGuard):
 
 
 class TestMutationActiveSignal(unittest.TestCase, _RealStoreGuard):
-    """active_in_project is the PRE-mutation active state: "was this the profile
-    the project is currently composed from, before the mutation?" The recompose
-    prompt should fire iff you just changed the profile the project's lock came
-    from. No mutation ever recomposes a project artifact.
-    """
+    """Test the active-profile signal captured before mutation."""
 
     def setUp(self):
         self._capture_real_store()
@@ -743,10 +697,7 @@ class TestMutationActiveSignal(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_editing_active_profile_away_from_lock_reports_active(self):
-        # The profile equals the lock BEFORE the edit, so it is the project's
-        # active source. Editing it (here removing an overlay so it no longer
-        # matches) still means you changed the active profile -> True, prompt
-        # should fire. This is the case the old post-mutation code missed.
+        # The profile equals the lock BEFORE the edit, so it is the project's active source.
         with _temp_store_defaults(self.store):
             composer._run_profile_mutation(
                 self.project, "create", "active-profile",
@@ -761,10 +712,7 @@ class TestMutationActiveSignal(unittest.TestCase, _RealStoreGuard):
         self._assert_project_unchanged()
 
     def test_editing_nonactive_profile_to_match_lock_reports_inactive(self):
-        # The profile does NOT equal the lock before the edit, so it is not the
-        # project's source. Editing it to coincidentally match the lock after
-        # must NOT fire a spurious prompt -> False. This corrects the old,
-        # wrong post-mutation assertion.
+        # The profile does NOT equal the lock before the edit, so it is not the project's source.
         with _temp_store_defaults(self.store):
             composer._run_profile_mutation(
                 self.project, "create", "grow-profile", paths=[self.ov1]
@@ -817,12 +765,10 @@ class TestMutationActiveSignal(unittest.TestCase, _RealStoreGuard):
         self._assert_project_unchanged()
 
 
-# ---------------------------------------------------------------------------
 # Mutation success summary
-# ---------------------------------------------------------------------------
 
 class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
-    """T13-8: create/save/edit/delete summaries carry the required fields."""
+    """create/save/edit/delete summaries carry the required fields."""
 
     def setUp(self):
         self._capture_real_store()
@@ -840,7 +786,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_create_summary_fields(self):
-        """T13-8: create summary has name, ordered overlay set, store location."""
+        """create summary has name, ordered overlay set, store location."""
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
                 self.project, "create", "sum-profile",
@@ -857,7 +803,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(names, ["alpha-one", "beta-two"])
 
     def test_save_captures_lock_source_paths_in_order(self):
-        """T13-8: save-from-lock captures the lock's source_paths in order."""
+        """save-from-lock captures the lock's source_paths in order."""
         _compose_and_write(self.project, [self.ov1, self.ov2])
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
@@ -870,7 +816,7 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(paths, [self.ov1, self.ov2])
 
     def test_edit_and_delete_summaries(self):
-        """T13-8: edit and delete return summaries with name + storage."""
+        """edit and delete return summaries with name + storage."""
         with _temp_store_defaults(self.store):
             composer._run_profile_mutation(
                 self.project, "create", "edit-me", paths=[self.ov1]
@@ -893,12 +839,10 @@ class TestMutationSummary(unittest.TestCase, _RealStoreGuard):
         self.assertFalse(delete_result["active_in_project"])
 
 
-# ---------------------------------------------------------------------------
 # Mutual-exclusion matrix
-# ---------------------------------------------------------------------------
 
 class TestMutualExclusion(unittest.TestCase, _RealStoreGuard):
-    """T13-9: invalid CLI flag combinations each exit 1."""
+    """invalid CLI flag combinations each exit 1."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1030,9 +974,7 @@ class TestMutualExclusion(unittest.TestCase, _RealStoreGuard):
         self._assert_excl("--doctor", "--from-lock")
 
     def test_doctor_excludes_uninstall(self):
-        # --doctor + --uninstall (against a real composition) is rejected as
-        # mutually exclusive; the doctor guard fires before the uninstall block,
-        # so the composition is left untouched.
+        # Reject doctor with uninstall before changing the composition.
         installed = self._compose_real_lock()
         lock_path = os.path.join(
             self.project, "spec", "overlay-manifest.lock"
@@ -1053,10 +995,7 @@ class TestMutualExclusion(unittest.TestCase, _RealStoreGuard):
 
 
 class TestInapplicableSubFlags(unittest.TestCase, _RealStoreGuard):
-    """Profile sub-flags that don't apply to the chosen operation are rejected
-    (exit 1) instead of being silently ignored. Valid combinations must NOT be
-    rejected by this guard.
-    """
+    """Profile sub-flags that don't apply to the chosen operation are rejected (exit 1) instead of being silently ignored."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1196,12 +1135,10 @@ class TestMutationRejectsDryRun(unittest.TestCase, _RealStoreGuard):
         self._assert_rejected_no_write(proc)
 
 
-# ---------------------------------------------------------------------------
 # Mutation ProfileError exit-code carry
-# ---------------------------------------------------------------------------
 
 class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
-    """T13-10: mutation failures exit with the ProfileError's own code."""
+    """mutation failures exit with the ProfileError's own code."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1218,7 +1155,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_edit_no_add_remove_exit_1(self):
-        """T13-10: edit with no --add/--remove -> exit 1 via _run_profile_mutation."""
+        """edit with no --add/--remove -> exit 1 via _run_profile_mutation."""
         with _temp_store_defaults(self.store):
             profiles.create_profile(
                 "ec-edit", [self.ov1], os.getcwd(), store_path=self.store
@@ -1230,7 +1167,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_delete_unknown_exit_1(self):
-        """T13-10: delete unknown profile -> exit 1 (carried ProfileError code)."""
+        """delete unknown profile -> exit 1 (carried ProfileError code)."""
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
                 self.project, "delete", "no-such-profile"
@@ -1239,7 +1176,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_create_duplicate_without_force_exit_1(self):
-        """T13-10: create duplicate without force -> exit 1."""
+        """create duplicate without force -> exit 1."""
         with _temp_store_defaults(self.store):
             profiles.create_profile(
                 "ec-dup", [self.ov1], os.getcwd(), store_path=self.store
@@ -1251,7 +1188,7 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_save_no_lock_exit_1(self):
-        """T13-10: save-from-lock with no lock -> exit 1."""
+        """save-from-lock with no lock -> exit 1."""
         with _temp_store_defaults(self.store):
             result = composer._run_profile_mutation(
                 self.project, "save", "ec-cap"
@@ -1260,11 +1197,9 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], 1)
 
     def test_exit_codes_are_authoritative_from_profile_error(self):
-        """T13-10: the carried exit_code equals the ProfileError's own code."""
+        """the carried exit_code equals the ProfileError's own code."""
         with _temp_store_defaults(self.store):
-            # delete-unknown raises ProfileError(exit_code=1) at the profiles
-            # layer; the dispatcher must surface that exact code, not a
-            # substring-classified one.
+            # Preserve ProfileError's exit code through dispatch.
             try:
                 profiles.delete_profile("ghost", store_path=self.store)
                 self.fail("expected ProfileError")
@@ -1276,19 +1211,14 @@ class TestMutationExitCodes(unittest.TestCase, _RealStoreGuard):
         self.assertEqual(result["exit_code"], expected)
 
 
-# ---------------------------------------------------------------------------
 # Structural read-only guarantee, import independence, non-regression
-# ---------------------------------------------------------------------------
 
 _PROFILE_SKILL = os.path.join(
     _REPO_ROOT, "plugin", "skills", "profile", "SKILL.md"
 )
 _PROFILES_SOURCE = os.path.join(_SCRIPT_DIR, "profiles.py")
 
-# Standard-library modules the profile store layer is permitted to import. Any
-# import outside this set would mean either a third-party dependency or a
-# network/registry module, both of which are forbidden for this offline,
-# stdlib-only component.
+# Standard-library modules the profile store layer is permitted to import.
 _STDLIB_ALLOWLIST = frozenset(
     {
         "argparse",
@@ -1308,9 +1238,7 @@ _STDLIB_ALLOWLIST = frozenset(
     }
 )
 
-# Tokens that would betray a mutation/write capability if they appeared in the
-# read-only profile skill. The trailing space on the bare verbs keeps the match
-# anchored to the command verbs rather than incidental prose like "created".
+# Tokens that would betray a mutation/write capability if they appeared in the read-only profile skill.
 _SKILL_FORBIDDEN_TOKENS = (
     "--profile-op",
     "--save-profile",
@@ -1324,16 +1252,7 @@ _SKILL_FORBIDDEN_TOKENS = (
 
 
 class TestStructuralReadOnlyAndIndependence(unittest.TestCase, _RealStoreGuard):
-    """Encodes the architecture's structural invariants as automated guards.
-
-    The read-only CLI parser guard (no create/edit/delete/save option) is already
-    covered in evals/test_profiles.py (TestCliNoMutationVerb, both the parser
-    introspection and the --help subprocess variants); it is not duplicated here.
-    This class covers the skill-layer read-only guarantee, the import boundary
-    between the profile store and the composition engine, runtime independence
-    from a project's .system2/overlays.json, the non-regression of every
-    pre-existing composer flag, and the stdlib-only constraint.
-    """
+    """Encodes the architecture's structural invariants as automated guards."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1388,13 +1307,7 @@ class TestStructuralReadOnlyAndIndependence(unittest.TestCase, _RealStoreGuard):
         )
 
     def test_profiles_source_has_no_overlays_json_reference(self):
-        """The profile store source must never name a project's overlays.json.
-
-        Profile code is independent of .system2/overlays.json: it must not read,
-        write, or even name that file. The string must not appear anywhere in the
-        source (including docstrings), so the independence is verifiable by a
-        plain text scan.
-        """
+        """The profile store source must never name a project's overlays.json."""
         with open(_PROFILES_SOURCE, "r", encoding="utf-8") as fh:
             source = fh.read()
         self.assertNotIn(
@@ -1529,10 +1442,7 @@ class TestStructuralReadOnlyAndIndependence(unittest.TestCase, _RealStoreGuard):
 
 
 class TestCorruptStoreActivationWritesNothing(unittest.TestCase, _RealStoreGuard):
-    """A store whose overlay has a null/missing 'path' is corruption. Activating
-    such a profile must exit 1 (malformed store) and write NO project artifact,
-    never silently composing a base-only CLAUDE.md + empty lock.
-    """
+    """A store whose overlay has a null/missing 'path' is corruption."""
 
     def setUp(self):
         self._capture_real_store()
@@ -1598,10 +1508,7 @@ class TestCorruptStoreActivationWritesNothing(unittest.TestCase, _RealStoreGuard
 class TestEmptyOverlayProfileActivationWritesNothing(
     unittest.TestCase, _RealStoreGuard
 ):
-    """A profile whose overlay list is empty (the validator permits this) must
-    never silently compose a base-only project. Activation exits 1 and writes
-    NO project artifact.
-    """
+    """A profile whose overlay list is empty (the validator permits this) must never silently compose a base-only project."""
 
     def setUp(self):
         self._capture_real_store()

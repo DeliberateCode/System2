@@ -1,0 +1,22 @@
+{
+  "composed_at": "2026-10-25T05:17:28Z",
+  "content_fingerprint": "sha256:bb40bd00a3f1ae443b97bd77a369045749179891cb2fe3aaf755707a040eb3ba",
+  "system2_version": "1.2.0",
+  "schema_version": "1.0.0",
+  "overlays": [
+    {
+      "name": "anchorfile",
+      "version": "1.0.0",
+      "source_path": "<REPO_ROOT>/compiler/evals/fixtures/anchorfile",
+      "local_path": ".system2/overlays/anchorfile/",
+      "manifest_hash": "sha256:67c8e321b35716f1156cf3f3c452b054928ea3ab485750cf1a22dd6e1ea54a61",
+      "content_hash": "sha256:c74261d02a9d35f908e05c404a01b14a3c48511a38f4c386b945136eff8858f8"
+    }
+  ],
+  "contributions_applied": {
+    "agents.executor.prompt_sections.implementation_discipline": [
+      "af-known"
+    ]
+  },
+  "warnings": []
+}

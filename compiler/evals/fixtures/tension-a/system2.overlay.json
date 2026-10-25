@@ -1,0 +1,11 @@
+{
+  "name": "tension-a",
+  "version": "1.0.0",
+  "description": "Tension-cell overlay A; shares a review tag with tension-b.",
+  "schema_version": "1.0.0",
+  "tags": ["shared-review-tag"],
+  "compatibility": {
+    "review_when_combined_with_tags": ["shared-review-tag"]
+  },
+  "contributions": {}
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Exact skill inventory for the merged System2 plugin. A missing or extra skill directory fails the inventory check.",
+  "skills_dir": "plugin/skills",
+  "required_skills": ["compose", "doctor", "init", "profile"],
+  "require_skill_md": true
+}

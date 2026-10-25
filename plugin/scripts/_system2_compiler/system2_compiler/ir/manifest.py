@@ -1,20 +1,4 @@
-"""Manifest read/validation, schema + anchor-map loaders, path containment,
-content-file collection, and the prompt-injection scan.
-
-Relocated verbatim from ``composer.py`` (the frozen oracle): ``ValidationResult``,
-``validate_manifest`` + the ``_validate_*`` sub-validators, ``_read_manifest``,
-``_load_schema``, ``_load_anchor_map``, ``_check_path_containment``, the
-content-collection helpers, ``_scan_for_injection`` and ``_INJECTION_PATTERNS``.
-Only the ``hook_security`` import is adjusted to the vendored ``ir/_hook_security``;
-the four public entry points are exposed under the names in
-``spec/interfaces.json`` (``read_manifest`` / ``load_schema`` / ``load_anchor_map``
-/ ``scan_for_injection``).
-
-All manifest and content-file text is treated as untrusted data: it is read,
-validated, and scanned for injection patterns, but never executed. There is no
-``eval``/``exec``/``__import__`` or other dynamic execution of overlay-supplied
-content in this module.
-"""
+"""Read and validate manifests, paths, referenced content, and hook security."""
 
 import os
 import re
@@ -25,9 +9,7 @@ from ._hook_security import check_hook_security
 SUPPORTED_SCHEMA_VERSIONS = frozenset({"1.0.0"})
 
 
-# ---------------------------------------------------------------------------
 # Data types
-# ---------------------------------------------------------------------------
 
 class ValidationResult:
     """Container for manifest validation outcomes."""
@@ -47,9 +29,7 @@ class ValidationResult:
         self.warnings.append(msg)
 
 
-# ---------------------------------------------------------------------------
 # Schema / anchor-map loading
-# ---------------------------------------------------------------------------
 
 def _load_json(path: str) -> dict:
     import json
@@ -65,24 +45,17 @@ def load_anchor_map(base_path: str) -> dict:
     return _load_json(os.path.join(base_path, "schemas", "anchor-map.json"))
 
 
-# ---------------------------------------------------------------------------
 # Manifest reading
-# ---------------------------------------------------------------------------
 
 def read_manifest(overlay_path: str) -> dict:
-    """Read and parse ``system2.overlay.json`` from *overlay_path*.
-
-    Raises ``FileNotFoundError`` or ``json.JSONDecodeError`` on failure.
-    """
+    """Read and parse ``system2.overlay.json`` from *overlay_path*."""
     import json
     manifest_file = os.path.join(overlay_path, "system2.overlay.json")
     with open(manifest_file, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
-# ---------------------------------------------------------------------------
 # Path containment
-# ---------------------------------------------------------------------------
 
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _SAFETY_HOOK_FILENAMES = frozenset({
@@ -95,10 +68,7 @@ _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$")
 def _check_path_containment(
     file_path: str, overlay_path: str, result: ValidationResult, field_label: str
 ) -> bool:
-    """Reject absolute paths, ``..`` traversal, and symlinks escaping the overlay dir.
-
-    Returns True if the path is safe, False otherwise (with errors added to *result*).
-    """
+    """Reject absolute paths, ``..`` traversal, and symlinks escaping the overlay dir."""
     if os.path.isabs(file_path):
         result.add_error(
             f"{field_label}: absolute path rejected: {file_path}"
@@ -143,9 +113,7 @@ def _check_content_file(
         )
 
 
-# ---------------------------------------------------------------------------
 # Type / value helpers
-# ---------------------------------------------------------------------------
 
 def _expect_type(
     value: Any,
@@ -192,9 +160,7 @@ def _expect_enum(
     return True
 
 
-# ---------------------------------------------------------------------------
 # Manifest validation
-# ---------------------------------------------------------------------------
 
 def validate_manifest(
     manifest: dict,
@@ -202,17 +168,7 @@ def validate_manifest(
     overlay_path: str,
     anchor_map: dict,
 ) -> ValidationResult:
-    """Validate *manifest* structure, content file references, and hook security.
-
-    Args:
-        manifest: Parsed overlay manifest dict.
-        schema: Parsed overlay.schema.json (used for _meta lookups).
-        overlay_path: Filesystem path to the overlay directory root.
-        anchor_map: Parsed anchor-map.json.
-
-    Returns:
-        A ``ValidationResult`` with errors and warnings populated.
-    """
+    """Validate *manifest* structure, content file references, and hook security."""
     result = ValidationResult()
 
     meta = schema.get("_meta", {})
@@ -352,9 +308,7 @@ def validate_manifest(
     if "permissions" in contribs:
         _validate_permissions(contribs["permissions"], result)
 
-    # --- Contribution ID uniqueness within this overlay --------------------
-    # Only collect IDs from known contribution keys to avoid rejecting
-    # valid forward-compatible overlays with unknown subtrees.
+    # Check uniqueness only for known contribution keys.
     known_contribs = {
         k: v for k, v in contribs.items()
         if k in known_contribution_keys
@@ -374,9 +328,7 @@ def validate_manifest(
     return result
 
 
-# ---------------------------------------------------------------------------
 # Sub-validators
-# ---------------------------------------------------------------------------
 
 def _validate_orchestrator(
     orch: dict,
@@ -899,9 +851,7 @@ def _validate_has_fields(
             result.add_error(f"{label}: missing required field: {field}")
 
 
-# ---------------------------------------------------------------------------
 # Content-file collection
-# ---------------------------------------------------------------------------
 
 def _collect_content_files_from_manifest(manifest: dict, out: List[str]) -> None:
     """Collect all content_file and agent_file paths from a manifest."""
@@ -914,12 +864,7 @@ def _collect_applied_content_files(
     out: List[str],
     valid_anchors_by_agent: Optional[Dict[str, List[str]]] = None,
 ) -> None:
-    """Collect content_file/agent_file paths only for applied contributions.
-
-    Mirrors the anchor-filtering logic in ``build_contribution_index`` so
-    that injection scanning and fingerprinting operate on the same set of
-    contributions that composition will actually apply.
-    """
+    """Collect content_file/agent_file paths only for applied contributions."""
     contribs = manifest.get("contributions", {})
 
     # Everything except agents.*.prompt_sections is always applied.
@@ -959,7 +904,7 @@ def _collect_file_refs(obj: Any, out: List[str]) -> None:
 
 
 def _collect_ids(contribs: dict, out: List[str]) -> None:
-    """Recursively collect all contribution IDs from a contributions object."""
+    """Recursively collect contribution identifiers."""
     if isinstance(contribs, dict):
         if "id" in contribs and isinstance(contribs["id"], str):
             out.append(contribs["id"])
@@ -970,9 +915,7 @@ def _collect_ids(contribs: dict, out: List[str]) -> None:
             _collect_ids(item, out)
 
 
-# ---------------------------------------------------------------------------
 # Prompt-injection scan (untrusted content treated as data, never executed)
-# ---------------------------------------------------------------------------
 
 _INJECTION_PATTERNS = [
     (re.compile(r"modify\s+CLAUDE\.md\s+directly", re.IGNORECASE), "modify CLAUDE.md directly"),
@@ -989,10 +932,7 @@ _INJECTION_PATTERNS = [
 
 
 def scan_for_injection(content: str, file_label: str) -> List[str]:
-    """Scan content for suspected prompt injection patterns.
-
-    Returns a list of warning strings. Empty list means no patterns found.
-    """
+    """Scan content for suspected prompt injection patterns."""
     warnings = []
     for pattern, description in _INJECTION_PATTERNS:
         match = pattern.search(content)
@@ -1005,11 +945,7 @@ def scan_for_injection(content: str, file_label: str) -> List[str]:
 
 
 def _resolve_content_file(overlay_path: str, content_file: str) -> str:
-    """Read and return content of a referenced file from the overlay directory.
-
-    The caller is responsible for path-containment validation (done during
-    the manifest validation phase).
-    """
+    """Read and return content of a referenced file from the overlay directory."""
     full = os.path.join(overlay_path, content_file)
     with open(full, "r", encoding="utf-8") as fh:
         return fh.read()

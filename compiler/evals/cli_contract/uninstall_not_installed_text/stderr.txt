@@ -1,0 +1,1 @@
+ERROR: Overlay 'no-such-overlay' is not installed. Installed: ['test-overlay']

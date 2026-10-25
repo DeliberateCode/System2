@@ -1,0 +1,24 @@
+{
+  "default": {
+    "mode": "byte-identical",
+    "justification": null
+  },
+  "classes": {
+    "CLAUDE.md": {
+      "mode": "byte-identical",
+      "justification": null
+    },
+    "agents": {
+      "mode": "byte-identical",
+      "justification": null
+    },
+    "lock": {
+      "mode": "byte-identical",
+      "justification": null
+    },
+    "warnings": {
+      "mode": "byte-identical",
+      "justification": null
+    }
+  }
+}

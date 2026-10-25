@@ -48,7 +48,7 @@ recomputes the hash over the vendored subtree's bytes and compares it to the
 it is the plugin half of the drift guard (internal-integrity / **tamper**). The
 cross-repo **staleness** half — "is the vendored bundle still current vs the
 compiler source?" — requires the compiler source and is the CI guard
-(`System2-Compiler/tools/check_bundle_fresh.py`), not this command.
+(`compiler/tools/check_bundle_fresh.py`), not this command.
 
 This step is independent of step 2; it does not change the `composer.py --doctor`
 report.
