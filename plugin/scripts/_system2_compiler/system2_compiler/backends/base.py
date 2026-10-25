@@ -16,6 +16,7 @@ __all__ = [
     "build_artifact_ownership",
     "lock_sources_outside_project",
     "preflight_artifact_write",
+    "render_human_communication_policy",
     "render_workflow_contract",
     "validate_artifact_ownership",
     "validate_project_target",
@@ -24,6 +25,20 @@ __all__ = [
 
 
 OWNERSHIP_SCHEMA_VERSION = 1
+
+
+def render_human_communication_policy(ir: System2Graph) -> List[str]:
+    """Project the canonical template policy into an independently loaded context."""
+    template = ir.base_template
+    start = template.section_offsets.get("Human communication policy")
+    if start is None:
+        return []
+    lines = template.text.splitlines()
+    end = min(
+        (offset for offset in template.section_offsets.values() if offset > start),
+        default=len(lines),
+    )
+    return "\n".join(lines[start:end]).strip().splitlines()
 
 
 def render_workflow_contract(ir: System2Graph) -> List[str]:

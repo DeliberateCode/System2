@@ -41,11 +41,18 @@ def test_maintained_documentation_matches_current_pi_and_overlay_contracts():
     compiler_readme = (repo / "compiler" / "README.md").read_text(
         encoding="utf-8"
     )
+    ci_workflow = (repo / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
     overlay_guide = (
         repo / "docs" / "overlays" / "claude-code.md"
     ).read_text(encoding="utf-8")
 
     assert "0.85.1" in pi_install
+    assert "uses the installed Pi version" in pi_install
+    assert "not a compatibility claim" in pi_install
+    assert 'PI_CI_VERSION: "0.85.1"' in ci_workflow
+    assert "@${PI_CI_VERSION}" in ci_workflow
     assert "caller-owned `AGENTS.md`" in pi_install
     assert "adapted/partial" in pi_install
     assert "pi install npm:" not in pi_install

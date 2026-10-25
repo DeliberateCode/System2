@@ -1,6 +1,6 @@
 {
-  "source_sha256": "9559ef9430cda8add227b460ebee030d886f12a3004d6a74a5d83f33fb5f8221",
-  "artifact_sha256": "55abc045ffd52173f16443d5f6343291e1e1068161cbbcaeedf9bf48d14cd982",
+  "source_sha256": "0cc20d0d9792987c7b0ddd7620a54d1e868f9574d18a78ffec735f3812ab1712",
+  "artifact_sha256": "4eba04550d07a9c79eb420184a41449f240f3e9a1bed3d7c51c266b6fd850f98",
   "artifact_inventory": [
     ".codex-plugin/plugin.json",
     "skills/system2-doctor/SKILL.md",
@@ -24,9 +24,9 @@
     "user-hooks/hooks/system2-edit-guard.js",
     "user-hooks/hooks/system2-shell-guard.js"
   ],
-  "generated_from": "System2@437f5a5",
+  "generated_from": "System2@e33500c",
   "generator": "compiler/tools/regen_all.py",
   "channel_version": "0.2.3",
   "compiler_version": "0.1.0",
-  "generated_at": "2026-10-19T01:22:54.213736+00:00"
+  "generated_at": "2026-10-25T16:02:55.134664+00:00"
 }

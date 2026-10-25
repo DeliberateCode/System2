@@ -29,6 +29,8 @@ jobs:
 
   compiler-evals:
     runs-on: ubuntu-latest
+    env:
+      PI_CI_VERSION: "0.85.1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -42,16 +44,17 @@ jobs:
         with:
           node-version: "22"
 
-      # Pin validators so load checks run instead of skipping.
-      - name: Install Pi (validator for the Pi load leg)
-        run: npm i -g @earendil-works/pi-coding-agent@0.85.1
+      # Keep one reproducible Pi acceptance lane without constraining user installations.
+      - name: Install CI-pinned Pi validator
+        run: npm i -g "@earendil-works/pi-coding-agent@${PI_CI_VERSION}"
 
       - name: Confirm validators are on PATH (no silent skips)
         working-directory: compiler
         run: |
           set -euxo pipefail
           node --version
-          pi --version || (echo "pi not installed — the Pi load leg would LOUD-SKIP" && exit 1)
+          test "$(pi --version)" = "$PI_CI_VERSION" || \
+            (echo "CI-pinned Pi validator is unavailable" && exit 1)
 
       # Actions' npm layout is not auto-detected; export the package entry explicitly.
       - name: Export Pi package entry for the load/lifecycle harness

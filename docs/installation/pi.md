@@ -4,10 +4,23 @@ The Pi channel is **not published**. No npm installation command is available, a
 package name must not be treated as currently installable. For the other harnesses, see the
 [Installation and Updating](../installation.md) index.
 
+## Pi version policy
+
+System2 uses the installed Pi version supplied by the user. It does not install, downgrade, or
+reject Pi based on an exact version string. The package's `"*"` peer range follows Pi's guidance
+for host-provided core imports.
+
+CI installs **Pi 0.85.1** as a fixed validator so acceptance evidence is reproducible. Local
+acceptance uses the resolved `pi` executable and `PI_PKG_ENTRY`, allowing maintainers to test
+other Pi versions without editing System2. Passing on the CI-pinned version records evidence
+for that tested version; it is not a compatibility claim for every untested version.
+Compatibility is determined by the required Pi APIs, events, CLI flags, and JSON event
+contracts.
+
 ## Validated candidate
 
-The current generated package candidate has non-skipping native acceptance against **Pi
-0.85.1**. That evidence covers:
+The current generated package candidate has non-skipping native acceptance in the CI-pinned
+**Pi 0.85.1** lane. That evidence covers:
 
 - package discovery of the `delegate`, `system2-status`, `system2-history`, `system2-new`, `system2-resume`, and `system2-init` commands;
 - Orchestrator-first startup through Pi's public RPC and SDK paths;
@@ -28,22 +41,20 @@ The current generated package candidate has non-skipping native acceptance again
 
 Additional synthetic extension-handler controls exercise supported literal shell
 redirection/`tee` targets and the broader matcher corpus. They are not represented as native
-CLI acceptance. This pins the native evidence to the tested Pi version; it is not a
-compatibility claim for untested versions and does not make an unpublished package available.
-
-The package uses Pi's documented `"*"` peer range for host-provided core imports. That loader
-convention is not a claim that System2 has been validated against every Pi version.
+CLI acceptance. The fixed CI lane records evidence for its tested Pi version and does not make
+an unpublished package available.
 
 ### Study-derived end-to-end acceptance
 
 The original `tasker` study is now represented by a cohesive, non-skipping acceptance in
 `compiler/evals/test_pi_study_acceptance.py`. It drives a complete Gate 0–5 workflow and a
-follow-up maintenance workflow through real Pi 0.85.1 JSON agent loops using an offline,
-deterministic provider. The study creates all four spec artifacts, delegates implementation,
-writes `.gitignore` through the executor lease, runs the 29-test suite in both executor and
-test-engineer children, independently reruns all 29 tests through Pi's parent Bash tool, runs the post-execution
-review roles, records visible human-decision audit messages, and creates an arbitrary root
-Markdown document through `docs-release` after starting a new workflow. It also verifies that an
+follow-up maintenance workflow through real JSON agent loops using the CI-provided Pi 0.85.1
+and an offline, deterministic provider. The study creates all four spec artifacts, delegates
+implementation, writes `.gitignore` through the executor lease, runs the 29-test suite in both
+executor and test-engineer children, independently reruns all 29 tests through Pi's parent Bash
+tool, runs the post-execution review roles, records visible human-decision audit messages, and
+creates an arbitrary root Markdown document through `docs-release` after starting a new workflow.
+It also verifies that an
 ordinary context input is launch-snapshotted without becoming human-approved gate evidence.
 No manual file creation or pasted test output is used.
 

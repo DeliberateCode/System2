@@ -1,6 +1,7 @@
 {
   "backend": "pi",
-  "pi_version_assumed": "0.85.1",
+  "pi_plugin_version": "0.2.3",
+  "pi_version_policy": "user-provided",
   "enforcement": "extension-native-gates",
   "subagent_isolation": "adapted",
   "delegation_mode": "pi_subprocess",
@@ -57,67 +58,67 @@
     "artifacts": [
       {
         "path": ".pi/extensions/system2.ts",
-        "sha256": "8dcecf890ad39028d509c1cd741d3a266cf1face1ec1440ae21da61827c9aba1"
+        "sha256": "88544295191131b721c91bb33a30bc54f3978573be97a497d08ef5aead15ac2f"
       },
       {
         "path": ".pi/SYSTEM.md",
-        "sha256": "e5e486abeea59c4868edfcdfc8108378523dd56be919fca5d6d927b3c47d32c4"
+        "sha256": "de61561740ac01469d0edb6e0b56b799ff3418f3224c4e1a44a34bcdb61a2bd6"
       },
       {
         "path": ".pi/prompts/orchestrator.md",
-        "sha256": "af2e36191823561eb237d96d402d36eb8ef89388ee046412aa21950b3ed8016d"
+        "sha256": "58e7bbd82f3e49bdcd4e40e44a7b35f70a5fdbfea22cf1e79aa1a288d32899fe"
       },
       {
         "path": ".pi/prompts/role-repo-governor.md",
-        "sha256": "afe87b2a411179db9682a9af9e28cbc500ad4670a03ed11f3a4ab81f9b8600b1"
+        "sha256": "a71ed573860d5200b056685100c5d34c43a6d0ba39b12f3d912436b8212125a0"
       },
       {
         "path": ".pi/prompts/role-spec-coordinator.md",
-        "sha256": "242030281cb90e94b829d080947a181791099a572e9eb67a74f28dcb09951675"
+        "sha256": "d1d763f75d6c23261e0385c37df7312b1ff33e3a9a33378edbd4fe666626868f"
       },
       {
         "path": ".pi/prompts/role-requirements-engineer.md",
-        "sha256": "bb915f38b701ac22ac6f188126b3cf46c92fe9b714fe439240a3a17059a0aa1c"
+        "sha256": "e9a41f4eb6b4600f623c378e684fb816cb5db22a9e1bf7d6a17ba63c82bd0c86"
       },
       {
         "path": ".pi/prompts/role-design-architect.md",
-        "sha256": "af940499ae2c9cb2170ff35e9e62ed66e48788103e92d0e6e98a63098e8223ce"
+        "sha256": "5e896b571fbb13cf5d7bd430688e83429d5df50572b9ff9edf2cfbd40612cc17"
       },
       {
         "path": ".pi/prompts/role-task-planner.md",
-        "sha256": "f2a05934b9937b67b7e9ff7de554bebcfe0097074bd2422d7d9f04fc65b90fa9"
+        "sha256": "d1708685a740d9d967a5882f5b1f041ad73b45bb5de2a0ebdd0ead28d996b048"
       },
       {
         "path": ".pi/prompts/role-executor.md",
-        "sha256": "74b03d918fd47bd09c73a633c592476509cac602263126152c320a7b42622716"
+        "sha256": "edf138c4d6ba2d76a6d1d376d3c3eee2e5eb89be77de0582bf074b17af00c158"
       },
       {
         "path": ".pi/prompts/role-test-engineer.md",
-        "sha256": "a183deed3676ef0a5709d5f203ffa853f97f917f58ec4649edd3f1852e0dbc9b"
+        "sha256": "3feda5f31f60fa877b4e7e23e2a7f83f843cd0139f9f42b7f3381ec5100561be"
       },
       {
         "path": ".pi/prompts/role-security-sentinel.md",
-        "sha256": "1e37bdf76d64275bacbb6c5f4733c1bd3f1b20c099827732703246c442eeaabb"
+        "sha256": "b89fda11b6e8c4faa896ea3d3549680066f0e56c91a8705bb3dfcd67159c7a0d"
       },
       {
         "path": ".pi/prompts/role-eval-engineer.md",
-        "sha256": "b56e5548ba99f1c0c4b570bbe79f7a81a46b7e092e6ba71d2ed26b45bc9fb8f3"
+        "sha256": "c2c6479b0b7ec0d1d3c900b847ae8972b6b5e7e5001a6701c73cb5941caec626"
       },
       {
         "path": ".pi/prompts/role-docs-release.md",
-        "sha256": "fc20ab15c341c0ee7296e1acb3412701a91eaead126a42725812e3c33e53fe7a"
+        "sha256": "c84e312f1d6ad0ea7f2381877827e493affe06ddee228d60a499925bcc7ca056"
       },
       {
         "path": ".pi/prompts/role-code-reviewer.md",
-        "sha256": "1c77e2dc9acdcece6ad270845f4db73f92ad4f61c41b38e16c2e2adbaac03ee1"
+        "sha256": "4a2c804e856ca4000d9070535f158252c51124050d145735c9730b1cb1c61660"
       },
       {
         "path": ".pi/prompts/role-postmortem-scribe.md",
-        "sha256": "bef4b9c6ed35e75b42dc8f7fdc2d3f0875e86cecb72463aaf7edcca0aa5cafbc"
+        "sha256": "2a87edc0f899e60b772a4f7e7750a6fd69a3bf0eeeebd9d972662ac2172e9d82"
       },
       {
         "path": ".pi/prompts/role-mcp-toolsmith.md",
-        "sha256": "f6338b0d9d7a766cf2fcaf07bd2ca89bc686fd2c701249bb2ed573396d9ed4e1"
+        "sha256": "036667b1d24901db5944d76283c5e487c96b01d3d1334650869701e60426fa8a"
       },
       {
         "path": ".pi/skills/system2-init/SKILL.md",

@@ -99,19 +99,19 @@ class YamlQuotingTest(unittest.TestCase):
                 out = _yaml.dump({"k": word})
                 self.assertEqual(out, f'k: "{word}"\n')
 
-    def test_hexadecimal_string_parses_as_string_with_pinned_pi_yaml(self):
+    def test_hexadecimal_string_parses_as_string_with_caller_pi_yaml(self):
         rendered = _yaml.dump({"k": "0x10"})
         self.assertEqual(rendered, 'k: "0x10"\n')
-        self.assertIsNotNone(_NODE_BIN, "Node is required for the pinned Pi YAML control")
+        self.assertIsNotNone(_NODE_BIN, "Node is required for the Pi YAML control")
         self.assertTrue(
             _PI_PKG_ENTRY and os.path.isfile(_PI_PKG_ENTRY),
-            f"pinned Pi package entry is required, got {_PI_PKG_ENTRY!r}",
+            f"Pi package entry is required, got {_PI_PKG_ENTRY!r}",
         )
         package_json = os.path.join(
             os.path.dirname(os.path.dirname(_PI_PKG_ENTRY)), "package.json"
         )
         with open(package_json, encoding="utf-8") as fh:
-            self.assertEqual(json.load(fh)["version"], "0.85.1")
+            pi_version = json.load(fh).get("version", "unknown")
 
         with tempfile.TemporaryDirectory(prefix="pi-yaml-type-") as temp:
             document = os.path.join(temp, "frontmatter.md")
@@ -129,7 +129,7 @@ class YamlQuotingTest(unittest.TestCase):
         self.assertEqual(
             result.returncode,
             0,
-            "Pi 0.85.1 YAML parser did not preserve 0x10 as a string:\n"
+            f"Pi {pi_version} YAML parser did not preserve 0x10 as a string:\n"
             + result.stderr,
         )
 

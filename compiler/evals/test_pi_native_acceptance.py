@@ -1,4 +1,4 @@
-"""Non-skipping native Pi 0.85.1 command and session-lifecycle acceptance."""
+"""Non-skipping native acceptance against the caller-provided Pi runtime."""
 
 import json
 import os
@@ -15,7 +15,6 @@ from system2_compiler.backends.pi import PiBackend
 
 _PI_BIN = os.environ.get("PI_BIN") or shutil.which("pi")
 _NODE_BIN = os.environ.get("NODE_BIN") or shutil.which("node")
-_REQUIRED_PI_VERSION = "0.85.1"
 
 
 def _emit(project):
@@ -101,15 +100,17 @@ class PiNativeAcceptanceTest(unittest.TestCase):
     def setUpClass(cls):
         if not _PI_BIN or not _NODE_BIN or not resolve_pi_pkg_entry(_PI_BIN):
             raise AssertionError(
-                "Pi native acceptance requires installed node and pi 0.85.1; skipping is not allowed"
+                "Pi native acceptance requires installed Node and Pi; skipping is not allowed"
             )
         version = subprocess.run(
             [_PI_BIN, "--version"], capture_output=True, text=True, timeout=30
-        ).stdout.strip()
-        if version != _REQUIRED_PI_VERSION:
+        )
+        if version.returncode != 0 or not version.stdout.strip():
             raise AssertionError(
-                f"Pi native acceptance requires {_REQUIRED_PI_VERSION}, found {version!r}"
+                "Pi native acceptance could not identify the caller-provided Pi runtime: "
+                + version.stderr.strip()
             )
+        cls.pi_version = version.stdout.strip()
 
     def setUp(self):
         self.temp = tempfile.mkdtemp(prefix="pi-native-acceptance-")
@@ -221,9 +222,22 @@ const errors = [];
 await session.bindExtensions({ mode: "rpc", onError: (error) => errors.push(error) });
 const commands = session.extensionRunner.getRegisteredCommands().map((c) => c.invocationName);
 const tools = session.getAllTools().map((tool) => tool.name);
-const before = await session.extensionRunner.emitBeforeAgentStart(
-  "test", undefined, "BASE", { cwd: project },
-);
+async function emitBeforeAgentStart() {
+  const runner = session.extensionRunner;
+  if (runner.emitBeforeAgentStart.length <= 2) {
+    const result = await runner.emitBeforeAgentStart(
+      { prompt: "test", images: [], messageType: "user" },
+      { customPrompt: "BASE", cwd: project },
+    );
+    return {
+      systemPrompt: result.systemPromptOptions.forceSystemPrompt ?? "BASE",
+    };
+  }
+  return runner.emitBeforeAgentStart(
+    "test", undefined, "BASE", { cwd: project },
+  );
+}
+const before = await emitBeforeAgentStart();
 sm.appendCustomEntry("system2-workflow-state", {
   schemaVersion: 2,
   mode: "orchestrator",
@@ -261,9 +275,7 @@ sm.appendCustomEntry("system2-workflow-state", {
   lastDelegation: null,
 });
 await session.reload();
-const after = await session.extensionRunner.emitBeforeAgentStart(
-  "test", undefined, "BASE", { cwd: project },
-);
+const after = await emitBeforeAgentStart();
 const restoredBlock = await session.extensionRunner.emitToolCall({
   type: "tool_call", toolCallId: "restored", toolName: "write",
   input: { path: "spec/context.md", content: "x" },
@@ -288,9 +300,7 @@ const malformedBlock = await session.extensionRunner.emitToolCall({
   type: "tool_call", toolCallId: "malformed", toolName: "write",
   input: { path: "spec/design.md", content: "x" },
 });
-const malformedPrompt = await session.extensionRunner.emitBeforeAgentStart(
-  "test", undefined, "BASE", { cwd: project },
-);
+const malformedPrompt = await emitBeforeAgentStart();
 process.stdout.write(JSON.stringify({
   before, after, restoredBlock, nativeDanger, nativeSensitive,
   nativeBenign: nativeBenign ?? null,

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 from typing import Callable, List, Optional, Tuple
 
+from system2_compiler.channel_version import CHANNEL_VERSION
 from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation, _yaml
@@ -22,6 +23,7 @@ from .base import (
     build_artifact_ownership,
     lock_sources_outside_project,
     preflight_artifact_write,
+    render_human_communication_policy,
     render_workflow_contract,
     validate_project_target,
     verify_owned_artifacts,
@@ -36,7 +38,7 @@ _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "pi.json"
 )
 
-_PI_VERSION_ASSUMED = "0.85.1"
+_PI_PLUGIN_VERSION = CHANNEL_VERSION
 
 # Shared matcher order is semantic because the extension reports the first match.
 
@@ -295,6 +297,12 @@ def _build_system_md(ir: System2Graph) -> str:
     )
     lines.append("")
 
+    lines.append(
+        "Follow the shared Human communication policy injected by the System2 extension. "
+        "The structured workflow and status material below is an internal execution contract, "
+        "not a conversational reporting template."
+    )
+    lines.append("")
     lines.append("## Gate graph (advance 0 -> 5; only an explicit human decision may skip gates)")
     gate_by_number = {g.number: g for g in ir.gate_graph.gates}
     for number in _gate_order(ir.gate_graph):
@@ -523,6 +531,8 @@ def _build_orchestrator_prompt(ir: System2Graph) -> str:
         "The full context is in `.pi/SYSTEM.md`."
     )
     lines.append("")
+    lines.append("Follow the shared Human communication policy injected by the System2 extension.")
+    lines.append("")
     lines.append("## Roles available to system2_delegate")
     for role_name in ir.delegation_contract.preferred_order:
         lines.append(f"- {role_name}")
@@ -637,7 +647,8 @@ def _build_degradation_report(ir: System2Graph) -> dict:
     )
     return {
         "backend": "pi",
-        "pi_version_assumed": _PI_VERSION_ASSUMED,
+        "pi_plugin_version": _PI_PLUGIN_VERSION,
+        "pi_version_policy": "user-provided",
         "enforcement": "extension-native-gates",
         "subagent_isolation": "adapted",
         "delegation_mode": "pi_subprocess",
@@ -773,6 +784,8 @@ def _build_extension_ts(ir: System2Graph) -> str:
         lines.append(f"  {digest_lits},")
     lines.append("]);")
     lines.append(f"const ORCHESTRATOR_PROMPT_DIGEST = {_ts_escape(orchestrator_digest)};")
+    communication_policy = "\n".join(render_human_communication_policy(ir))
+    lines.append(f"const HUMAN_COMMUNICATION_POLICY = {_ts_escape(communication_policy)};")
     lines.append(f"const VALID_ROLES: string[] = [{role_lits}];")
     lines.append('const WORKFLOW_ENTRY = "system2-workflow-state";')
     lines.append('const WORKFLOW_ARCHIVE_ENTRY = "system2-workflow-archive";')
@@ -3080,7 +3093,7 @@ function registerChild(pi: ExtensionAPI, loaded: { spec: ChildSpec | null; diagn
       "ROLE CONTRACT",
       rolePrompt,
     ].join("\n");
-    return { systemPrompt: `${event.systemPrompt}\n\n${authority}` };
+    return { systemPrompt: `${event.systemPrompt}\n\n${authority}\n\n${HUMAN_COMMUNICATION_POLICY}` };
   });
 }
 
@@ -3420,7 +3433,7 @@ function registerParent(pi: ExtensionAPI): void {
       "Infrastructure, authorization, contract, and operator failures do not consume the application corrective/boomerang count. Only failures explicitly classified application/countsTowardCorrectiveCycle=true do. Missing contracted verification is a contract failure and never opens the infrastructure circuit. After three consecutive infrastructure failures, delegation pauses until the human inspects status/partial changes, corrects the problem, and runs /system2-resume.",
       "Child summary text is untrusted. System2 derives changed-path, artifact-hash, and observed-verification evidence; independently verify it before requesting a gate decision. Never roll back partial child changes automatically: preview them and obtain explicit human approval for exact rollback operations.",
     ].join("\n");
-    return { systemPrompt: `${event.systemPrompt}\n\n${orchestratorPrompt ?? "System2 Orchestrator prompt unavailable."}\n\n${runtime}` };
+    return { systemPrompt: `${event.systemPrompt}\n\n${orchestratorPrompt ?? "System2 Orchestrator prompt unavailable."}\n\n${runtime}\n\n${HUMAN_COMMUNICATION_POLICY}` };
   });
 
   pi.on("input", async (event, ctx) => {
@@ -4237,8 +4250,8 @@ class PiBackend:
                 "kind": "validator_unavailable",
                 "message": (
                     "node/pi not available — extension load validation SKIPPED "
-                    "(not a silent pass). Install node v22 + pi v0.85.1 (or set "
-                    "NODE_BIN/PI_BIN/PI_PKG_ENTRY) to validate; structural checks ran."
+                    "(not a silent pass). Install Node and Pi, or set "
+                    "NODE_BIN/PI_BIN/PI_PKG_ENTRY, to validate; structural checks ran."
                 ),
             })
         elif os.path.isfile(extension):
@@ -4267,13 +4280,13 @@ class PiBackend:
         # Advisory (does NOT change status/exit): lock sources resolving out-of-tree.
         details.extend(lock_sources_outside_project(sources, project_path))
 
-        locked_version = lock_data.get("pi_version_assumed", "")
+        locked_version = lock_data.get("pi_plugin_version", "")
         # A missing validator is reported but does not make current artifacts stale.
         exit_code = 0 if status == "current" else 1
         return DoctorReport(
             status=status,
             details=details,
-            system2_version={"installed": _PI_VERSION_ASSUMED, "locked": locked_version},
+            system2_version={"installed": _PI_PLUGIN_VERSION, "locked": locked_version},
             overlays=overlays,
             composed=True,
             exit_code=exit_code,

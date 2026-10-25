@@ -25,7 +25,7 @@
       "additive_overlaps": [],
       "semantic_tensions": []
     },
-    "composed_lines": 224,
+    "composed_lines": 213,
     "files_to_write": [
       "<PROJECT>/CLAUDE.md",
       "<PROJECT>/spec/overlay-manifest.lock",

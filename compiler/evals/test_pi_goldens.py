@@ -139,7 +139,7 @@ def _parse_leading_frontmatter(text):
 
 
 # use Pi's actual YAML parser, not a hand-written
-# approximation. _PI_PKG_ENTRY resolves the installed, CI-pinned Pi package.
+# approximation. _PI_PKG_ENTRY resolves the caller-provided Pi package.
 _FRONTMATTER_PARSE_HARNESS = r'''
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -282,6 +282,9 @@ class PiEmitArtifactSetTest(unittest.TestCase):
     def test_lock_is_valid_json_with_capabilities(self):
         report = json.loads(self.tree[_LOCK].decode("utf-8"))
         self.assertEqual(report["backend"], "pi")
+        self.assertEqual(report["pi_version_policy"], "user-provided")
+        self.assertNotIn("pi_version_assumed", report)
+        self.assertIn("pi_plugin_version", report)
         self.assertIn("capabilities", report)
         self.assertIn("FIDELITY", report)
 

@@ -1,6 +1,6 @@
 {
   "description": "Static inventory invariant for the 13-agent, 6-gate workflow and its hook and allowlist bindings.",
-  "base_template_sha256": "bbf92beacc749f37c6f0e3515332d7e000e25832264be0abaa94ba9643ae90f5",
+  "base_template_sha256": "2dd62d858f2af8d62c0f04ab7d6a39a0f4052e564532426222899c5fc118dd10",
   "structural_goldens": [
     {
       "path": "evals/goldens/agent_inventory.json",

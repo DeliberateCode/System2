@@ -8,6 +8,7 @@ import unittest
 
 from system2_compiler import ir
 from system2_compiler.backends.pi import PiBackend
+from system2_compiler.channel_version import CHANNEL_VERSION
 from evals import matrix, oracle
 
 _BASE = oracle.PLUGIN_ROOT
@@ -114,6 +115,10 @@ class PiLifecycleTest(_LifecycleBase):
         self.assertEqual(report.status, "current", report.details)
         self.assertTrue(report.validator_available, "pi validator must have run")
         self.assertEqual(report.exit_code, 0)
+        self.assertEqual(
+            report.system2_version,
+            {"installed": CHANNEL_VERSION, "locked": CHANNEL_VERSION},
+        )
         kinds = {d["kind"] for d in report.details}
         self.assertNotIn("validator_unavailable", kinds)
 

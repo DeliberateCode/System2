@@ -1,7 +1,7 @@
 """Cohesive acceptance for the Pi UX issues observed in the tasker study.
 
-This test uses Pi 0.85.1's real JSON agent loop and tool execution with a
-fully deterministic, offline provider. It complements the opt-in live-model
+This test uses the caller-provided Pi runtime's real JSON agent loop and tool
+execution with a fully deterministic, offline provider. It complements the opt-in live-model
 study documented in docs/installation/pi.md without sending external traffic.
 """
 
@@ -337,12 +337,16 @@ class PiStudyAcceptanceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not _NODE or not _PI or not _PI_ENTRY:
-            raise AssertionError("Pi study acceptance requires node and Pi 0.85.1; skipping is forbidden")
+            raise AssertionError("Pi study acceptance requires Node and Pi; skipping is forbidden")
         version = subprocess.run(
             [_PI, "--version"], capture_output=True, text=True, timeout=30
-        ).stdout.strip()
-        if version != "0.85.1":
-            raise AssertionError(f"Pi study acceptance requires 0.85.1, found {version!r}")
+        )
+        if version.returncode != 0 or not version.stdout.strip():
+            raise AssertionError(
+                "Pi study acceptance could not identify the caller-provided Pi runtime: "
+                + version.stderr.strip()
+            )
+        cls.pi_version = version.stdout.strip()
 
     def setUp(self):
         self.temp = tempfile.mkdtemp(prefix="pi-tasker-study-")

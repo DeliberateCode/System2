@@ -1,4 +1,4 @@
-"""Non-skipping Pi 0.85.1 runtime tests for parent/child orchestration."""
+"""Non-skipping runtime tests against the caller-provided Pi installation."""
 
 import hashlib
 import json
@@ -615,13 +615,17 @@ class PiOrchestratorRuntimeTest(unittest.TestCase):
     def setUpClass(cls):
         if not _NODE or not _PI or not _PI_ENTRY:
             raise AssertionError(
-                "Pi orchestrator runtime acceptance requires installed node and Pi; skipping is forbidden"
+                "Pi orchestrator runtime acceptance requires installed Node and Pi; skipping is forbidden"
             )
         version = subprocess.run(
             [_PI, "--version"], capture_output=True, text=True, timeout=30
-        ).stdout.strip()
-        if version != "0.85.1":
-            raise AssertionError(f"Pi 0.85.1 required, found {version!r}")
+        )
+        if version.returncode != 0 or not version.stdout.strip():
+            raise AssertionError(
+                "Pi orchestrator runtime acceptance could not identify the caller-provided Pi runtime: "
+                + version.stderr.strip()
+            )
+        cls.pi_version = version.stdout.strip()
 
     def setUp(self):
         self.temp = tempfile.mkdtemp(prefix="pi-orchestrator-runtime-")
@@ -1081,6 +1085,12 @@ if (process.env.RESILIENCE_MODE === "retry") {
         self.assertIn("SYSTEM2 PARENT AUTHORITY: mode=orchestrator", result["before"]["systemPrompt"])
         self.assertIn("SYSTEM2 PARENT AUTHORITY: mode=orchestrator", result["after"]["systemPrompt"])
         self.assertNotIn("System2 role:", result["after"]["systemPrompt"])
+        for phase in ("before", "after"):
+            prompt = result[phase]["systemPrompt"]
+            self.assertEqual(1, prompt.count("## Human communication policy"))
+            self.assertIn("understanding, not minimum length", prompt)
+            self.assertIn("machine-readable schemas, completion evidence", prompt)
+            self.assertNotIn("<thinking>", prompt)
         self.assertTrue(result["parentBashAllowed"])
         self.assertTrue(result["parentDangerous"]["block"])
         self.assertIn("block-dangerous", result["parentDangerous"]["reason"])
@@ -1476,6 +1486,9 @@ if (process.env.RESILIENCE_MODE === "retry") {
         )
         self.assertIn("SYSTEM2 ISOLATED SPECIALIST AUTHORITY", result["prompt"]["systemPrompt"])
         self.assertIn("System2 role: design-architect", result["prompt"]["systemPrompt"])
+        self.assertEqual(1, result["prompt"]["systemPrompt"].count("## Human communication policy"))
+        self.assertIn("private chain-of-thought", result["prompt"]["systemPrompt"])
+        self.assertNotIn("<thinking>", result["prompt"]["systemPrompt"])
         self.assertIsNone(result["inScope"])
         self.assertTrue(result["offScope"]["block"])
         self.assertTrue(result["detached"]["block"])

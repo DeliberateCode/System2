@@ -24,6 +24,7 @@ from .base import (
     build_artifact_ownership,
     lock_sources_outside_project,
     preflight_artifact_write,
+    render_human_communication_policy,
     render_workflow_contract,
     validate_project_target,
     verify_owned_artifacts,
@@ -220,6 +221,8 @@ def _build_orchestrator_skill(ir: System2Graph) -> str:
     lines.extend(_trust_state_block_lines())
     lines.append("")
 
+    lines.extend(render_human_communication_policy(ir))
+    lines.append("")
     lines.append("## Gate graph (advance 0 -> 5; do not skip a gate)")
     gate_by_number = {g.number: g for g in ir.gate_graph.gates}
     for number in _gate_order(ir.gate_graph):

@@ -17,7 +17,7 @@ The fixture has the legacy seven-key top-level shape and old provenance values:
   the currently installed plugin version (`plugin/.claude-plugin/plugin.json`), so
   `doctor` sees a version mismatch and reports `stale_base` (the standard
   "run --from-lock" nudge).
-- `content_fingerprint: sha256:8a53793d…` — the **genuine** fingerprint the engine
+- `content_fingerprint: sha256:02a1ed55…` — the **genuine** fingerprint the engine
   produces for the test-overlay content at `system2_version` `1.1.0`. Because the
   fingerprint hashes the version string, it differs from the current
   `core+overlay` golden fingerprint (the value in
@@ -37,7 +37,7 @@ and the overlay is NOT reported stale — isolating the version-only `stale_base
 
 ## Regenerating
 
-If `test-overlay`'s content or the plugin version legitimately changes (the
+If the canonical base template, `test-overlay`'s content, or the plugin version legitimately changes (the
 `core+overlay` golden lock would change too), refresh the captured hashes and the
 old-world fingerprint by re-running the capture: compose `test-overlay`, read the
 emitted lock for `manifest_hash`/`content_hash`, and recompute the fingerprint with

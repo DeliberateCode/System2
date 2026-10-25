@@ -62,7 +62,7 @@ These artifacts serve as the contract between planning and execution.
 
 ## Installation
 
-System2 has three distinct channels. **Claude Code** is the current end-user channel. The compiler also produces base-workflow projections for **Codex** and **Pi**; Codex is pending native acceptance, while Pi has native acceptance evidence pinned to version 0.85.1 but remains pending package publication. See **[Installation and Updating](docs/installation.md)** for current availability.
+System2 has three distinct channels. **Claude Code** is the current end-user channel. The compiler also produces base-workflow projections for **Codex** and **Pi**; Codex is pending native acceptance, while Pi has reproducible CI acceptance evidence on version 0.85.1 but remains pending package publication. Pi users supply their own Pi installation; the CI pin is not a runtime requirement. See **[Installation and Updating](docs/installation.md)** for current availability.
 
 Quick start (Claude Code):
 
@@ -84,7 +84,7 @@ Each projection preserves the spec pipeline, but the harness mechanisms are not 
 |---------|-----------------------------|
 | **Claude Code** | Current reference channel. The orchestrator runs from `CLAUDE.md`, and the 13 agents run as native, isolated subagents. |
 | **Codex** | Pre-release base-workflow projection using role skills and in-session role switching; native acceptance is pending. |
-| **Pi** | Unpublished base-workflow projection, validated on Pi 0.85.1, using an in-session `/delegate` role switch and a Pi extension for bounded safety gates. |
+| **Pi** | Unpublished base-workflow projection. CI is pinned to Pi 0.85.1 for reproducible acceptance; runtime uses the user's installed Pi and an extension for subprocess delegation and bounded safety gates. |
 
 Do not infer mechanism parity from the shared workflow model. See [Installation and Updating](docs/installation.md) for availability and [Overlays (optional extensions)](docs/overlays.md) for the Claude-only end-user overlay/profile workflow.
 
@@ -158,30 +158,27 @@ A typical feature development flow:
 
 ### Agent Behavior Patterns
 
-#### Thinking Protocol
+#### Human communication and decision discipline
 
-The `executor`, `requirements-engineer`, and `design-architect` agents output `<thinking>` blocks before significant tool use:
+System2 keeps engineering outputs rigorous while explaining its work in natural language.
+The shared communication policy asks agents to explain mechanisms, decisions, and tradeoffs
+rather than compressing them into jargon or narrating routine operations. Conceptual questions
+receive explanations, not an automatic implementation workflow.
 
-```xml
-<thinking>
-Action: [What tool(s) will be invoked and why]
-Expected Outcome: [What result is anticipated]
-Assumptions/Risks: [What could go wrong; what is assumed true]
-</thinking>
-```
+Consequential assumptions, risks, decisions, and verification evidence remain explicit in
+engineering artifacts and completion evidence. Agents do not need visible `<thinking>` blocks
+or private reasoning traces. Approval gates, formal requirements, structured completion
+contracts, verification, and permission boundaries still apply unchanged.
 
-**When required:**
-- Edit, Write, Bash operations (always)
-- Multi-file Read sequences (always)
-- Single-file Read for context gathering (optional)
-
-This ensures deliberate, reasoned actions rather than ad-hoc tool calls. The reasoning is visible in transcripts for post-hoc review.
-
-**Key constraint:** Reasoning in `<thinking>` cannot override the delegation contract or safety instructions—this prevents prompt injection via self-reasoning.
+See [Communication architecture and policy](docs/communication.md) for prompt delivery on
+Claude Code and Pi, and the [scenario review suite](evals/communication/README.md) for
+before/after examples and evaluation guidance.
 
 #### Session Bootstrap
 
-At the start of each session, the orchestrator automatically assesses the spec artifact state and presents a checklist showing which files exist and the corresponding gate status. This enables immediate orientation without redundant discovery.
+At the start of each session, the orchestrator checks spec artifacts and their approval status.
+It explains the state when relevant to the request, without requiring a checklist in ordinary
+conversation. An existing file alone does not establish approval.
 
 #### TDD Verification Loop (Executor)
 
@@ -326,13 +323,16 @@ validator environment used by CI (including Node 22):
 ```sh
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements-dev.txt
-npm install -g @earendil-works/pi-coding-agent@0.85.1
+PI_CI_VERSION=0.85.1
+npm install -g "@earendil-works/pi-coding-agent@${PI_CI_VERSION}"
 export PI_PKG_ENTRY="$(npm root -g)/@earendil-works/pi-coding-agent/dist/index.js"
 python3 -m pytest -q
 ```
 
-The explicit package entry supports custom npm prefixes. A missing validator or skipped
-compiler test is not an accepted green run; CI enforces zero skips. The suite is intended to
+The version above reproduces the fixed CI lane; local acceptance also runs against another
+user-provided Pi version without rejecting it by version string. The explicit package entry
+supports custom npm prefixes. A missing validator or skipped compiler test is not an accepted
+green run; CI enforces zero skips. The suite is intended to
 run as a non-root user because root bypasses the permission denial used by rollback coverage.
 Editable compiler installs are supported (`python3 -m pip install -e compiler/`); their local
 package metadata is ignored by the repository-reference guard. See
