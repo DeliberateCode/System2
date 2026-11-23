@@ -1,40 +1,4 @@
-"""The Claude projection (the only backend this cycle).
-
-Relocated verbatim from the frozen ``composer.py`` oracle (C2/REQ-017 keeps the
-plugin untouched): the CLAUDE.md assembly (``_render_contribution`` /
-``_generate_claude_md`` / ``_insert_overlay_sections``), the lock generation
-(``_generate_lock`` + the content-fingerprint / ``composed_at``-reuse idempotency
-block lifted from the tail of ``composer.compose``), the content copy
-(``_copy_overlay_content`` / ``_collect_content_files`` / ``_resolve_content_file``),
-and the atomic write/backup/restore (``_write_outputs`` / ``_makedirs_tracked``).
-
-Byte-identity is the gate (REQ-014). Every determinism carrier moves unchanged:
-the ``<!-- COMPOSED ... -->`` header block, ``_SECTION_RE`` / ``_GATE_LINE_RE``
-scanning, the ``"\\n".join(out)`` join, the EOF-append ordering,
-``json.dumps(lock, indent=2) + "\\n"``, the lock key insertion order, the
-fingerprint computation, and the ``composed_at`` reuse (read prior lock, reuse the
-timestamp when the fingerprint matches).
-
-The only change vs the oracle is *where the input comes from*: instead of reading
-manifests/anchor map/profiles, this backend reads the ``System2Graph``:
-
-- ``ir.contributions`` — the per-scope, topologically sorted ``Contribution``
-  records; the ``(overlay_name, raw, overlay_path)`` triples reconstruct exactly
-  the ``(overlay_name, contrib, overlay_path)`` triples the oracle passed to
-  ``_render_contribution`` (anchor-filtering already happened in the front-end).
-- ``ir.base_template.text`` — the base CLAUDE.md the oracle assembled onto.
-- ``ir.system2_version`` — the version string.
-- ``ir.warnings.semantic_tensions`` — the lock ``warnings`` array.
-- ``ir.overlay_inputs`` — the validated overlay manifests + resolved source dirs,
-  in front-end order (the CLAUDE-targeted byte-fidelity carrier, design T4): the
-  per-overlay lock metadata, the fingerprint inputs, the content copies, and the
-  auxiliary-agent file references derive from these exactly as the oracle derives
-  them from ``validated_manifests`` + ``overlay_path_map``.
-
-Imports only ``ir.graph`` + ``backends.base`` + stdlib (module-boundaries). It
-imports none of ``ir/manifest.py``, ``ir/anchors.py``, ``ir/profiles.py``,
-``ir/capabilities.py``, ``ir/_hook_security.py``, or any schema/anchor-map loader.
-"""
+"""Claude Code backend for composed project artifacts."""
 
 import datetime
 import hashlib
@@ -48,32 +12,28 @@ from typing import Callable, Dict, List, Optional, Tuple
 from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation
-from .base import DoctorReport, UninstallResult, lock_sources_outside_project
+from .base import (
+    DoctorReport,
+    UninstallResult,
+    lock_sources_outside_project,
+    validate_project_target,
+)
 
 __all__ = ["ClaudeCodeBackend"]
 
 # Overlay-name validation (kebab-case), lifted verbatim from ``composer._KEBAB_RE``.
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
-# The backend reads its OWN capability descriptor (a JSON data file, not an
-# ``ir/*`` module import — module-boundaries hold). Every capability present in
-# the IR is enumerated in the lock's ``degradation_report`` with its status from
-# this descriptor (REQ-032/033/037).
+# Backend-owned capability metadata for the lock's degradation report.
 _DESCRIPTOR_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "capabilities", "claude_code.json"
 )
 
 
-# ---------------------------------------------------------------------------
 # Contribution rendering (lifted verbatim from composer._render_contribution)
-# ---------------------------------------------------------------------------
 
 def _resolve_content_file(overlay_path: str, content_file: str) -> str:
-    """Read and return content of a referenced file from the overlay directory.
-
-    The caller is responsible for path-containment validation (done during
-    the manifest validation phase).
-    """
+    """Read and return content of a referenced file from the overlay directory."""
     full = os.path.join(overlay_path, content_file)
     with open(full, "r", encoding="utf-8") as fh:
         return fh.read()
@@ -174,16 +134,13 @@ def _render_contribution(
     return f"- [{contribution_type}] (from {overlay_name}): unsupported contribution type"
 
 
-# ---------------------------------------------------------------------------
 # Composed CLAUDE.md generation (lifted verbatim)
-# ---------------------------------------------------------------------------
 
 # Section heading patterns in the base CLAUDE.md.
 _SECTION_RE = re.compile(r"^## (.+)$")
 _GATE_LINE_RE = re.compile(r"^- Gate (\d+) ")
 
-# Contribution type suffixes that are deferred (declared but not applied
-# in Phase 1).
+# Contribution types declared but not applied by this backend.
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
 
@@ -193,19 +150,7 @@ def _generate_claude_md(
     overlays: list,
     timestamp: str = "",
 ) -> Tuple[str, Dict[str, int]]:
-    """Produce a composed CLAUDE.md from the base content and ordered contributions.
-
-    Args:
-        base_claude_md: Full text of the base CLAUDE.md.
-        ordered_contributions: Dict mapping ``(type_path, target_key)``
-            to a list of ``(overlay_name, contribution_dict, overlay_path)``
-            tuples, already topologically sorted.
-        overlays: List of ``(overlay_name, overlay_version, overlay_path)``
-            tuples for the header.
-
-    Returns:
-        Tuple of (composed CLAUDE.md text, deferred contributions dict).
-    """
+    """Produce a composed CLAUDE.md from the base content and ordered contributions."""
     lines = base_claude_md.split("\n")
 
     # --- Locate section boundaries ---
@@ -290,17 +235,8 @@ def _generate_claude_md(
     out.append("<!-- Re-compose with: /system2:compose -->")
     out.append("")
 
-    # Determine insertion point indices.
-    # Strategy: walk through sections and emit content in order, inserting
-    # overlay blocks at the right positions.
-
-    # Insertion points for inline overlay content:
-    # 1. After "Operating principles" section content → principles
-    # 2. Inside "Gate checklist" → consultations after gate lines
-    # 3. End of "Delegation contract" → advisory sources
-    # All other overlay sections (agent augmentation, spec augmentation,
-    # auxiliary agents, MCP, permissions) are appended at EOF after all
-    # base content including safety blocks.
+    # Insert principles, consultations, and advisory sources in their base sections.
+    # Append all other overlay sections after the base content.
 
     # Process line by line
     i = 0
@@ -336,7 +272,7 @@ def _generate_claude_md(
                     # Insert consultations for this gate
                     if gate_num in gate_consultations:
                         consultations = gate_consultations[gate_num]
-                        # Group by phase
+                        # Group related consultation entries.
                         pre_deleg = [
                             (n, c, p) for n, c, p in consultations
                             if c.get("phase", "pre-delegation") == "pre-delegation"
@@ -514,19 +450,13 @@ def _insert_overlay_sections(
         out.append("")
 
 
-# ---------------------------------------------------------------------------
 # Content copying (lifted verbatim)
-# ---------------------------------------------------------------------------
 
 def _collect_content_files(
     manifest: dict,
     valid_anchors_by_agent: Optional[Dict[str, List[str]]] = None,
 ) -> List[str]:
-    """Extract content_file and agent_file paths from a manifest.
-
-    If *valid_anchors_by_agent* is provided, prompt_section contributions
-    targeting unknown anchors are excluded (matching the composition filter).
-    """
+    """Extract content_file and agent_file paths from a manifest."""
     files: List[str] = []
     contribs = manifest.get("contributions", {})
 
@@ -572,16 +502,7 @@ def _collect_applied_content_files(
     out: List[str],
     valid_anchors_by_agent: Optional[Dict[str, List[str]]] = None,
 ) -> None:
-    """Collect content_file/agent_file paths only for applied contributions.
-
-    Lifted verbatim from ``composer._collect_applied_content_files``: everything
-    except ``agents.*.prompt_sections`` is always applied; prompt_sections to an
-    unknown anchor are skipped when *valid_anchors_by_agent* is provided — the same
-    anchor-identity filter the front-end already applied to the contribution index.
-    This is the fingerprint collector (it descends orchestrator/delegation/spec/
-    auxiliary/mcp/permissions AND each agent's tools/hooks), distinct from the
-    rendering-time ``_collect_content_files`` the content copy uses.
-    """
+    """Collect content_file/agent_file paths only for applied contributions."""
     contribs = manifest.get("contributions", {})
 
     for key in ("orchestrator", "delegation", "spec"):
@@ -611,16 +532,7 @@ def _copy_overlay_content(
     target_dir: str,
     valid_anchors_by_agent: Optional[Dict[str, List[str]]] = None,
 ) -> str:
-    """Copy content_file and agent_file references into *target_dir*.
-
-    Preserves directory structure relative to the overlay root.
-    If *valid_anchors_by_agent* is provided, only copies files for
-    contributions targeting valid anchors.
-
-    Returns:
-        content_hash (``sha256:<hex>``) computed over all copied file
-        contents concatenated in sorted relative-path order.
-    """
+    """Copy content_file and agent_file references into *target_dir*."""
     content_files = _collect_content_files(manifest, valid_anchors_by_agent)
 
     for rel_path in content_files:
@@ -641,27 +553,12 @@ def _copy_overlay_content(
     return f"sha256:{hasher.hexdigest()}"
 
 
-# ---------------------------------------------------------------------------
 # Lock file generation (lifted verbatim)
-# ---------------------------------------------------------------------------
 
 def _build_degradation_report(
     ir: System2Graph, descriptor_path: str = _DESCRIPTOR_PATH
 ) -> dict:
-    """Build the lock's ``degradation_report`` from the IR + the backend descriptor.
-
-    Reads ``backends/capabilities/claude_code.json`` (the backend's OWN descriptor;
-    a JSON data file, not an ``ir/*`` import) and enumerates EVERY intent capability
-    present in the IR with its per-capability ``status`` / ``mechanism`` from the
-    descriptor. "Present in the IR" is the union of ``ir.capabilities.by_agent``
-    values. No IR capability may be absent from the report (REQ-033 no-silent-drop):
-    a capability in the IR but missing from the descriptor raises, never silently
-    drops. Capability order follows the descriptor (deterministic).
-
-    The report is purely additive: it is appended LAST to the lock and feeds neither
-    the content fingerprint nor the ``composed_at`` reuse (those are computed over
-    inputs in ``_compute_idempotency``), so idempotency is unaffected (REQ-035).
-    """
+    """Build the lock's ``degradation_report`` from the IR + the backend descriptor."""
     with open(descriptor_path, "r", encoding="utf-8") as fh:
         descriptor = json.load(fh)
 
@@ -685,13 +582,7 @@ def _generate_lock(
     content_fingerprint: str = "",
     degradation_report: Optional[dict] = None,
 ) -> dict:
-    """Generate the lock file structure per spec/design.md schema.
-
-    Key insertion order is load-bearing for byte-identity (REQ-019): preserved
-    exactly as the oracle constructs the dict. The Phase-2 ``degradation_report``
-    is appended LAST (REQ-032/035) so every prior key's bytes are unchanged; it is
-    omitted entirely when not supplied (preserving the Phase-1 prefix exactly).
-    """
+    """Generate the stable Claude lock structure."""
 
     lock = {
         "composed_at": timestamp,
@@ -707,9 +598,7 @@ def _generate_lock(
     return lock
 
 
-# ---------------------------------------------------------------------------
 # Atomic write/restore (lifted verbatim)
-# ---------------------------------------------------------------------------
 
 def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
     """Create directory and all parents, recording every newly created level."""
@@ -730,6 +619,66 @@ def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
         dirs_created.append(d)
 
 
+def _default_file_mode(existing_path: Optional[str] = None) -> int:
+    """Return the mode a regenerated file should have."""
+    if existing_path is not None and os.path.exists(existing_path):
+        return os.stat(existing_path).st_mode & 0o777
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
+def _validate_lock_deletion_targets(
+    project_path: str, lock_data: object
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Validate all untrusted Claude lock selectors before path construction."""
+    if not isinstance(lock_data, dict):
+        raise ValueError("Claude lock must be an object")
+
+    overlays = lock_data.get("overlays")
+    if not isinstance(overlays, list):
+        raise ValueError("Claude lock 'overlays' must be a list")
+
+    overlay_names: List[str] = []
+    for overlay in overlays:
+        if not isinstance(overlay, dict):
+            raise ValueError("Claude lock overlay entries must be objects")
+        name = overlay.get("name")
+        if not isinstance(name, str) or not _KEBAB_RE.fullmatch(name):
+            raise ValueError(
+                f"Claude lock contains invalid overlay name: {name!r}"
+            )
+        overlay_names.append(name)
+
+    contributions = lock_data.get("contributions_applied")
+    if not isinstance(contributions, dict):
+        raise ValueError("Claude lock 'contributions_applied' must be an object")
+    auxiliary_agents = contributions.get("auxiliary_agents", [])
+    if not isinstance(auxiliary_agents, list):
+        raise ValueError(
+            "Claude lock 'contributions_applied.auxiliary_agents' must be a list"
+        )
+    for name in auxiliary_agents:
+        if not isinstance(name, str) or not _KEBAB_RE.fullmatch(name):
+            raise ValueError(
+                f"Claude lock contains invalid auxiliary agent name: {name!r}"
+            )
+
+    overlay_targets = {
+        name: validate_project_target(
+            project_path, f".system2/overlays/{name}"
+        )
+        for name in overlay_names
+    }
+    agent_targets = {
+        name: validate_project_target(
+            project_path, f".claude/agents/{name}.md"
+        )
+        for name in auxiliary_agents
+    }
+    return overlay_targets, agent_targets
+
+
 def _write_outputs(
     project_path: str,
     claude_md: str,
@@ -739,18 +688,7 @@ def _write_outputs(
     overlay_info_for_lock: Optional[List[dict]] = None,
     valid_anchors_by_agent: Optional[Dict[str, List[str]]] = None,
 ) -> List[str]:
-    """Write composed artifacts atomically.
-
-    Uses temp file + os.replace() for each file. Backs up existing files
-    and overlay directories before writing. On failure, restores all
-    backups and removes newly created files/directories.
-
-    Returns:
-        List of absolute paths of files written.
-
-    Raises:
-        OSError: If any write fails (after restoring backups).
-    """
+    """Write composed artifacts atomically."""
     if pending_content_copies is None:
         pending_content_copies = []
     if overlay_info_for_lock is None:
@@ -775,7 +713,7 @@ def _write_outputs(
         dst_file = os.path.join(agents_dir, f"{agent_name}.md")
         binary_copies.append((src_file, dst_file))
 
-    # Phase 0: Identify stale artifacts from previous composition.
+    # Identify stale artifacts from previous composition.
     stale_agents: List[str] = []
     stale_overlay_dirs: List[str] = []
     prev_lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
@@ -784,34 +722,33 @@ def _write_outputs(
             with open(prev_lock_path, "r", encoding="utf-8") as fh:
                 prev_lock = json.load(fh)
         except (OSError, json.JSONDecodeError):
-            prev_lock = {}
+            prev_lock = None
 
-        current_overlay_names = {info["name"] for info in auxiliary_agents}
+        if prev_lock is None:
+            previous_overlays: Dict[str, str] = {}
+            previous_agents: Dict[str, str] = {}
+        else:
+            previous_overlays, previous_agents = _validate_lock_deletion_targets(
+                project_path, prev_lock
+            )
         current_overlay_dir_names = {
             name for _, name, _ in pending_content_copies
         }
 
-        for prev_ov in prev_lock.get("overlays", []):
-            prev_name = prev_ov.get("name", "")
-            if prev_name not in current_overlay_dir_names:
-                prev_dir = os.path.join(
-                    project_path, ".system2", "overlays", prev_name
-                )
-                if os.path.isdir(prev_dir):
-                    stale_overlay_dirs.append(prev_dir)
+        for prev_name, prev_dir in previous_overlays.items():
+            if (
+                prev_name not in current_overlay_dir_names
+                and os.path.isdir(prev_dir)
+            ):
+                stale_overlay_dirs.append(prev_dir)
 
-        prev_aux_names = set()
-        for prev_id in prev_lock.get("contributions_applied", {}).get("auxiliary_agents", []):
-            prev_aux_names.add(prev_id)
         current_aux_names = {a["name"] for a in auxiliary_agents}
-        for prev_name in prev_aux_names - current_aux_names:
-            prev_agent = os.path.join(
-                project_path, ".claude", "agents", f"{prev_name}.md"
-            )
+        for prev_name in set(previous_agents) - current_aux_names:
+            prev_agent = previous_agents[prev_name]
             if os.path.isfile(prev_agent):
                 stale_agents.append(prev_agent)
 
-    # Phase 1: Back up existing files and overlay directories.
+    # Back up existing files and overlay directories.
     backups: List[Tuple[str, str]] = []  # (original_path, backup_path)
     dir_backups: List[Tuple[str, str]] = []  # (original_dir, backup_dir)
     newly_created: List[str] = []
@@ -843,7 +780,7 @@ def _write_outputs(
             shutil.copytree(overlay_dir, backup_dir)
             dir_backups.append((overlay_dir, backup_dir))
 
-    # Phase 2: All writes inside a single try block for rollback.
+    # Keep all writes inside the rollback boundary.
     written: List[str] = []
     dirs_created: List[str] = []
     stale_backups: List[Tuple[str, str]] = []
@@ -915,6 +852,7 @@ def _write_outputs(
 
         # Update lock with final content hashes.
         lock["overlays"] = overlay_info_for_lock
+        lock.setdefault("contributions_applied", {})
         lock_content = json.dumps(lock, indent=2) + "\n"
         for i, (path, _) in enumerate(files_to_write):
             if path.endswith("overlay-manifest.lock"):
@@ -929,6 +867,8 @@ def _write_outputs(
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
+                # Apply the final mode because mkstemp creates files as 0600.
+                os.chmod(tmp_path, _default_file_mode(file_path))
                 os.replace(tmp_path, file_path)
             except Exception:
                 if os.path.exists(tmp_path):
@@ -957,7 +897,7 @@ def _write_outputs(
             written.append(dst_file)
 
     except Exception:
-        # Phase 3: Restore backups and remove newly created files/dirs.
+        # Restore backups and remove newly created paths.
         for original_path, backup_path in backups:
             if os.path.exists(backup_path):
                 shutil.copy2(backup_path, original_path)
@@ -988,7 +928,7 @@ def _write_outputs(
                 shutil.move(bak, orig)
         raise
 
-    # Phase 4: Success — clean up backups.
+    # The write succeeded; clean up backups.
     # must not fail composition since new artifacts are already written.
     for _, backup_path in backups:
         try:
@@ -1018,18 +958,10 @@ def _write_outputs(
     return written
 
 
-# ---------------------------------------------------------------------------
 # IR -> Claude lowering driver
-# ---------------------------------------------------------------------------
 
 def _ordered_from_ir(ir: System2Graph) -> dict:
-    """Reconstruct the oracle's ``ordered`` dict from the IR's ordered contributions.
-
-    The oracle keyed ``ordered`` by ``(type_path, target)`` -> list of
-    ``(overlay_name, contrib_dict, overlay_path)`` triples; the IR carries the same
-    keys with already-sorted ``Contribution`` records. This re-materializes the exact
-    triples ``_generate_claude_md`` consumes — no re-sorting, no re-filtering.
-    """
+    """Reconstruct the oracle's ``ordered`` dict from the IR's ordered contributions."""
     ordered: dict = {}
     for key, records in ir.contributions.scopes.items():
         ordered[key] = [
@@ -1039,13 +971,7 @@ def _ordered_from_ir(ir: System2Graph) -> dict:
 
 
 def _contributions_applied_from_ir(ir: System2Graph) -> Dict[str, List[str]]:
-    """Reconstruct ``contributions_applied`` (lock) from the IR ordered contributions.
-
-    Mirrors the oracle's id collection: skip deferred suffixes; per non-deferred
-    scope collect ``id`` | ``name`` | ``tool`` per contribution; include the scope
-    only when at least one id is present. Iteration follows the IR's scope order,
-    which the front-end built in the same insertion order the oracle used.
-    """
+    """Reconstruct ``contributions_applied`` (lock) from the IR ordered contributions."""
     contributions_applied: Dict[str, List[str]] = {}
     for (type_path, _target), records in ir.contributions.scopes.items():
         is_deferred = any(type_path.endswith(s) for s in _DEFERRED_SUFFIXES)
@@ -1072,17 +998,7 @@ def _compute_idempotency(
     overlay_info_for_lock: List[dict],
     project_path: str,
 ) -> Tuple[str, str]:
-    """Compute (content_fingerprint, composed_at) exactly as the oracle does.
-
-    Fingerprint = sha256 over system2_version + base template + per-overlay
-    (manifest_hash + applied content-file bytes in sorted order). ``composed_at``
-    reuses the prior lock's timestamp when the fingerprint matches, else a fresh
-    UTC timestamp. Applied content files come from the IR's overlay manifests via
-    the oracle's anchor-aware ``_collect_applied_content_files``, driven by the IR
-    anchor table (``ir.anchors.anchors_by_agent()``) so a prompt_sections
-    contribution to an unknown anchor is excluded from the fingerprint exactly as
-    the oracle excludes it (it is not applied, not copied, not hashed).
-    """
+    """Compute (content_fingerprint, composed_at) exactly as the oracle does."""
     valid_anchors_by_agent = ir.anchors.anchors_by_agent()
     fp_hasher = hashlib.sha256()
     fp_hasher.update(ir.system2_version.encode())
@@ -1112,7 +1028,10 @@ def _compute_idempotency(
         try:
             with open(prev_lock_path, "r", encoding="utf-8") as fh:
                 prev_lock = json.load(fh)
-            if prev_lock.get("content_fingerprint") == content_fingerprint:
+            if (
+                isinstance(prev_lock, dict)
+                and prev_lock.get("content_fingerprint") == content_fingerprint
+            ):
                 composition_timestamp = prev_lock.get("composed_at", "")
         except (OSError, json.JSONDecodeError):
             pass
@@ -1124,16 +1043,10 @@ def _compute_idempotency(
     return content_fingerprint, composition_timestamp
 
 
-# ---------------------------------------------------------------------------
-# Lifecycle helpers (Phase 5: ported verbatim from composer.py)
-# ---------------------------------------------------------------------------
+# Lifecycle helpers ported from composer.py
 
 def _read_base_template(init_skill_path: str, fallback_path: str) -> str:
-    """Read the base System2 CLAUDE.md template (lifted ``composer._read_base_template``).
-
-    Tries the init skill template block first, then falls back to a plain file read
-    of *fallback_path*. Returns the empty string when both fail.
-    """
+    """Read the base System2 CLAUDE.md template (lifted ``composer._read_base_template``)."""
     base_claude_md = ""
 
     if os.path.isfile(init_skill_path):
@@ -1178,24 +1091,14 @@ def _get_system2_version(base_path: str) -> str:
 
 
 def _read_manifest(overlay_path: str) -> dict:
-    """Read ``system2.overlay.json`` from *overlay_path* (lifted ``composer._read_manifest``).
-
-    A plain stdlib ``json.load`` of a fixed-named file, not an ``ir/*`` loader import:
-    the backend already reads this file by the same path in ``emit`` (module-boundaries
-    hold — no manifest/anchor-map module is imported).
-    """
+    """Read ``system2.overlay.json`` from *overlay_path* (lifted ``composer._read_manifest``)."""
     manifest_file = os.path.join(overlay_path, "system2.overlay.json")
     with open(manifest_file, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
 def _load_anchor_map(base_path: str) -> dict:
-    """Read ``schemas/anchor-map.json`` (lifted ``composer._load_anchor_map``).
-
-    A plain stdlib JSON read of a fixed path under *base_path*, not the ``ir.anchors``
-    builder import. The doctor content-hash recompute uses it exactly as the oracle
-    does (to derive the per-agent valid-anchor set the content collector filters on).
-    """
+    """Read ``schemas/anchor-map.json`` (lifted ``composer._load_anchor_map``)."""
     with open(
         os.path.join(base_path, "schemas", "anchor-map.json"), "r", encoding="utf-8"
     ) as fh:
@@ -1205,50 +1108,33 @@ def _load_anchor_map(base_path: str) -> dict:
 def _compute_stale_artifacts(
     project_path: str, overlay_name: str, lock_data: dict
 ) -> List[str]:
-    """Return absolute paths of artifacts to remove for *overlay_name*.
-
-    Lifted verbatim from ``composer._compute_stale_artifacts``: inspects the overlay's
-    cached content dir and the lock's ``contributions_applied.auxiliary_agents`` to
-    determine which files/dirs belong to the target overlay. Only existing paths are
-    included.
-    """
-    if not _KEBAB_RE.match(overlay_name):
-        return []
+    """Return validated absolute artifacts to remove for *overlay_name*."""
+    overlay_targets, agent_targets = _validate_lock_deletion_targets(
+        project_path, lock_data
+    )
+    if overlay_name not in overlay_targets:
+        raise ValueError(
+            f"Claude lock does not contain overlay selector: {overlay_name!r}"
+        )
 
     stale: List[str] = []
-
-    overlay_dir = os.path.join(
-        project_path, ".system2", "overlays", overlay_name
-    )
+    overlay_dir = overlay_targets[overlay_name]
     if os.path.isdir(overlay_dir):
         stale.append(overlay_dir)
 
-    aux_names = (
-        lock_data
-        .get("contributions_applied", {})
-        .get("auxiliary_agents", [])
-    )
-    agents_dir = os.path.join(project_path, ".claude", "agents")
-    for agent_name in aux_names:
-        if not isinstance(agent_name, str) or not _KEBAB_RE.match(agent_name):
-            continue
-        cached_agent = os.path.join(overlay_dir, "agents", f"{agent_name}.md")
-        if os.path.isfile(cached_agent):
-            deployed_agent = os.path.join(agents_dir, f"{agent_name}.md")
-            if os.path.isfile(deployed_agent):
-                stale.append(deployed_agent)
+    for agent_name, deployed_agent in agent_targets.items():
+        cached_agent = validate_project_target(
+            project_path,
+            f".system2/overlays/{overlay_name}/agents/{agent_name}.md",
+        )
+        if os.path.isfile(cached_agent) and os.path.isfile(deployed_agent):
+            stale.append(deployed_agent)
 
     return stale
 
 
 def _drift_check(base_path: str, project_path: str) -> dict:
-    """Read-only drift/status check (lifted verbatim from ``composer.drift_check``).
-
-    Compares the current installed state against the lock without modifying any
-    files. Returns the oracle's ``{status, details, system2_version, overlays,
-    claude_md_composed}`` dict; ``status`` is one of ``current`` / ``stale_base`` /
-    ``stale_overlay`` / ``broken`` / ``no_lock``.
-    """
+    """Read-only drift/status check (lifted verbatim from ``composer.drift_check``)."""
     lock_path = os.path.join(project_path, "spec", "overlay-manifest.lock")
     claude_md_path = os.path.join(project_path, "CLAUDE.md")
 
@@ -1443,10 +1329,7 @@ def _drift_check(base_path: str, project_path: str) -> dict:
 
         overlay_statuses.append(ov_status)
 
-    # Advisory (security F-P5-1): lock sources resolving OUTSIDE the project dir.
-    # Off by default so the frozen claude-doctor CLI contract stays byte-identical
-    # (the contract's reused fixture source is legitimately out-of-tree); opt in via
-    # SYSTEM2_DOCTOR_ADVISORIES=1. Informational only — never changes status/exit.
+    # Optional source-path advisory; it never changes status or exit code.
     if os.environ.get("SYSTEM2_DOCTOR_ADVISORIES") == "1":
         lock_sources = [ov.get("source_path", "") for ov in lock.get("overlays", [])]
         details.extend(lock_sources_outside_project(lock_sources, project_path))
@@ -1470,23 +1353,7 @@ def _drift_check(base_path: str, project_path: str) -> dict:
 
 
 class ClaudeCodeBackend:
-    """Project a ``System2Graph`` onto Claude Code artifacts (the only backend).
-
-    ``emit`` reproduces the oracle's compose-tail + write byte-for-byte: the
-    composed CLAUDE.md, the ``spec/overlay-manifest.lock``, the auxiliary agent
-    files, and the ``.system2/overlays/<name>/`` content copies. When the IR carries
-    a ``dry_run`` intent (``getattr(ir, "dry_run", False)``) it computes the
-    would-write set without touching the filesystem.
-
-    The Phase 5 lifecycle methods (``uninstall`` / ``doctor`` /
-    ``recompose_from_lock``) port ``composer._uninstall`` / ``drift_check`` / the
-    ``--from-lock`` path byte-faithfully. They need the System2 plugin root
-    (``base_path``, for the base template + version + anchor map) and a
-    ``compose_fn`` to recompose the remaining/lock overlay set (the CLI passes
-    ``ir.compose``); both are supplied to the constructor so the backend imports no
-    ``ir/*`` loader (module-boundaries hold — ``emit`` is fully IR-driven and needs
-    neither).
-    """
+    """Project a ``System2Graph`` onto Claude Code artifacts (the only backend)."""
 
     name = "claude-code"
 
@@ -1499,9 +1366,16 @@ class ClaudeCodeBackend:
         self._compose_fn = compose_fn
 
     def emit(self, ir: System2Graph, project_path: str) -> List[str]:
-        # Defense-in-depth (REQ-020): never write into an overlay source tree. The
-        # front-end already refuses project_path inside the plugin base; the backend
-        # re-guards against the overlay dirs it can see on the IR.
+        return self._emit_graph(ir, project_path, dry_run=False)
+
+    def plan(self, ir: System2Graph, project_path: str) -> List[str]:
+        """Return the Claude write plan without mutating the project."""
+        return self._emit_graph(ir, project_path, dry_run=True)
+
+    def _emit_graph(
+        self, ir: System2Graph, project_path: str, *, dry_run: bool
+    ) -> List[str]:
+        # Recheck that output cannot overwrite an overlay source tree.
         real_project = os.path.realpath(project_path)
         for oi in ir.overlay_inputs:
             if not oi.source_path:
@@ -1513,11 +1387,11 @@ class ClaudeCodeBackend:
                     f"{oi.source_path!r}; refusing to write into an overlay tree"
                 )
 
-        # 1. Per-overlay lock metadata, in front-end (validated_manifests) order.
+        # Prepare per-overlay lock metadata in front-end order.
         overlay_info_for_lock: List[dict] = []
         pending_content_copies: List[Tuple[str, str, dict]] = []
         overlay_local_paths: Dict[str, str] = {}
-        dry_run = bool(getattr(ir, "dry_run", False))
+        dry_run = dry_run or bool(getattr(ir, "dry_run", False))
 
         for oi in ir.overlay_inputs:
             manifest = oi.manifest
@@ -1548,12 +1422,12 @@ class ClaudeCodeBackend:
                 "content_hash": "",
             })
 
-        # 2. Idempotency: content fingerprint + composed_at reuse.
+        # Reuse composed_at when the content fingerprint is unchanged.
         content_fingerprint, timestamp = _compute_idempotency(
             ir, overlay_info_for_lock, project_path
         )
 
-        # 3. Ordered contributions + applied-id map (from the IR).
+        # Read ordered contributions and their applied identifiers.
         ordered = _ordered_from_ir(ir)
         contributions_applied = _contributions_applied_from_ir(ir)
 
@@ -1566,14 +1440,12 @@ class ClaudeCodeBackend:
             for oi in ir.overlay_inputs
         ]
 
-        # 4. Composed CLAUDE.md.
+        # Render CLAUDE.md.
         composed_claude_md, _deferred = _generate_claude_md(
             ir.base_template.text, ordered, overlay_info, timestamp=timestamp,
         )
 
-        # 5. Lock file (warnings = semantic tensions, as the oracle does). The
-        # additive degradation_report is appended LAST (REQ-032/035): it preserves
-        # every prior key's bytes and does not feed the fingerprint/composed_at.
+        # Append degradation_report without affecting the content fingerprint.
         warnings_for_lock = list(ir.warnings.semantic_tensions)
         lock = _generate_lock(
             overlay_info_for_lock,
@@ -1585,7 +1457,7 @@ class ClaudeCodeBackend:
             degradation_report=_build_degradation_report(ir),
         )
 
-        # 6. Auxiliary agents.
+        # Collect auxiliary agents.
         auxiliary_agents: List[dict] = []
         for oi in ir.overlay_inputs:
             name = oi.manifest.get("name", "<unknown>")
@@ -1616,7 +1488,7 @@ class ClaudeCodeBackend:
                 files_to_write.append(f"{overlay_dir}/ (overlay content)")
             return files_to_write
 
-        # 7. Atomic write.
+        # Commit all artifacts atomically.
         written = _write_outputs(
             project_path,
             composed_claude_md,
@@ -1628,22 +1500,14 @@ class ClaudeCodeBackend:
         )
         return written
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: lock helpers
-    # -----------------------------------------------------------------------
+    # Lock helpers
 
     def lock_path(self, project_path: str) -> str:
         """The Claude target lock artifact: ``spec/overlay-manifest.lock``."""
         return os.path.join(project_path, "spec", "overlay-manifest.lock")
 
     def read_lock_overlay_sources(self, project_path: str) -> List[str]:
-        """Read the applied overlays' ``source_path`` set from the lock.
-
-        Mirrors the oracle's ``--from-lock`` resolution (~L4098): each overlay's
-        ``source_path``, skipping empties. Raises ``FileNotFoundError`` when the lock
-        is absent and ``json.JSONDecodeError`` when it is malformed (the CLI maps
-        these to the oracle's exact refusals).
-        """
+        """Read the applied overlays' ``source_path`` set from the lock."""
         lp = self.lock_path(project_path)
         if not os.path.isfile(lp):
             raise FileNotFoundError(lp)
@@ -1655,19 +1519,10 @@ class ClaudeCodeBackend:
             if ov.get("source_path")
         ]
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: doctor (ported from composer.drift_check)
-    # -----------------------------------------------------------------------
+    # Drift reporting
 
     def doctor(self, project_path: str) -> DoctorReport:
-        """Read-only drift/status report (ports ``composer.drift_check``).
-
-        Produces the exact ``status`` / ``details`` / ``system2_version`` /
-        ``overlays`` / ``composed`` the oracle does, plus the exit-code rule (0 when
-        ``current`` else 1). claude-code has no external validator, so
-        ``validator_available`` is always ``True`` (never a silent-validator-absent
-        downgrade — that ethic is the goose/pi concern).
-        """
+        """Read-only drift/status report (ports ``composer.drift_check``)."""
         base_path = self._require_base_path("doctor")
         result = _drift_check(base_path, project_path)
         status = result["status"]
@@ -1681,27 +1536,15 @@ class ClaudeCodeBackend:
             validator_available=True,
         )
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: recompose from lock (ported from the --from-lock path)
-    # -----------------------------------------------------------------------
+    # Lock-based recomposition
 
     def recompose_from_lock(
         self, ir: System2Graph, project_path: str, *, dry_run: bool = False
     ) -> List[str]:
-        """Re-emit from a recomposed IR (ports the ``--from-lock`` recompose path).
-
-        The CLI reads the lock's overlay ``source_path`` set via
-        ``read_lock_overlay_sources``, recomposes via ``ir.compose`` over those
-        sources, and passes the resulting graph here; this method simply re-emits it
-        (byte-identical to ``compose --from-lock`` because it is the same
-        compose->emit path). ``dry_run`` is carried on the IR by the front-end; the
-        ``emit`` would-write set is returned without writing.
-        """
+        """Re-emit from a recomposed IR (ports the ``--from-lock`` recompose path)."""
         return self.emit(ir, project_path)
 
-    # -----------------------------------------------------------------------
-    # Phase 5 lifecycle: uninstall (ports composer._uninstall + last-overlay)
-    # -----------------------------------------------------------------------
+    # Uninstall
 
     def uninstall(
         self,
@@ -1711,20 +1554,7 @@ class ClaudeCodeBackend:
         dry_run: bool = False,
         allow_newer_schema: bool = False,
     ) -> UninstallResult:
-        """Remove a named overlay (ports ``composer._uninstall``).
-
-        Validates the kebab-case name, reads ``spec/overlay-manifest.lock``, refuses
-        on malformed lock / missing name / not-installed (with the exact
-        installed-list message), and dispatches: on >=1 remaining -> recompose the
-        remaining ``source_path`` set via ``compose_fn`` then ``emit`` (REQ-014
-        byte-identity holds — same compose->emit path); on 0 remaining -> revert
-        ``CLAUDE.md`` to the base template, remove the lock + stale artifacts, clean
-        the empty ``.system2/overlays/`` dir, all under the atomic backup/restore
-        (REQ-044). ``allow_newer_schema`` is threaded into the remaining-set recompose
-        (matching the oracle's ``_uninstall`` -> ``compose`` forwarding), so a
-        remaining overlay declaring a newer schema is accepted exactly as it would be
-        on a direct compose. Returns the neutral ``UninstallResult`` the CLI renders.
-        """
+        """Remove a named overlay (ports ``composer._uninstall``)."""
         base_path = self._require_base_path("uninstall")
 
         def _err(errors: List[str]) -> UninstallResult:
@@ -1753,17 +1583,14 @@ class ClaudeCodeBackend:
         except OSError as exc:
             return _err([f"Cannot read lock file: {exc}"])
 
-        # 3. Validate lock structure.
-        overlays = lock_data.get("overlays", [])
-        if not isinstance(overlays, list):
-            return _err(["Lock file is malformed: 'overlays' is not a list"])
+        # 3. Validate every deletion selector before backup, write, or removal.
+        try:
+            _validate_lock_deletion_targets(project_path, lock_data)
+        except ValueError as exc:
+            return _err([f"Lock file is malformed: {exc}"])
+        overlays = lock_data["overlays"]
 
-        # 4. Validate each overlay entry has required fields.
-        for ov in overlays:
-            if not isinstance(ov, dict) or "name" not in ov:
-                return _err(["Lock file overlay entry missing 'name' field"])
-
-        # 5. Find and remove the target overlay.
+        # 4. Find and remove the target overlay.
         target_entry = None
         remaining = []
         for ov in overlays:
@@ -1779,22 +1606,15 @@ class ClaudeCodeBackend:
                 f"Installed: {installed}"
             ])
 
-        # 6. Validate remaining overlay names (security).
-        for ov in remaining:
-            if not _KEBAB_RE.match(ov.get("name", "")):
-                return _err([
-                    f"Lock file contains invalid overlay name: {ov.get('name')!r}"
-                ])
-
         target_version = target_entry.get("version", "unknown")
 
-        # 7. Dispatch based on remaining count.
+        # 5. Dispatch based on remaining count.
         if len(remaining) == 0:
             return self._uninstall_last_overlay(
                 base_path, project_path, target_entry, lock_data, dry_run,
             )
 
-        # 8. Multi-overlay path: extract source_paths, recompose, emit.
+        # 6. Multi-overlay path: extract source_paths, recompose, emit.
         remaining_paths = []
         for ov in remaining:
             sp = ov.get("source_path", "")
@@ -1810,9 +1630,12 @@ class ClaudeCodeBackend:
             allow_newer_schema=allow_newer_schema,
         )
 
-        artifacts_removed = _compute_stale_artifacts(
-            project_path, overlay_name, lock_data,
-        )
+        try:
+            artifacts_removed = _compute_stale_artifacts(
+                project_path, overlay_name, lock_data,
+            )
+        except ValueError as exc:
+            return _err([f"Lock file is malformed: {exc}"])
         remaining_meta = [
             {"name": ov["name"], "version": ov.get("version", "")}
             for ov in remaining
@@ -1866,12 +1689,7 @@ class ClaudeCodeBackend:
         lock_data: dict,
         dry_run: bool,
     ) -> UninstallResult:
-        """Handle uninstall when zero overlays remain (ports ``_uninstall_last_overlay``).
-
-        Reverts ``CLAUDE.md`` to the base template, removes the lock + stale
-        artifacts, and cleans the empty ``.system2/overlays/`` dir, all under a
-        try/except that restores backups on any failure.
-        """
+        """Handle uninstall when zero overlays remain (ports ``_uninstall_last_overlay``)."""
         overlay_name = overlay_entry["name"]
         overlay_version = overlay_entry.get("version", "unknown")
 
@@ -1891,9 +1709,16 @@ class ClaudeCodeBackend:
             )
 
         # 2. Compute artifacts to remove.
-        artifacts_to_remove = _compute_stale_artifacts(
-            project_path, overlay_name, lock_data
-        )
+        try:
+            artifacts_to_remove = _compute_stale_artifacts(
+                project_path, overlay_name, lock_data
+            )
+        except ValueError as exc:
+            return UninstallResult(
+                removed={}, remaining=[], artifacts_removed=[], files_written=[],
+                is_last_overlay=True, injection_warnings=[], preview="",
+                errors=[f"Lock file is malformed: {exc}"],
+            )
 
         files_to_write = [os.path.join(project_path, "CLAUDE.md")]
         files_to_remove = [
@@ -1975,6 +1800,8 @@ class ClaudeCodeBackend:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(base_claude_md)
+                # Apply the final mode because mkstemp creates files as 0600.
+                os.chmod(tmp_path, _default_file_mode(claude_path))
                 os.replace(tmp_path, claude_path)
             except Exception:
                 if os.path.exists(tmp_path):
@@ -2038,9 +1865,7 @@ class ClaudeCodeBackend:
             errors=[],
         )
 
-    # -----------------------------------------------------------------------
     # Lifecycle prerequisites
-    # -----------------------------------------------------------------------
 
     def _require_base_path(self, verb: str) -> str:
         if not self._base_path:

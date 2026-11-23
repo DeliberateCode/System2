@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "backend": "pi",
+  "capabilities": {
+    "enforce-lease": {
+      "status": "advisory",
+      "mechanism": "Role skills state the intended write scope. Pi's active tools, project trust, and user configuration remain authoritative."
+    },
+    "block-dangerous": {
+      "status": "advisory",
+      "mechanism": "System2 skills tell the agent to avoid destructive commands; Pi applies the user's active tools and extension policy."
+    },
+    "protect-sensitive": {
+      "status": "advisory",
+      "mechanism": "System2 skills tell the agent to avoid secrets and sensitive paths unless the user explicitly requests access."
+    },
+    "format": {
+      "status": "advisory",
+      "mechanism": "Role skills require formatting edited files before completion."
+    },
+    "typecheck": {
+      "status": "advisory",
+      "mechanism": "Role skills require relevant type checks before completion."
+    },
+    "budget": {
+      "status": "advisory",
+      "mechanism": "Role skills require a concise completion summary with files touched and change size."
+    }
+  }
+}

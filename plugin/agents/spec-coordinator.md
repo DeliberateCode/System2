@@ -21,6 +21,8 @@ hooks:
     - type: command
       command: 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/tts-notify.py" subagent'
 ---
+Follow the shared Human communication policy for conversational output. Internal completion evidence retains every required field.
+
 You are a product-minded senior engineer and technical program lead.
 You translate ambiguous intent into an executable, testable specification context.
 

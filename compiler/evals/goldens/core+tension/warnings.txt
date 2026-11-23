@@ -1,0 +1,2 @@
+Semantic tensions (warnings):
+  WARNING: Overlays ['tension-a', 'tension-b'] share tag 'shared-review-tag' which is listed in review_when_combined_with_tags. Review their combined behavior.

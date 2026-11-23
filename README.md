@@ -1,491 +1,224 @@
-# System2 - Multi-Agent Engineering Workflows
+# System2 — Deliberate Engineering Workflows
 
-A framework for **deliberate, spec-driven, verification-first** software engineering with AI assistance.
+System2 is a **spec-driven, verification-first** workflow for software engineering with AI assistance. It is available for **Claude Code**, **Codex**, and **Pi**; all three support the same gates, roles, and project artifacts.
 
 ## What is System2?
 
-System2 provides a structured multi-agent workflow for building production-grade software. Instead of ad-hoc prompting, it coordinates specialized agents through quality gates:
+System2 replaces ad-hoc prompting with a deliberate engineering sequence:
 
-```
+```text
 Scope → Context → Requirements → Design → Tasks → Implementation → Verification → Ship
 ```
 
-The name comes from Daniel Kahneman's dual-process theory: **System 1** is fast and intuitive; **System 2** is slow and deliberate. This framework embodies System 2 thinking—analytical, verification-focused, and risk-aware.
+The name comes from Daniel Kahneman's dual-process theory: System 1 is fast and intuitive, while System 2 is slow and deliberate. This workflow emphasizes analysis, explicit decisions, verification, and risk awareness.
 
-Claude Code uses **subagents** defined as Markdown files with YAML frontmatter. The main conversation acts as the **orchestrator**, delegating specialist work to purpose-built subagents.
+An orchestrator drives the workflow and delegates specialist work to subagents. The harnesses share the workflow and role contracts, but differ in how they launch subagents and enforce constraints.
 
-## Core Concepts
+## Core workflow
 
-### Specialized Agents
+### Specialist roles
 
-| Subagent | Description | Tools |
-|----------|-------------|-------|
-| `repo-governor` | Repo survey and governance bootstrap | Read, Edit, Write, Grep, Glob, Bash |
-| `spec-coordinator` | Drafts spec/context.md | Read, Edit, Write, Grep, Glob |
-| `requirements-engineer` | Writes spec/requirements.md (EARS format) | Read, Edit, Write, Grep, Glob |
-| `design-architect` | Produces spec/design.md | Read, Edit, Write, Grep, Glob |
-| `task-planner` | Creates spec/tasks.md | Read, Edit, Write, Grep, Glob |
-| `executor` | Implements tasks with small diffs | Read, Edit, Write, Grep, Glob, Bash |
-| `test-engineer` | Runs verification, updates tests | Read, Edit, Write, Grep, Glob, Bash |
-| `security-sentinel` | Security review and threat modeling | Read, Edit, Write, Grep, Glob, Bash |
-| `eval-engineer` | Agent/LLM behavior evals | Read, Edit, Write, Grep, Glob, Bash |
-| `docs-release` | Updates docs, changelog, release notes | Read, Edit, Write, Grep, Glob |
-| `code-reviewer` | Final review for correctness | Read, Grep, Glob, Bash |
-| `postmortem-scribe` | Incident postmortems | Read, Edit, Write, Grep, Glob |
-| `mcp-toolsmith` | MCP tool design | Read, Edit, Write, Grep, Glob, Bash |
+| Role | Responsibility |
+|------|----------------|
+| `repo-governor` | Survey repository structure and establish governance constraints |
+| `spec-coordinator` | Draft `spec/context.md` |
+| `requirements-engineer` | Write testable requirements in `spec/requirements.md` |
+| `design-architect` | Produce `spec/design.md` |
+| `task-planner` | Create an ordered plan in `spec/tasks.md` |
+| `executor` | Implement approved tasks with small, reviewable changes |
+| `test-engineer` | Run verification and improve tests |
+| `security-sentinel` | Review security-sensitive changes and threat models |
+| `eval-engineer` | Evaluate agentic or model-dependent behavior |
+| `docs-release` | Update documentation, changelogs, and release notes |
+| `code-reviewer` | Review correctness, scope, and maintainability |
+| `postmortem-scribe` | Produce incident postmortems |
+| `mcp-toolsmith` | Design and review MCP tools |
 
-### Quality Gates
+The active harness controls which tools are available to these roles.
+
+### Quality gates
 
 Work progresses through explicit approval checkpoints:
 
-- **Gate 0 (Scope)**: Confirm goal, constraints, and definition of done
-- **Gate 1 (Context)**: Approve spec/context.md
-- **Gate 2 (Requirements)**: Approve spec/requirements.md
-- **Gate 3 (Design)**: Approve spec/design.md
-- **Gate 4 (Tasks)**: Approve spec/tasks.md
-- **Gate 5 (Ship)**: Approve final diff and risk checklist
+- **Gate 0 — Scope:** confirm the goal, constraints, and definition of done
+- **Gate 1 — Context:** approve `spec/context.md`
+- **Gate 2 — Requirements:** approve `spec/requirements.md`
+- **Gate 3 — Design:** approve `spec/design.md`
+- **Gate 4 — Tasks:** approve `spec/tasks.md`
+- **Gate 5 — Ship:** approve the final diff and risk checklist
 
-### Spec-Driven Artifacts
+You can ask to skip gates for lower-risk work. System2 otherwise pauses at each checkpoint.
 
-All planning produces versioned Markdown files in `/spec`:
+### Project artifacts
 
-```
+Planning produces versioned Markdown files under `spec/`:
+
+```text
 spec/
-├── context.md       # Problem, goals, constraints, success criteria
-├── requirements.md  # EARS-format testable requirements
-├── design.md        # Architecture, interfaces, failure modes
-├── tasks.md         # Atomic tasks with dependencies
-└── security.md      # Threat model (when applicable)
+├── context.md       # Problem, goals, constraints, and success criteria
+├── requirements.md  # Testable requirements
+├── design.md        # Architecture, interfaces, and failure modes
+├── tasks.md         # Ordered implementation tasks
+└── security.md      # Threat model when applicable
 ```
 
-These artifacts serve as the contract between planning and execution.
+These files form the contract between planning, implementation, and verification.
 
-## Installation
+## Choose a harness
 
-### Step 1: Add the System2 Marketplace
+All three harnesses are supported ways to run System2. Choose the one that fits your existing tools and preferred interaction model.
 
-```
+| Harness | Start command | Role execution | Host authority |
+|---------|---------------|----------------|----------------|
+| **Claude Code** | `/system2:init` | Native subagents | Claude Code permissions and plugin hooks |
+| **Codex** | `$system2:system2` | Native subagent threads | Codex sandbox, approvals, and tools |
+| **Pi** | `/system2 <task>` | Separate Pi processes via the official subagent extension | Pi tools, project trust, and configuration |
+
+Codex and Pi give specialists separate context, but System2's workflow and approval rules are instructions, not programmatic checks.
+
+### Claude Code
+
+In Claude Code, install the plugin:
+
+```text
 /plugin marketplace add DeliberateCode/System2
-```
-
-This only **registers** the System2 catalog — you'll see a confirmation that the
-marketplace was added. It does **not** install the plugin yet; that's Step 2.
-
-### Step 2: Install the Plugin
-
-Now install the `system2` plugin from the catalog you just added:
-
-```
 /plugin install system2@system2-marketplace
 ```
 
-This installs all 13 agents, hooks, allowlists, and the `/system2:init`, `/system2:compose`, and `/system2:doctor` commands.
+Restart Claude Code, open your project, and run `/system2:init` once for that project. Restart again to load the instructions, then describe your task. Have `python3` available for hooks and overlay commands. See [Claude Code installation](docs/installation/claude-code.md).
 
-```
-System2 Plugin
-├── agents/              # 13 subagent definitions
-├── skills/              # Skills (/system2:init, /system2:compose, /system2:doctor)
-├── hooks/               # Validation and quality hook scripts
-├── allowlists/          # Per-agent file restriction patterns
-├── schemas/             # Overlay manifest schema and anchor map
-├── scripts/             # Overlay composer and shared validation helpers
-└── .claude-plugin/      # Plugin identity and marketplace metadata
+### Codex
+
+```sh
+codex plugin marketplace add DeliberateCode/System2
+codex plugin add system2@system2-marketplace
 ```
 
-### Step 3: Restart Claude Code
+Restart Codex, then invoke `$system2:system2` with your task. No separate System2 setup is required. The plugin includes the compiler for overlays and profiles. See [Codex installation](docs/installation/codex.md).
 
-After installing, restart Claude Code so the new agents, hooks, and skills are loaded.
+### Pi
 
-### Step 4: Initialize CLAUDE.md
-
-In your project directory, run:
-
-```
-/system2:init
+```sh
+pi install git:github.com/DeliberateCode/System2
 ```
 
-This writes the System2 orchestrator instructions to `CLAUDE.md` in your project root.
+Use Pi 1.6.0 or newer. Restart Pi or run `/reload`, then invoke `/system2 <your task>`. The package sets up its specialist automatically and includes the compiler for overlays and profiles. See [Pi installation](docs/installation/pi.md).
 
-To overwrite an existing CLAUDE.md:
+If you used the earlier branch previews, follow the migration steps for [Codex hooks](docs/installation/codex.md#migrating-from-the-hook-based-preview) or [Pi project files](docs/installation/pi.md#migrating-projects-initialized-with-the-pi-preview) before updating.
 
-```
-/system2:init --force
-```
+## Using System2
 
-### Step 5: Restart Claude Code
+Start with a concrete engineering request:
 
-Restart Claude Code again so the new `CLAUDE.md` orchestrator instructions take effect.
-
-### Optional: Compose Overlays
-
-System2 includes an opt-in overlay mechanism for extending the base workflow without forking the plugin. Overlays are local directories with a `system2.overlay.json` manifest and referenced content files.
-
-Preview an overlay composition without writing files:
-
-```
-/system2:compose --dry-run /path/to/my-overlay
+```text
+Build email-and-password authentication with account lockout and audit logging.
 ```
 
-Apply an overlay after preview and approval:
+The orchestrator checks existing `spec/` artifacts, clarifies scope, and proposes the next gate. The parent reviews each specialist's output and asks for approval before advancing; the executor starts only after the task plan is approved (or you explicitly waive that gate).
 
-```
-/system2:compose /path/to/my-overlay
-```
+To continue an existing System2 project, including when switching harnesses, use the same checkout. Start that harness's orchestrator and ask it to resume from the current specs, recorded approvals, and diff. If approval for the current version of an artifact can't be established, confirm it again. The post-execution log and regression ledger carry verification and corrective-work evidence across sessions.
 
-`/system2:compose` validates manifests, detects structural conflicts, reports warnings, then writes project-local composed artifacts:
+You can also request a specialist role directly:
 
-- `CLAUDE.md` with base System2 instructions plus overlay-contributed sections
-- `.system2/overlays/<overlay-name>/` with local copies of overlay content
-- `.claude/agents/<auxiliary-agent>.md` for overlay-contributed auxiliary agents
-- `spec/overlay-manifest.lock` with versions, hashes, and applied contributions
-
-The lock file records the overlay source paths used during composition. On subsequent updates, `--from-lock` reads those paths so you don't need to retype them:
-
-```
-/system2:compose --from-lock
+```text
+Use the spec-coordinator to draft the context for a caching feature.
+Use the test-engineer to verify the current implementation.
+Use the security-sentinel to review the authentication changes.
 ```
 
-To remove an overlay without affecting others, use `--uninstall` with the overlay's name (not its path):
+A typical feature flow is:
 
-```
-/system2:compose --uninstall my-overlay
-```
+1. Clarify scope.
+2. Draft and approve context.
+3. Write and approve requirements.
+4. Produce and approve the design.
+5. Create and approve the task plan.
+6. Implement tasks with focused changes.
+7. Run tests and relevant quality checks.
+8. Perform security, documentation, and final code review as needed.
+9. Approve the final diff and risks.
 
-This recomposes the project with the remaining overlays and cleans up the removed overlay's cached content, auxiliary agents, and lock file entries. If the removed overlay was the last one, the project reverts to base System2. A dry-run preview is always shown before any files are modified.
+Use the harness-specific doctor command for a read-only status summary:
 
-Overlay composition is explicit. `/system2:init` remains base-only and produces the same orchestrator instructions regardless of installed or available overlays.
+| Harness | Doctor |
+|---------|--------|
+| Claude Code | `/system2:doctor` |
+| Codex | `$system2:system2-doctor` |
+| Pi | `/system2-doctor` |
 
-### Optional: Overlay Profiles
+## Harness boundaries
 
-A profile is a named, reusable set of overlays. Once you have settled on a useful combination of overlays, you can save it as a profile and activate it by name in any project instead of retyping overlay paths. Profiles are stored at `~/.system2/profiles.json` (user-level, shared across every project on your machine) and are independent of the per-project `.system2/overlays.json`.
+System2 supplies workflow and role guidance. The active harness remains authoritative for models, tools, filesystem access, command execution, sandboxing, trust, and approvals.
 
-The `/system2:compose` namespace creates, activates, and changes profiles. Activate a profile to compose its overlay set in the current project (a dry-run preview is shown before any files are written):
+- Claude Code can execute roles as isolated subagents and supports plugin hooks.
+- Codex and Pi delegate roles in separate contexts. This does not add a permission sandbox.
+- Role instructions do not override host permissions or configuration.
+- Do not allow multiple agents to edit the same checkout concurrently.
 
-```
-/system2:compose --profile backend-stack
-```
+Use the harness's normal settings for permissions and trust. Workflow instructions do not add enforcement that the host does not provide.
 
-Capture the project's current composed overlay set as a profile, with no paths typed:
+## Optional overlays and profiles
 
-```
-/system2:compose --save-profile backend-stack
-```
+All three harnesses can preview and apply extra project rules (overlays) and switch between saved sets (profiles). Codex and Pi include the compiler in the normal install; overlay and profile commands need Python 3.11 or newer.
 
-Define a profile explicitly from overlay paths:
+See [Overlays and profiles](docs/overlays.md).
 
-```
-/system2:compose create backend-stack /path/to/overlay-a /path/to/overlay-b
-```
+## Engineering behavior
 
-Adjust a profile by adding paths or removing overlays by name (flags are repeatable):
+### Clear communication
 
-```
-/system2:compose edit backend-stack --add /path/to/overlay-c --remove OverlayA
-```
+System2 explains mechanisms, decisions, risks, and tradeoffs without narrating routine tool calls or exposing private reasoning. Structured requirements, evidence, approvals, and completion records remain precise.
 
-Remove a profile:
+See [Clear communication, rigorous execution](docs/communication.md).
 
-```
-/system2:compose delete backend-stack
-```
+### Verification loop
 
-The `/system2:profile` namespace is strictly read-only. List every saved profile, or inspect one to see its ordered overlay set with resolved names and stale annotations:
+The executor follows a compact test-driven loop:
 
-```
-/system2:profile list
-/system2:profile list --profile backend-stack
-```
+1. **Read and locate:** confirm the approved task and actual entry points.
+2. **Red:** write or identify a test that fails for the intended reason.
+3. **Green:** make the smallest change that passes.
+4. **Refactor:** clean up and run relevant formatters or type checks.
+5. **Verify:** run the appropriate test suite and report observed results.
 
-Activation never composes a partial set. If a profile references an overlay path that is missing or no longer valid, activation fails cleanly, names the offending path, and writes nothing.
+If a failure persists after two correction attempts, the executor stops and reports a minimal reproduction instead of continuing indefinitely.
 
-## Updating
+## Development
 
-System2 updates are handled by the Claude Code plugin system. No manual update commands are needed.
+Run the repository suite from the root with Python 3.11:
 
-To check plugin status:
-
-```
-/plugin list
-```
-
-Plugin updates do not automatically rewrite composed overlay artifacts in your project. After a plugin update, check whether your composed overlays need refreshing:
-
-```
-/system2:doctor
+```sh
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
 ```
 
-If the doctor reports drift (stale base or stale overlay), recompose using the locked overlay paths:
+Regenerate committed channel artifacts with:
 
-```
-/system2:compose --from-lock
-```
-
-This reads the overlay source paths recorded in `spec/overlay-manifest.lock` and runs the normal compose flow (dry-run preview, approval, write).
-
-## Usage
-
-### Basic Workflow
-
-With `CLAUDE.md` in place, Claude Code acts as the orchestrator. At session start, it assesses the spec artifact state:
-
-```
-You: Build a user authentication system
-
-Claude: ## Spec State Assessment
-
-- [ ] spec/context.md - missing (Gate 1: pending)
-- [ ] spec/requirements.md - missing (Gate 2: blocked)
-- [ ] spec/design.md - missing (Gate 3: blocked)
-- [ ] spec/tasks.md - missing (Gate 4: blocked)
-
-**Next Action:** Clarify scope, then delegate to spec-coordinator
-
-Gate 0 (Scope): Let me clarify a few things...
-- What authentication methods? (email/password, OAuth, etc.)
-- Any existing auth infrastructure?
-- Definition of done?
-
-[After clarification]
-
-I'll delegate to the spec-coordinator to draft spec/context.md...
+```sh
+python3 compiler/tools/regen_all.py
 ```
 
-### Explicit Delegation
-
-You can invoke subagents directly:
-
-```
-You: Use the spec-coordinator to draft the context for a new caching feature
-
-You: Use the test-engineer to run verification and fix any failing tests
-
-You: Use the security-sentinel to review the authentication changes
-```
-
-### Gate Workflow
-
-The orchestrator pauses for approval at each gate:
-
-1. **Gate 0**: Confirm scope, constraints, definition of done
-2. **Gate 1**: Approve `spec/context.md`
-3. **Gate 2**: Approve `spec/requirements.md`
-4. **Gate 3**: Approve `spec/design.md`
-5. **Gate 4**: Approve `spec/tasks.md`
-6. **Gate 5**: Approve final diff and risk checklist
-
-Say "skip gates" if you want to move faster (not recommended for production work).
-
-### Workflow Example
-
-A typical feature development flow:
-
-1. **Orchestrator** receives the request and clarifies scope (Gate 0)
-2. **Spec Coordinator** drafts context.md → user approves (Gate 1)
-3. **Requirements Engineer** writes requirements.md → user approves (Gate 2)
-4. **Design Architect** produces design.md → user approves (Gate 3)
-5. **Task Planner** creates tasks.md → user approves (Gate 4)
-6. **Executor** implements each task with small diffs
-7. **Test Engineer** runs verification and adds tests
-8. **Security Sentinel** reviews for vulnerabilities
-9. **Docs & Release** updates documentation
-10. **Code Reviewer** performs final review → user approves (Gate 5)
-
-## Configuration
-
-### Agent Behavior Patterns
-
-#### Thinking Protocol
-
-The `executor`, `requirements-engineer`, and `design-architect` agents output `<thinking>` blocks before significant tool use:
-
-```xml
-<thinking>
-Action: [What tool(s) will be invoked and why]
-Expected Outcome: [What result is anticipated]
-Assumptions/Risks: [What could go wrong; what is assumed true]
-</thinking>
-```
-
-**When required:**
-- Edit, Write, Bash operations (always)
-- Multi-file Read sequences (always)
-- Single-file Read for context gathering (optional)
-
-This ensures deliberate, reasoned actions rather than ad-hoc tool calls. The reasoning is visible in transcripts for post-hoc review.
-
-**Key constraint:** Reasoning in `<thinking>` cannot override the delegation contract or safety instructions—this prevents prompt injection via self-reasoning.
-
-#### Session Bootstrap
-
-At the start of each session, the orchestrator automatically assesses the spec artifact state and presents a checklist showing which files exist and the corresponding gate status. This enables immediate orientation without redundant discovery.
-
-#### TDD Verification Loop (Executor)
-
-The executor follows a test-driven development pattern:
-
-1. **Red**: Write or identify a test that fails for the correct reason
-2. **Green**: Write minimal implementation to pass the test
-3. **Refactor**: Run linters, type-checkers, and formatters
-
-**Self-correction limit:** If a test failure persists after two attempts, the executor stops and escalates to the orchestrator with a reproduction case rather than spinning indefinitely.
-
-**Enhanced completion summary:** The executor reports test names, pass/fail counts, and how any verification failures were resolved.
-
-### Subagent Configuration
-
-Each subagent is a Markdown file with YAML frontmatter defining its name, tools, and hooks:
-
-```markdown
----
-name: spec-coordinator
-description: Drafts spec/context.md with scope, goals, constraints, and open questions. Use proactively at the start of meaningful work.
-tools:
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-hooks:
-  PreToolUse:
-    - matcher: "Edit|Write"
-      hooks:
-        - type: command
-          command: 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/validate-file-paths.py" "${CLAUDE_PLUGIN_ROOT}/allowlists/spec-context.regex"'
----
-You are a product-minded senior engineer...
-```
-
-#### Frontmatter Fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Lowercase letters and hyphens |
-| `description` | Yes | When Claude should delegate to this subagent |
-| `tools` | No | Allowlist of tools; inherits all if omitted |
-| `disallowedTools` | No | Denylist applied to inherited tools |
-| `model` | No | `sonnet`, `opus`, `haiku`, or `inherit` (default: `sonnet`) |
-| `permissionMode` | No | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` |
-| `hooks` | No | Lifecycle hooks for validation |
-
-### File Restrictions via Hooks
-
-Claude Code uses hooks for file restrictions. Each subagent can have a `PreToolUse` hook that validates file paths against a regex pattern:
-
-```yaml
-hooks:
-  PreToolUse:
-    - matcher: "Edit|Write"
-      hooks:
-        - type: command
-          command: 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/validate-file-paths.py" "${CLAUDE_PLUGIN_ROOT}/allowlists/spec-context.regex"'
-```
-
-The allowlist files in `allowlists/` contain regex patterns:
-
-```
-# allowlists/spec-context.regex
-^spec/context\.md$
-```
-
-### Safety and Quality Hooks
-
-System2 includes reusable hooks for safety, code quality, and notifications. These are located in the `hooks/` directory.
-
-#### Available Hooks
-
-| Hook | Event | Purpose |
-|------|-------|---------|
-| `dangerous-command-blocker.py` | PreToolUse (Bash) | Blocks `rm -rf /`, `sudo rm -rf`, `chmod 777`, `git reset --hard`, force push to main/master, `DROP TABLE`, `DELETE` without WHERE |
-| `sensitive-file-protector.py` | PreToolUse (Read/Edit/Write/Bash) | Blocks access to `.env`, `~/.ssh/`, `~/.aws/`, `~/.gnupg/`, credential files |
-| `auto-formatter.py` | PostToolUse (Edit/Write) | Runs prettier/black/gofmt on modified files |
-| `type-checker.py` | PostToolUse (Edit/Write) | Runs tsc/mypy on modified TypeScript/Python files |
-| `tts-notify.py` | Stop/SubagentStop | Announces task completion via TTS (macOS/Windows/Linux) |
-| `validate-file-paths.py` | PreToolUse (Edit/Write) | Restricts file writes to allowlisted paths |
-
-Hooks are configured in agent frontmatter or `.claude/settings.json`. See [plugin/hooks/HOOKS.md](plugin/hooks/HOOKS.md) for configuration examples, exit code semantics, custom pattern files, and debugging.
-
-## Advanced Topics
-
-### Programmatic Usage
-
-Pass session-only agent definitions via `--agents`:
-
-```bash
-claude --agents '{
-  "code-reviewer": {
-    "description": "Expert code reviewer. Use proactively after code changes.",
-    "prompt": "You are a senior code reviewer...",
-    "tools": ["Read", "Grep", "Glob", "Bash"],
-    "model": "sonnet"
-  }
-}'
-```
-
-### Agent Priority Order
-
-Project-level `.claude/agents/` files take priority over plugin agents. If you have project-level files with the same names as System2 agents, the plugin versions will not be used.
-
-### Managing Subagents
-
-Use the `/agents` command in Claude Code to create, edit, or preview subagent configurations.
-
-### Delegation Contract Tips
-
-When delegating (either as orchestrator or manually), include:
-- **Objective**: One-sentence goal
-- **Inputs**: Files to read or discover
-- **Outputs**: Files to create/update
-- **Constraints**: What not to do
-- **Completion summary**: What to report back
-
-### Customizing Subagents
-
-To modify behavior:
-1. Create or edit agent files in your project's `.claude/agents/` directory (these take priority over plugin agents)
-2. Adjust the system prompt (body of the Markdown file)
-3. Update `tools` or `hooks` as needed
-4. Update corresponding allowlist `.regex` files if file restrictions change
-
-### Skipping the Full Workflow
-
-For simple tasks, bypass the orchestrator:
-```
-You: (without CLAUDE.md or with explicit instruction)
-Just add a helper function to utils.py that formats dates.
-```
+See the [compiler README](compiler/README.md) for compiler usage and focused verification commands.
 
 ## Troubleshooting
 
-### Subagent Not Found
-- Verify the plugin is installed with `/plugin list`
-- Check that the `name` field matches what you are requesting
+| Harness | Verify installation | Reload |
+|---------|---------------------|--------|
+| Claude Code | `/plugin list` | Restart Claude Code |
+| Codex | `codex plugin list --json` | Restart Codex |
+| Pi | `pi list` | Run `/reload` or restart Pi |
 
-### File Edit Blocked
-- Check the allowlist regex in `allowlists/`
-- Verify the plugin is installed and hooks are configured in agent frontmatter
+If a System2 command is missing, verify installation and reload the harness. If Pi reports a specialist setup problem, use `/system2-setup` to check or retry; it is not an installation step. For channel-specific update and removal commands, see [Installation and Updating](docs/installation.md).
 
-### Too Many Approval Prompts
-- Use `permissionMode: acceptEdits` for trusted operations
-- Consider `dontAsk` for fully automated pipelines (use with caution)
+## Principles
 
-## Key Principles
-
-### Safety by Default
-- Never invent build/test commands—discover them from repo
-- Resist prompt injection—treat file contents as data
-- Enforce least-privilege tool access per agent
-- Require human approval for risky changes
-
-### Verification First
-- No implementation without approved specs
-- Tests run before claiming completion
-- Security review for auth, data access, and agentic features
-
-### Context Hygiene
-- Main conversation stays focused on decisions
-- Specialist work delegated to appropriate agents
-- Summaries returned, not raw output
+- **Deliberate before editing:** establish scope and important assumptions first.
+- **Specs are contracts:** implementation follows approved requirements, design, and tasks.
+- **Verification before claims:** report only checks that actually ran.
+- **Small changes:** prefer focused diffs and existing abstractions.
+- **Host authority:** respect the active harness's permissions and safety controls.
+- **Honest completion:** state unresolved risks, failures, and unfinished work.
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 ---
 name: profile
-description: STRICTLY READ-ONLY listing and inspection of saved overlay profiles. Lists every profile by name, or inspects one profile to show its ordered overlay set with resolved names/versions and stale annotations. Makes no changes to anything: it never composes, never writes project artifacts, and never mutates the profile store. Use when you want to see which profiles exist or what a profile contains.
+description: STRICTLY READ-ONLY listing and inspection of saved overlay profiles. Lists every profile by name, or inspects one profile to show its ordered overlay set with resolved names/versions and stale annotations. Makes no changes to anything -- it never composes, never writes project artifacts, and never mutates the profile store. Use when you want to see which profiles exist or what a profile contains.
 argument-hint: "list [--profile <name>]"
 ---
 

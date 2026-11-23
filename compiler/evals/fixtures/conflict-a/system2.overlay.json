@@ -1,0 +1,10 @@
+{
+  "name": "conflict-a",
+  "version": "1.0.0",
+  "description": "Conflict-cell overlay A; declares a known conflict with conflict-b.",
+  "schema_version": "1.0.0",
+  "compatibility": {
+    "known_conflicts": ["conflict-b"]
+  },
+  "contributions": {}
+}

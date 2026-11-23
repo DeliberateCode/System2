@@ -1,0 +1,7 @@
+{
+  "status": "error",
+  "errors": [
+    "No lock file found; no overlays are composed"
+  ],
+  "report": {}
+}

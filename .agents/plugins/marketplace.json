@@ -1,0 +1,10 @@
+{
+  "name": "system2-marketplace",
+  "plugins": [
+    {
+      "name": "system2",
+      "source": "./distributions/codex",
+      "description": "Deliberate, spec-driven engineering workflows for Codex, delivered as an orchestrator and role skills."
+    }
+  ]
+}

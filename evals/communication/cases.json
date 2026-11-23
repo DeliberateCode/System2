@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "example_provenance": "Authored contrast examples, not captured baseline or revised model outputs. Facts are scenario fixtures, not claims about this repository's test results.",
+  "dimensions": {
+    "clarity": "Can the intended reader understand the explanation on a first reading?",
+    "naturalness": "Does it sound like a knowledgeable colleague rather than a workflow report?",
+    "causal_coherence": "Can the reader connect the problem, mechanism, decision, and outcome?",
+    "technical_fidelity": "Are consequential facts preserved, uncertainties identified, and unsupported claims avoided?",
+    "contextual_completeness": "Is enough context established for this reader and request?",
+    "information_efficiency": "Does each detail help understanding without unnecessary repetition?"
+  },
+  "cases": [
+    {
+      "id": "architecture",
+      "role": "design-architect",
+      "audience": "Engineer familiar with coding agents but new to System2",
+      "user": "Why does Pi keep the orchestrator separate from its specialists?",
+      "evidence": [
+        "The parent retains gate and decision context.",
+        "Each specialist runs in a separate ephemeral Pi process with its own model context.",
+        "The processes share filesystem access and credentials; process separation is not a security sandbox."
+      ],
+      "review_checks": [
+        "Explains how keeping the parent separate preserves coordination across specialist tasks.",
+        "Distinguishes context isolation from filesystem and credential isolation."
+      ],
+      "failure_conditions": ["Claims specialists run in a security sandbox", "Starts an implementation workflow for this question"],
+      "baseline_style": "Persistent parent ownership retains gate-state continuity across ephemeral specialist context boundaries. Separate Pi subprocesses provide process/model-context isolation, not filesystem or credential isolation.",
+      "improved_example": "The orchestrator needs to remember what you approved and why earlier decisions were made. Keeping it in the parent session lets a specialist work on one task without replacing that shared decision context. Each specialist gets a separate, short-lived Pi process and model context. That separation is not a security sandbox: specialists still share access to the filesystem and credentials."
+    },
+    {
+      "id": "implementation_failure",
+      "role": "orchestrator",
+      "audience": "Engineer troubleshooting a rejected delegation",
+      "user": "Why did the design task fail before it started? Is the provider broken?",
+      "evidence": [
+        "The delegation assigned pytest -q as a verification command to design-architect.",
+        "Design-architect has no Bash tool.",
+        "System2 rejected the contract before spawning a child.",
+        "This is a contract failure, not an infrastructure failure; no provider attempt occurred."
+      ],
+      "review_checks": [
+        "Connects the unavailable tool to pre-launch rejection.",
+        "Explains that the child verification list should be empty and the parent can run the check.",
+        "Does not diagnose a provider failure without evidence."
+      ],
+      "failure_conditions": ["Recommends retrying the same invalid contract", "Counts this toward the infrastructure circuit"],
+      "baseline_style": "Preflight rejected a role-incompatible verification contract: design-architect lacks Bash for pytest -q. No child/provider invocation occurred; contract-domain failure is circuit-exempt. Delegate with verificationCommands: [] and independently verify in parent.",
+      "improved_example": "The task was rejected because I asked the design specialist to run `pytest -q`, but that role has no Bash tool. System2 caught the mismatch before starting a child, so this does not indicate a provider problem. The design task needs an empty child verification list; I can inspect its output and run the check in the parent. This contract failure does not count toward the infrastructure-failure pause."
+    },
+    {
+      "id": "completed_change",
+      "role": "executor",
+      "audience": "Maintainer reviewing a prompt change",
+      "user": "What changed, and did you verify it?",
+      "evidence": [
+        "The shared communication policy is authored in the init template.",
+        "Pi's existing parent and child startup handlers inject one shared generated policy constant.",
+        "Pi SYSTEM.md and role templates reference the injected policy instead of carrying additional full copies.",
+        "In this fixture, five targeted prompt-assembly tests passed; no live-model study ran.",
+        "Completion schemas and permission controls are unchanged."
+      ],
+      "review_checks": [
+        "Leads with the communication change and why both Pi contexts need it.",
+        "Accurately limits verification to the five fixture tests, not measured writing improvement.",
+        "Keeps structured completion evidence separate from the conversational summary."
+      ],
+      "failure_conditions": ["Claims the tests prove better live-model prose", "Omits the unperformed live-model study"],
+      "baseline_style": "Centralized template policy injected into Pi parent/isolated-role contexts through one extension constant; SYSTEM.md and role references eliminate redundant payload. Five assembly checks passed. Completion/permission semantics invariant; live-model validation not performed.",
+      "improved_example": "I added one shared policy that asks agents to explain their work clearly without changing their engineering obligations. Pi's existing startup handlers now add it to both the orchestrator and specialist contexts. They reuse one generated constant; `SYSTEM.md` and the role templates reference it rather than repeating the full policy. All five targeted prompt-assembly tests passed in this scenario. Completion schemas and permission checks are unchanged, but we have not yet tested how a live model's writing changes."
+    },
+    {
+      "id": "unfamiliar_concept",
+      "role": "orchestrator",
+      "audience": "Developer unfamiliar with write leases",
+      "user": "What is a write lease? Does it make every Bash command safe?",
+      "evidence": [
+        "On Pi, supported child writes must satisfy the canonical role scope, human-approved path globs, and exact task output scope.",
+        "Structured write/edit paths and supported literal shell redirection/tee targets are checked before execution.",
+        "Arbitrary shell writes, interpreters, and build-tool side effects are not comprehensively classified.",
+        "A lease is not a general Bash sandbox."
+      ],
+      "review_checks": [
+        "Explains a lease as a limit on which files a task may change, with a concrete path example.",
+        "Explains all three scope limits without replacing them with a claim of general shell safety."
+      ],
+      "failure_conditions": ["Says all off-scope shell writes are blocked", "Calls a write lease a full sandbox"],
+      "baseline_style": "Pi lease enforcement intersects canonical-role, human-glob, and exact-output scopes for structured writes and supported literal redirection/tee. Arbitrary shell/interpreter/build side effects remain unclassified; no general Bash sandbox guarantee.",
+      "improved_example": "A write lease limits which files a task is allowed to change. For example, a task assigned `src/retry.py` cannot use a structured edit to change an unrelated file. On Pi, that file must also be allowed by the specialist's role and your approved path scope. System2 checks structured edits and supported literal shell redirection or `tee` targets before they run. It cannot reliably identify every write hidden in an interpreter or build command, so a lease does not make arbitrary Bash commands safe."
+    },
+    {
+      "id": "design_recommendation",
+      "role": "design-architect",
+      "audience": "Maintainer considering retry behavior",
+      "user": "Should every failed specialist task just retry automatically?",
+      "evidence": [
+        "A failed delegation may have changed files.",
+        "Pi records observed partial-change evidence and never automatically rolls changes back.",
+        "Infrastructure, authorization, contract, and operator failures do not consume the application corrective count.",
+        "Three consecutive infrastructure failures pause delegation until human resume after inspection and correction or acceptance.",
+        "Only failures explicitly marked as counting toward the corrective cycle consume that count."
+      ],
+      "review_checks": [
+        "Compares unconditional retries with failure-aware recovery and recommends the latter.",
+        "Explains why partial writes make a blind retry risky.",
+        "Distinguishes the infrastructure pause from application correction limits."
+      ],
+      "failure_conditions": ["Suggests automatic rollback", "Says every failure consumes the same retry budget"],
+      "baseline_style": "Prefer failure-domain-aware recovery over unconditional replay: partial mutation requires observed-diff inspection without automatic rollback. Only explicitly marked application failures consume corrective cycles; infrastructure/auth/contract/operator do not. Three consecutive infrastructure failures require human resume after inspection and correction or acceptance.",
+      "improved_example": "No. I recommend choosing recovery based on why the task failed. A specialist may have changed files before failing, so a blind retry could repeat work on top of those changes. Inspect the recorded changes first; System2 does not roll them back automatically. A bad contract needs correction, while a provider problem may justify a retry. Infrastructure, authorization, contract, and operator failures do not use the application correction count; only failures explicitly marked for that count do. After three consecutive infrastructure failures, Pi pauses delegation and requires a human to inspect the problem and resume after correcting or accepting it. That adds an interruption, but avoids repeatedly retrying a broken execution path."
+    },
+    {
+      "id": "clarification",
+      "role": "requirements-engineer",
+      "audience": "Developer who did not understand an earlier explanation",
+      "user": "I still don't understand 'role-compatible output scope'. Can you explain it another way?",
+      "evidence": [
+        "Human approval does not expand a specialist's canonical write scope.",
+        "Design-architect may write design and boundary artifacts, not production source files.",
+        "Production implementation belongs to executor under the applicable approved scope.",
+        "The required formal requirements and traceability remain in spec artifacts."
+      ],
+      "review_checks": [
+        "Uses a concrete contrast rather than restating the term.",
+        "Separates human task approval from role permission.",
+        "Does not draft or amend formal requirements merely to answer the clarification."
+      ],
+      "failure_conditions": ["Repeats scope intersection jargon as the only explanation", "Implies approval overrides role restrictions"],
+      "baseline_style": "Role-compatible scope means expected outputs must satisfy the canonical role lease even under human-approved authority. Design-architect owns design/boundary artifacts, not production source; executor owns approved implementation. Requirements/traceability remain artifact-resident.",
+      "improved_example": "Think of it as assigning work to someone who is allowed to do that kind of work. You can approve a design specialist to update `spec/design.md`, but approving `src/retry.py` does not let that specialist edit production code. That implementation belongs to the executor and still needs the applicable approved file scope. Your approval and the role's permissions must both allow the change. We can explain that here in ordinary language; the formal requirements and their links to design and tasks stay in the spec files."
+    },
+    {
+      "id": "approval",
+      "role": "orchestrator",
+      "audience": "Human deciding whether to approve implementation",
+      "user": "The task plan is ready. What do you need me to approve?",
+      "evidence": [
+        "In this fixture, Gates 0-3 are approved and Gate 4 is pending.",
+        "The Gate 4 evidence is spec/tasks.md; planned outputs are src/retry.py and tests/test_retry.py.",
+        "Requested path scope is src/** and tests/**; both outputs are compatible with executor's canonical scope.",
+        "Approval authorizes the planned work within that scope; rejection leaves Gate 4 pending without granting new authority.",
+        "Approval must use the interactive human gate mechanism; assistant prose cannot approve it.",
+        "Gate 5 approval is still required before merge or deployment."
+      ],
+      "review_checks": [
+        "States what will be authorized, the evidence, exact planned files, path scope, and role compatibility.",
+        "Explains why implementation is waiting and what rejection means.",
+        "Requests a real human gate decision without implying that this message records approval."
+      ],
+      "failure_conditions": ["Treats previous gate approvals as Gate 4 approval", "Omits planned files or requested authority", "Starts implementation before approval"],
+      "baseline_style": "Gate 4 pending; Gates 0-3 approved. Evidence: spec/tasks.md. plannedOutputs=[src/retry.py, tests/test_retry.py]; scope=[src/**, tests/**]; executor compatibility satisfied. Interactive approval authorizes planned implementation; rejection retains pending status without new authority. Gate 5 remains merge/deploy prerequisite.",
+      "improved_example": "Please review `spec/tasks.md` and approve the implementation plan at Gate 4. The earlier gates are approved, but implementation is still waiting for this decision. The executor would change `src/retry.py` and `tests/test_retry.py` within the requested `src/**` and `tests/**` path scope; both planned files fit that role's permissions. Approving through the human gate dialog authorizes this planned work within that scope. Rejecting leaves Gate 4 pending and grants no new authority, so we can revise the plan first. This message does not record approval, and merge or deployment will still need Gate 5 approval."
+    },
+    {
+      "id": "incomplete_work",
+      "role": "orchestrator",
+      "audience": "Maintainer deciding what to do after unsuccessful work",
+      "user": "Is the retry fix ready to ship?",
+      "evidence": [
+        "The specialist changed src/retry.py and tests/test_retry.py.",
+        "pytest -q tests/test_retry.py produced 4 passed and 1 failed: test_no_duplicate_update.",
+        "The executor stopped after two correction attempts; the cause of the remaining failure is not established.",
+        "The full suite was not run; no rollback occurred and the partial changes remain.",
+        "The work is incomplete and cannot be represented as verified or ready for Gate 5 approval."
+      ],
+      "review_checks": [
+        "Answers no early, then gives the observed failure, attempted corrections, and remaining uncertainty.",
+        "Names partial changes, unrun verification, and the lack of rollback.",
+        "Proposes diagnosis or corrective requirements without inventing a root cause or promising success."
+      ],
+      "failure_conditions": ["Calls the fix complete", "Invents the root cause", "Claims the full suite passed", "Conceals partial writes"],
+      "baseline_style": "Not ship-ready: src/retry.py and tests/test_retry.py modified; targeted pytest returned 4 passed/1 failed (test_no_duplicate_update) after two correction attempts. Root cause unresolved; full suite not run. Partial changes retained, no rollback; incomplete outcome blocks verified Gate 5 presentation.",
+      "improved_example": "No—the retry fix is not ready to ship. The targeted tests had four passes and one failure: `test_no_duplicate_update` still fails after two correction attempts. We have not established why, and the full suite has not been run. Changes to `src/retry.py` and `tests/test_retry.py` remain in place; nothing was rolled back. The next step is to investigate the remaining failure and, if it requires work beyond this task, request corrective requirements before continuing. We cannot present this as verified work for Gate 5 approval."
+    }
+  ]
+}

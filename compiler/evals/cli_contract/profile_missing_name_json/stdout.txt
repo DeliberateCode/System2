@@ -1,0 +1,6 @@
+{
+  "status": "error",
+  "errors": [
+    "Invalid profile name '': must be kebab-case ([a-z0-9] segments joined by '-')."
+  ]
+}

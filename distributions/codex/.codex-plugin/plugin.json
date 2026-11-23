@@ -1,0 +1,13 @@
+{
+  "name": "system2",
+  "version": "0.2.5",
+  "description": "Deliberate, spec-driven engineering workflows for Codex.",
+  "publisher": {
+    "name": "DeliberateCode",
+    "url": "https://github.com/DeliberateCode/System2"
+  },
+  "interface": {
+    "displayName": "System2"
+  },
+  "skills": "./skills"
+}

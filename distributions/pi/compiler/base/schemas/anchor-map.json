@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0.0",
+  "agents": {
+    "executor": {
+      "anchors": {
+        "safety_rules": {
+          "after_section": "Safety rules:",
+          "purpose": "Additional safety constraints"
+        },
+        "implementation_discipline": {
+          "after_section": "## Anti-additive bias",
+          "purpose": "Domain-specific implementation guidance"
+        },
+        "verification_rules": {
+          "after_section": "Verification rules:",
+          "purpose": "Additional verification criteria"
+        }
+      }
+    },
+    "code-reviewer": {
+      "anchors": {
+        "review_criteria": {
+          "after_section": "Review checklist:",
+          "purpose": "Additional review dimensions"
+        },
+        "surface_area_delta": {
+          "after_section": "Surface-area delta:",
+          "purpose": "Additional surface-area metrics"
+        },
+        "simplification_criteria": {
+          "after_section": "Simplification mode:",
+          "purpose": "Additional simplification guidance"
+        }
+      }
+    },
+    "design-architect": {
+      "anchors": {
+        "design_constraints": {
+          "after_section": "Design constraints:",
+          "purpose": "Domain-specific design policies"
+        },
+        "required_output_sections": {
+          "after_section": "spec/design.md must include these sections (headings exactly):",
+          "purpose": "Additional required sections in design doc"
+        }
+      }
+    },
+    "spec-coordinator": {
+      "anchors": {
+        "required_context_sections": {
+          "after_section": "spec/context.md must include these sections (headings exactly):",
+          "purpose": "Additional required sections in context doc"
+        },
+        "style_requirements": {
+          "after_section": "Style requirements:",
+          "purpose": "Additional style/framing constraints"
+        }
+      }
+    },
+    "requirements-engineer": {
+      "anchors": {
+        "guardrails": {
+          "after_section": "Guardrails:",
+          "purpose": "Additional requirements-drafting constraints"
+        },
+        "required_req_sections": {
+          "after_section": "spec/requirements.md must include these sections (headings exactly):",
+          "purpose": "Additional required sections in requirements doc"
+        }
+      }
+    },
+    "task-planner": {
+      "anchors": {
+        "planning_rules": {
+          "after_section": "Planning rules:",
+          "purpose": "Additional planning constraints"
+        },
+        "task_fields": {
+          "after_section": "spec/tasks.md must include these sections (headings exactly):",
+          "purpose": "Additional per-task fields"
+        }
+      }
+    },
+    "test-engineer": {
+      "anchors": {
+        "verification_workflow": {
+          "after_section": "Verification workflow:",
+          "purpose": "Additional verification steps"
+        },
+        "test_authoring_rules": {
+          "after_section": "Test authoring rules:",
+          "purpose": "Additional test-writing guidance"
+        }
+      }
+    },
+    "security-sentinel": {
+      "anchors": {
+        "threat_model_scope": {
+          "after_section": "spec/security.md must include these sections (headings exactly):",
+          "purpose": "Additional threat model dimensions"
+        }
+      }
+    },
+    "eval-engineer": {
+      "anchors": {
+        "eval_guidance": {
+          "after_section": "Implementation guidance:",
+          "purpose": "Additional eval criteria"
+        }
+      }
+    },
+    "docs-release": {
+      "anchors": {
+        "writing_rules": {
+          "after_section": "Writing rules:",
+          "purpose": "Additional documentation standards"
+        }
+      }
+    },
+    "repo-governor": {
+      "anchors": {
+        "discovery_process": {
+          "after_section": "Discovery process:",
+          "purpose": "Additional discovery targets"
+        }
+      }
+    },
+    "postmortem-scribe": {
+      "anchors": {
+        "postmortem_guardrails": {
+          "after_section": "Guardrails:",
+          "purpose": "Additional postmortem constraints"
+        }
+      }
+    },
+    "mcp-toolsmith": {
+      "anchors": {
+        "design_rules": {
+          "after_section": "Design rules:",
+          "purpose": "Additional MCP design constraints"
+        }
+      }
+    }
+  }
+}
