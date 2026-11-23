@@ -35,12 +35,6 @@ class HumanCommunicationPolicyTest(unittest.TestCase):
         self.assertTrue(self.policy, "canonical template must define the shared policy")
         self.assertEqual(1, text.count(self.policy))
 
-    def assertPiPolicy(self, project):
-        extension = (Path(project) / ".pi/extensions/system2.ts").read_text()
-        literal = extension.split("const HUMAN_COMMUNICATION_POLICY = ", 1)[1].split(";\n", 1)[0]
-        self.assertPolicy(json.loads(literal))
-        self.assertEqual(1, extension.count("## Human communication policy"))
-
     def test_template_and_repository_instructions_share_one_policy(self):
         self.assertPolicy(self.template)
         self.assertPolicy((_REPO / "CLAUDE.md").read_text())
@@ -87,36 +81,40 @@ class HumanCommunicationPolicyTest(unittest.TestCase):
                 if self.policy:
                     self.assertNotIn(self.policy, text)
 
-    def test_pi_parent_and_isolated_roles_receive_policy_once(self):
+    def test_pi_orchestrator_and_role_skills_share_the_policy(self):
         with tempfile.TemporaryDirectory() as project:
             result = ir.compose(oracle.PLUGIN_ROOT, [matrix.TEST_OVERLAY], project)
             self.assertIsNotNone(result.graph, result.errors)
             PiBackend().emit(result.graph, project)
             root = Path(project)
-            system = (root / ".pi/SYSTEM.md").read_text()
-            parent = (root / ".pi/prompts/orchestrator.md").read_text()
-            self.assertPiPolicy(project)
-            # One shared runtime policy, not redundant copies in SYSTEM and templates.
-            self.assertNotIn("## Human communication policy", system + parent)
-            self.assertIn("shared Human communication policy", system)
-            self.assertIn("shared Human communication policy", parent)
+            parent = (root / ".pi/prompts/system2.md").read_text()
+            self.assertPolicy(parent)
             for role in result.graph.roles:
                 with self.subTest(role=role.name):
-                    child = (root / f".pi/prompts/role-{role.name}.md").read_text()
+                    child = (
+                        root / ".pi" / "skills" / f"system2-role-{role.name}" / "SKILL.md"
+                    ).read_text()
                     self.assertNotIn("## Human communication policy", child)
                     self.assertIn("shared Human communication policy", child)
                     self.assertNotIn("<thinking>", child)
-                    self.assertIn("system2_child_complete", child)
-                    self.assertIn("System2 derives changed paths, artifact hashes, and verification observations", child)
-            self.assertIn("## TDD Verification Loop", (root / ".pi/prompts/role-executor.md").read_text())
-            self.assertIn("Use EARS-style statements", (root / ".pi/prompts/role-requirements-engineer.md").read_text())
-            self.assertIn("spec/interfaces.json", (root / ".pi/prompts/role-design-architect.md").read_text())
+            self.assertIn(
+                "## TDD Verification Loop",
+                (root / ".pi/skills/system2-role-executor/SKILL.md").read_text(),
+            )
+            self.assertIn(
+                "Use EARS-style statements",
+                (root / ".pi/skills/system2-role-requirements-engineer/SKILL.md").read_text(),
+            )
+            self.assertIn(
+                "spec/interfaces.json",
+                (root / ".pi/skills/system2-role-design-architect/SKILL.md").read_text(),
+            )
 
     def test_lock_recomposition_and_overlay_removal_preserve_policy(self):
         removable = str(Path(__file__).parent / "fixtures/lifecycle-removable")
         for target, backend_cls, prompt_path in (
             ("claude-code", ClaudeCodeBackend, "CLAUDE.md"),
-            ("pi", PiBackend, ".pi/prompts/orchestrator.md"),
+            ("pi", PiBackend, ".pi/prompts/system2.md"),
         ):
             with self.subTest(target=target), tempfile.TemporaryDirectory() as project:
                 overlays = [matrix.TEST_OVERLAY, removable]
@@ -130,16 +128,10 @@ class HumanCommunicationPolicyTest(unittest.TestCase):
                         "--project", project, "--from-lock", "--format", "json",
                     ])
                 self.assertEqual(0, code)
-                if target == "pi":
-                    self.assertPiPolicy(project)
-                else:
-                    self.assertPolicy((Path(project) / prompt_path).read_text())
+                self.assertPolicy((Path(project) / prompt_path).read_text())
                 removed = backend.uninstall(project, "lifecycle-removable")
                 self.assertFalse(removed.errors, removed.errors)
-                if target == "pi":
-                    self.assertPiPolicy(project)
-                else:
-                    self.assertPolicy((Path(project) / prompt_path).read_text())
+                self.assertPolicy((Path(project) / prompt_path).read_text())
 
     def test_manual_review_suite_covers_intents_and_semantic_checks(self):
         suite = json.loads((_REPO / "evals/communication/cases.json").read_text())

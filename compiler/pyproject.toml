@@ -49,9 +49,3 @@ packages = [
 
 [tool.setuptools.package-data]
 "system2_compiler.backends.capabilities" = ["*.json"]
-# `system2 codex init` needs its user-hooks reference tree regardless of install
-# method. Mirrored into the package by compiler/tools/regen_all.py's
-# _mirror_user_hooks_into_package (single source of truth: CodexBackend's own
-# emit output, never a second hand-authored copy) -- see
-# system2_compiler/_packaged_data/codex_user_hooks/.
-"system2_compiler" = ["_packaged_data/codex_user_hooks/**/*"]

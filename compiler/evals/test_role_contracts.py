@@ -172,7 +172,9 @@ class CanonicalRoleContractTest(unittest.TestCase):
             "codex": lambda name: os.path.join(
                 "skills", f"system2-role-{name}", "SKILL.md"
             ),
-            "pi": lambda name: os.path.join(".pi", "prompts", f"role-{name}.md"),
+            "pi": lambda name: os.path.join(
+                ".pi", "skills", f"system2-role-{name}", "SKILL.md"
+            ),
         }
         for target, path_for in role_paths.items():
             for name, excerpts in _ROLE_EXCERPTS.items():
@@ -192,11 +194,12 @@ class CanonicalRoleContractTest(unittest.TestCase):
             for name in codex_skills
             if name.startswith(codex_prefix)
         }
-        pi_prompts = os.listdir(os.path.join(self.projects["pi"], ".pi", "prompts"))
+        pi_skills = os.listdir(os.path.join(self.projects["pi"], ".pi", "skills"))
+        pi_prefix = "system2-role-"
         pi_roles = {
-            name[len("role-") : -len(".md")]
-            for name in pi_prompts
-            if name.startswith("role-") and name.endswith(".md")
+            name[len(pi_prefix) :]
+            for name in pi_skills
+            if name.startswith(pi_prefix)
         }
         self.assertEqual(expected, codex_roles)
         self.assertEqual(expected, pi_roles)
@@ -211,7 +214,9 @@ class CanonicalRoleContractTest(unittest.TestCase):
             (
                 "pi",
                 self.projects["pi"],
-                lambda name: os.path.join(".pi", "prompts", f"role-{name}.md"),
+                lambda name: os.path.join(
+                    ".pi", "skills", f"system2-role-{name}", "SKILL.md"
+                ),
             ),
         ):
             for name in expected:
@@ -235,7 +240,9 @@ class CanonicalRoleContractTest(unittest.TestCase):
             ),
             "pi": _read(
                 self.projects["pi"],
-                os.path.join(".pi", "prompts", "role-repo-governor.md"),
+                os.path.join(
+                    ".pi", "skills", "system2-role-repo-governor", "SKILL.md"
+                ),
             ),
         }
         for target, artifact in artifacts.items():
@@ -262,7 +269,9 @@ class CanonicalRoleContractTest(unittest.TestCase):
                 self.projects["codex"],
                 os.path.join("skills", "system2", "SKILL.md"),
             ),
-            "pi": _read(self.projects["pi"], os.path.join(".pi", "SYSTEM.md")),
+            "pi": _read(
+                self.projects["pi"], os.path.join(".pi", "prompts", "system2.md")
+            ),
         }
         for target, artifact in artifacts.items():
             with self.subTest(target=target):
@@ -277,8 +286,9 @@ class CanonicalRoleContractTest(unittest.TestCase):
                 for forbidden in _FORBIDDEN_NEUTRAL_MECHANICS:
                     self.assertNotIn(forbidden, artifact)
                 self.assertEqual(1, artifact.count("# System2 orchestrator"))
-        self.assertIn("Trust state (READ THIS FIRST", artifacts["codex"])
-        self.assertIn("Enforcement on Pi (read this", artifacts["pi"])
+        self.assertIn("## Runtime boundary", artifacts["codex"])
+        self.assertIn("## Runtime boundary", artifacts["pi"])
+        self.assertIn("does not install an extension", artifacts["pi"])
 
 
 class InvalidRoleContractTest(unittest.TestCase):

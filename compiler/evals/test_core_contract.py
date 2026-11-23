@@ -212,7 +212,7 @@ class TargetNativeCliPlanTest(unittest.TestCase):
         expected_fragments = {
             "codex": (os.path.join(".codex-plugin", "plugin.json"),
                       "system2.codex.lock.json"),
-            "pi": (os.path.join(".pi", "extensions", "system2.ts"),
+            "pi": (os.path.join(".pi", "prompts", "system2.md"),
                    "system2.pi.lock.json"),
         }
         for target in ("codex", "pi"):
@@ -253,7 +253,7 @@ class TargetNativeCliPlanTest(unittest.TestCase):
     def test_first_install_collisions_are_normal_errors_without_mutation(self):
         cases = (
             ("codex", os.path.join(".codex-plugin", "plugin.json")),
-            ("pi", os.path.join(".pi", "SYSTEM.md")),
+            ("pi", os.path.join(".pi", "prompts", "system2.md")),
         )
         for target, relative in cases:
             for fmt in ("json", "text"):
@@ -322,7 +322,7 @@ class TargetNativeCliPlanTest(unittest.TestCase):
     def test_from_lock_ownership_failures_are_normal_and_mutation_free(self):
         cases = (
             ("codex", CodexBackend, os.path.join(".codex-plugin", "plugin.json")),
-            ("pi", PiBackend, os.path.join(".pi", "SYSTEM.md")),
+            ("pi", PiBackend, os.path.join(".pi", "prompts", "system2.md")),
         )
         for target, backend_cls, owned_relative in cases:
             for damage in ("tampered", "malformed"):

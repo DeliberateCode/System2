@@ -58,7 +58,7 @@ _EXPECTED_IR_FILES = frozenset({
 _EXPECTED_BACKEND_FILES = frozenset({
     "system2_compiler/backends/__init__.py",
     "system2_compiler/backends/_degradation.py",
-    "system2_compiler/backends/_enforcement.py",
+    "system2_compiler/backends/_generated.py",
     "system2_compiler/backends/_yaml.py",
     "system2_compiler/backends/base.py",
     "system2_compiler/backends/capabilities/__init__.py",

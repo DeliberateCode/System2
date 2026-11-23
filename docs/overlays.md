@@ -1,13 +1,11 @@
-# Overlays (optional extensions)
+# Overlays and profiles
 
-Claude Code is the only channel with end-user overlay and profile UX. Its
-`/system2:compose` and `/system2:profile` commands remain available and opt-in:
+The base System2 workflow is fully available on Claude Code, Codex, and Pi.
 
-- [Overlays and profiles — Claude Code](overlays/claude-code.md)
+Optional overlay and profile management commands are currently exposed by the Claude Code integration:
 
-The source compiler can project overlay compositions for Codex and Pi, but their generated
-end-user channels currently ship only the base workflow. Codex is pending native acceptance,
-and Pi is pending package publication. This compiler capability is not mechanism parity and
-does not make Claude's commands available on those harnesses.
+- [Overlay and profile commands for Claude Code](overlays/claude-code.md)
 
-For channel status, see [Installation and Updating](installation.md).
+The source compiler can also compose overlays when generating Codex or Pi artifacts, but their installed channels do not expose interactive overlay-management commands.
+
+Overlays are optional and do not affect the viability of the base workflow on any harness. For installation and channel commands, see [Installation and Updating](installation.md).

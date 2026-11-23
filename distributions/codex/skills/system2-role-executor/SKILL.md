@@ -1,16 +1,13 @@
 ---
 name: system2-role-executor
-description: "System2 executor role (Codex, advisory)."
+description: Use the System2 executor role in Codex.
 ---
 
 # System2 role: executor (Codex)
 
-You are the System2 executor agent. Adopt this role's prompt and skill in the same session. Role-aware hook authorization is unsupported pending a native state seam; honor the write scope as an advisory instruction.
+You are the System2 executor specialist. Follow the contract below in the current session. This skill supplies guidance only; Codex controls permissions and approvals.
 
-- Write scope (ADVISORY — role-aware hook authorization is unsupported): `^(?!.*(?:^|/)(?:third_party|vendor|node_modules|dist|build|out|\.git|\.pi|\.claude|\.system2)(?:/|$))(?!system2\.(?:pi|codex)\.lock\.json$)(?:(?:spec|docs)/.*\.md|README\.md|CHANGELOG\.md|\.gitignore|\.gitattributes|\.editorconfig|\.dockerignore|Dockerfile(?:\.[A-Za-z0-9_.-]+)?|Makefile|GNUmakefile|[Jj]ustfile|CMakeLists\.txt|LICENSE(?:\.[A-Za-z0-9_.-]+)?|(?:.*/)?(?:BUILD|WORKSPACE)(?:\.bazel)?|.*\.(?:py|go|java|kt|kts|ts|tsx|js|jsx|rs|c|cc|cpp|h|hpp|cs|proto|sql|yaml|yml|json|toml|sh|bazel|bzl|txt|cfg|ini|conf|lock|mod|sum))$`
-- Model: session default model (no hint; not silently assumed)
-
-## Canonical role contract
+## Role contract
 
 Follow the shared Human communication policy for conversational output. Internal completion evidence retains every required field.
 
@@ -100,12 +97,3 @@ If agentic components are involved:
 - Add explicit input sanitization and strict schema validation for tool inputs/outputs.
 - Ensure outputs are machine-parseable when required.
 - Add hooks for evals and telemetry.
-
-## Capabilities
-Advisory (NOT enforced on Codex — honor anyway):
-- ADVISORY on Codex: unverified candidate edit/shell guards project-normalize explicit edit paths, apply-patch headers, redirection targets, and limited tee targets. Other shell writes are not inspected. Same-session role-aware hook authorization is unsupported. This is not a release guarantee.
-- ADVISORY on Codex: an unverified candidate shell guard corpus-tests regex matching over recognized command strings. Native routing, trust, and deny semantics are unaccepted; this is not a release guarantee.
-- ADVISORY on Codex: unverified candidate guards corpus-test explicit edit paths, patch headers, and recognized shell command text. They do not parse all shell paths or writes. This is not a release guarantee.
-- [ADVISORY — NOT ENFORCED ON CODEX (instruction only): format] Format every file you edit before finishing. Codex does not run formatters for you; this is not enforced.
-- [ADVISORY — NOT ENFORCED ON CODEX (instruction only): typecheck] Type-check every file you edit before finishing. Codex does not type-check for you; this is not enforced.
-- ADVISORY on Codex: the candidate turn-end hook emits an instruction to report budget data; it does not calculate a budget.

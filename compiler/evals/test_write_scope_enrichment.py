@@ -132,7 +132,7 @@ class WriteScopeEnrichmentTest(unittest.TestCase):
         ):
             self.assertTrue(rx.match(in_path), in_path)
         for denied in (
-            ".pi/SYSTEM.md",
+            ".pi/settings.json",
             ".claude/settings.json",
             "system2.pi.lock.json",
             ".git/config",
@@ -154,7 +154,7 @@ class WriteScopeEnrichmentTest(unittest.TestCase):
         ):
             self.assertTrue(rx.match(in_path), in_path)
         for denied in (
-            ".pi/SYSTEM.md",
+            ".pi/settings.json",
             ".claude/slop-catalog.md",
             "CLAUDE.md",
             "AGENTS.md",

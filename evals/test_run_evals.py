@@ -33,11 +33,23 @@ def test_requirement_identifier_guard_rejects_a_production_script():
     assert os.path.basename(planted_path) in record.call_args.args[3]
 
 
-def test_maintained_documentation_matches_current_pi_and_overlay_contracts():
+def test_maintained_documentation_balances_harnesses_and_current_contracts():
     repo = run_evals.REPO_ROOT
-    pi_install = (repo / "docs" / "installation" / "pi.md").read_text(
+    readme = (repo / "README.md").read_text(encoding="utf-8")
+    installation_index = (repo / "docs" / "installation.md").read_text(
         encoding="utf-8"
     )
+    installation_guides = {
+        harness: (repo / "docs" / "installation" / filename).read_text(
+            encoding="utf-8"
+        )
+        for harness, filename in (
+            ("Claude Code", "claude-code.md"),
+            ("Codex", "codex.md"),
+            ("Pi", "pi.md"),
+        )
+    }
+    pi_install = installation_guides["Pi"]
     compiler_readme = (repo / "compiler" / "README.md").read_text(
         encoding="utf-8"
     )
@@ -48,22 +60,33 @@ def test_maintained_documentation_matches_current_pi_and_overlay_contracts():
         repo / "docs" / "overlays" / "claude-code.md"
     ).read_text(encoding="utf-8")
 
-    assert "0.85.1" in pi_install
-    assert "uses the installed Pi version" in pi_install
-    assert "not a compatibility claim" in pi_install
-    assert 'PI_CI_VERSION: "0.85.1"' in ci_workflow
-    assert "@${PI_CI_VERSION}" in ci_workflow
-    assert "caller-owned `AGENTS.md`" in pi_install
-    assert "adapted/partial" in pi_install
-    assert "pi install npm:" not in pi_install
+    assert "all three support the same gates, roles, and project artifacts" in readme
+    assert "equally viable" in installation_index
+    for harness, guide in installation_guides.items():
+        for heading in ("## Install", "## Run", "## Runtime boundary", "## Update", "## Remove"):
+            assert heading in guide, f"{harness} guide is missing {heading}"
+    combined_user_docs = "\n".join(
+        [readme, installation_index, *installation_guides.values()]
+    ).lower()
+    for unequal_claim in (
+        "reference harness",
+        "reference implementation",
+        "reference channel",
+        "current reference",
+        "primary harness",
+    ):
+        assert unequal_claim not in combined_user_docs
+    assert "pi install git:github.com/DeliberateCode/System2" in pi_install
+    assert "/system2 <your task>" in pi_install
+    assert "does not install an extension, hooks, or a permission layer" in pi_install
+    assert "0.85.1" not in pi_install
+    assert "PI_CI_VERSION" not in ci_workflow
+    assert "python -m unittest discover" in ci_workflow
     for target in ("claude-code", "codex", "pi"):
-        segments = compiler_readme.split(f"--target {target}")[1:]
-        example = next(
-            (segment[:240] for segment in segments if "--base ../plugin" in segment[:240]),
-            "",
-        )
-        assert example, f"{target} example uses the wrong base"
-        assert "--overlays" in example, f"{target} source example is not runnable"
+        assert f"`{target}`" in compiler_readme
+    assert "All targets preserve the same workflow, gates, and role contracts" in compiler_readme
+    assert "--base ../plugin" in compiler_readme
+    assert "--overlays" in compiler_readme
     assert "optional `.system2/overlays.json` input list" in overlay_guide
     assert "spec/overlay-manifest.lock" in overlay_guide
     assert "--remove overlay-a" in overlay_guide

@@ -1,23 +1,15 @@
 ---
 name: system2
-description: "Drive the System2 gate graph and delegate to the 13 roles (Codex, adapted)."
+description: Run the System2 gate workflow and role contracts in Codex.
 ---
 
 # System2 orchestrator (Codex)
 
-## Trust state (READ THIS FIRST — PENDING NATIVE ACCEPTANCE)
+## Runtime boundary
 
-System2 workflows for Codex. NOTE: bundled hooks are unverified candidate artifacts, not a release enforcement guarantee; Codex safety capabilities remain advisory-only pending native acceptance.
-
-| Trust state | Enforcement |
-|---|---|
-| Hooks not reviewed / untrusted | ADVISORY ONLY — candidate hooks do not run. |
-| Hooks materialized and reviewed via `/hooks` | UNVERIFIED CANDIDATE BEHAVIOR — native routing, trust, and deny semantics have not been accepted; this is not a release guarantee. |
-| Admin-disabled (`requirements.toml`) | ADVISORY ONLY — candidate hooks cannot run. |
-
-To inspect candidate behavior: run `system2 codex init` to materialize the guards into `~/.codex/hooks.json`, then review them via `/hooks`. Do not treat installation or trust as proof of enforcement. Nothing here auto-enables hooks or instructs blanket approval.
-
-Coverage gap: Candidate guards inspect command strings from recognized command keys, shell redirection and limited tee targets, and explicit edit paths or apply-patch headers. Other shell writes are not inspected. Synthetic corpus tests are not native Codex acceptance.
+System2 supplies workflow and role guidance through Codex skills. Codex's own sandbox, approval policy, and tool permissions remain authoritative.
+System2 does not install hooks or modify Codex configuration.
+Role switching is in-session skill adoption, not isolated subagent execution.
 
 ## Human communication policy
 
@@ -37,7 +29,7 @@ Engineering discipline and human communication are independent requirements. App
 - After work, lead with the result. Explain what changed and why it matters, meaningful verification outcomes, and unresolved risks or unfinished work. Do not automatically reproduce specialist completion reports.
 - Do not reveal private chain-of-thought or require visible thinking blocks. Before consequential actions, check authority and safety, surface consequential assumptions and risks, and obtain required approvals. Record concise decision summaries, intended actions, and observable supporting evidence in the relevant engineering artifacts. Routine operations do not require repetitive pre-action narration.
 
-## Gate graph (advance 0 -> 5; do not skip a gate)
+## Gate graph (advance 0 -> 5)
 - Gate 0 (scope): confirm goal, constraints, and definition of done
 - Gate 1 (context): approve spec/context.md
 - Gate 2 (requirements): approve spec/requirements.md
@@ -46,25 +38,25 @@ Engineering discipline and human communication are independent requirements. App
 - Gate 5 (ship): approve final diff summary and risk checklist
 - Approval rule: Quality gates. Pause for explicit user approval at each gate unless the user says to skip gates.
 
-## Delegation (same-session prompt/skill adoption)
-No Codex subagent component exists. Adopt the target role's skill in the same session; this is prompt behavior, not an isolated sub-agent. A child-shell export cannot update later hook processes, so role-aware hook authorization is unsupported pending a native state seam. Do not claim role-specific lease enforcement.
+## Roles (same-session skill adoption)
+Invoke the target role skill in the current session. This changes the active role guidance; it does not create an isolated subagent.
 
-Preferred delegation order (the 13-role pipeline):
-1. repo-governor — adopt `skills/system2-role-repo-governor/SKILL.md`
-2. spec-coordinator — adopt `skills/system2-role-spec-coordinator/SKILL.md`
-3. requirements-engineer — adopt `skills/system2-role-requirements-engineer/SKILL.md`
-4. design-architect — adopt `skills/system2-role-design-architect/SKILL.md`
-5. task-planner — adopt `skills/system2-role-task-planner/SKILL.md`
-6. executor — adopt `skills/system2-role-executor/SKILL.md`
-7. test-engineer — adopt `skills/system2-role-test-engineer/SKILL.md`
-8. security-sentinel — adopt `skills/system2-role-security-sentinel/SKILL.md`
-9. eval-engineer — adopt `skills/system2-role-eval-engineer/SKILL.md`
-10. docs-release — adopt `skills/system2-role-docs-release/SKILL.md`
-11. code-reviewer — adopt `skills/system2-role-code-reviewer/SKILL.md`
-12. postmortem-scribe — adopt `skills/system2-role-postmortem-scribe/SKILL.md`
-13. mcp-toolsmith — adopt `skills/system2-role-mcp-toolsmith/SKILL.md`
+Available roles (listed in workflow order; use only when relevant):
+1. `$system2-role-repo-governor`
+2. `$system2-role-spec-coordinator`
+3. `$system2-role-requirements-engineer`
+4. `$system2-role-design-architect`
+5. `$system2-role-task-planner`
+6. `$system2-role-executor`
+7. `$system2-role-test-engineer`
+8. `$system2-role-security-sentinel`
+9. `$system2-role-eval-engineer`
+10. `$system2-role-docs-release`
+11. `$system2-role-code-reviewer`
+12. `$system2-role-postmortem-scribe`
+13. `$system2-role-mcp-toolsmith`
 
-Every delegation must specify:
+Give each role:
 - Objective
 - Inputs
 - Outputs
@@ -95,4 +87,4 @@ Every delegation must specify:
   - likely failure cluster / root-cause area
   - changed-file summary (files modified since last green run)
 
-See `system2.codex.lock.json` for the per-capability fidelity report and the FIDELITY banner. The `system2-doctor` skill is a candidate diagnostic only; the compiler cannot validate native Codex routing, trust, or deny behavior.
+Use `$system2-doctor` for a read-only summary of project workflow state.

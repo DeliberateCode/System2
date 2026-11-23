@@ -1,101 +1,64 @@
 # Installation and Updating (Claude Code)
 
-Claude Code is the reference channel for System2, installed as a plugin from the System2
-marketplace. For the other harnesses, see the [Installation and Updating](../installation.md)
-index.
+System2 is available as a Claude Code plugin. It installs the orchestrator, 13 specialist roles, workflow skills, and supporting hooks.
 
-## Installation
+## Install
 
-### Step 1: Add the System2 Marketplace
-
-```
+```text
 /plugin marketplace add DeliberateCode/System2
-```
-
-This only **registers** the System2 catalog — you'll see a confirmation that the
-marketplace was added. It does **not** install the plugin yet; that's Step 2.
-
-### Step 2: Install the Plugin
-
-Now install the `system2` plugin from the catalog you just added:
-
-```
 /plugin install system2@system2-marketplace
 ```
 
-This installs all 13 agents, hooks, allowlists, and the `/system2:init`,
-`/system2:compose`, `/system2:doctor`, and `/system2:profile` skills.
+Restart Claude Code, open your project, and initialize the workflow:
 
-```
-System2 Plugin
-├── agents/              # 13 subagent definitions
-├── skills/              # Skills (/system2:init, /system2:compose, /system2:doctor, /system2:profile)
-├── hooks/               # Validation and quality hook scripts
-├── allowlists/          # Per-agent file restriction patterns
-├── schemas/             # Overlay manifest schema and anchor map
-├── scripts/             # Overlay composer and shared validation helpers
-└── .claude-plugin/      # Plugin identity and marketplace metadata
-```
-
-### Step 3: Restart Claude Code
-
-After installing, restart Claude Code so the new agents, hooks, and skills are loaded.
-
-### Step 4: Initialize CLAUDE.md
-
-In your project directory, run:
-
-```
+```text
 /system2:init
 ```
 
-This writes the System2 orchestrator instructions to `CLAUDE.md` in your project root.
+This writes the System2 orchestrator instructions to `CLAUDE.md`. If the project already has that file and you intend to replace it, use:
 
-To overwrite an existing CLAUDE.md:
-
-```
+```text
 /system2:init --force
 ```
 
-### Step 5: Restart Claude Code
+Restart Claude Code after initialization so the project instructions are loaded.
 
-Restart Claude Code again so the new `CLAUDE.md` orchestrator instructions take effect.
+## Run
 
-### Optional: Overlays and profiles
+Give the orchestrator your task in the project conversation. For an existing System2 project, ask it to read the current `spec/` files and diff, then continue the next unfinished task.
 
-System2 includes an opt-in overlay mechanism for extending the base workflow without
-forking the plugin, plus reusable overlay **profiles**. These are documented separately —
-see [Overlays (optional extensions) — Claude Code](../overlays/claude-code.md).
+Use `/system2:doctor` for a read-only summary of the current workflow and overlay state.
 
-## Updating
+## Runtime boundary
 
-System2 updates are handled by the Claude Code plugin system. No manual update commands are needed.
+Claude Code runs System2 specialist roles as native subagents. The plugin also supplies hooks and role-specific write restrictions, while Claude Code's permissions and user configuration remain authoritative.
 
-To check plugin status:
+Pause any other agent before allowing Claude Code to edit the same checkout.
 
-```
+## Optional overlays and profiles
+
+Claude Code exposes `/system2:compose` and `/system2:profile` for optional workflow extensions. See [Overlays and profiles](../overlays/claude-code.md).
+
+## Update
+
+Claude Code handles installed plugin updates. Check installation status with:
+
+```text
 /plugin list
 ```
 
-Plugin updates do not automatically rewrite composed overlay artifacts in your project. After a plugin update, check whether your composed overlays need refreshing:
+After an update, use `/system2:doctor` if the project uses overlays. If it reports drift, refresh the composition with:
 
-```
-/system2:doctor
-```
-
-If the doctor reports drift (stale base or stale overlay), recompose using the locked overlay paths:
-
-```
+```text
 /system2:compose --from-lock
 ```
 
-This reads the overlay source paths recorded in `spec/overlay-manifest.lock` and runs the normal compose flow (dry-run preview, approval, write). See [Overlays (optional extensions) — Claude Code](../overlays/claude-code.md) for the full overlay and profile workflow.
+## Remove
 
-## Backout / rollback
+Uninstall the plugin with Claude Code's plugin manager:
 
-This channel is independently reversible; nothing here couples to another channel.
+```text
+/plugin uninstall system2@system2-marketplace
+```
 
-Remove the marketplace (or uninstall the `system2` plugin) to return to the prior state.
-The composed-output engine keeps its deep escape hatch: set `SYSTEM2_USE_BUNDLE=0` to run the
-plugin off the frozen `composer.py.preflip` baseline instead of the vendored bundle. Composed
-output is byte-identical across both paths.
+You may also remove the `system2-marketplace` marketplace after uninstalling the plugin. Existing project specs and `CLAUDE.md` remain project files and are not deleted automatically.

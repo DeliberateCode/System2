@@ -5,7 +5,8 @@ import stat
 import tempfile
 import unittest
 
-from system2_compiler.backends import claude_code, codex, pi
+from system2_compiler.backends import claude_code
+from system2_compiler.backends._generated import write_outputs
 
 
 class EmissionFileModeTest(unittest.TestCase):
@@ -23,15 +24,9 @@ class EmissionFileModeTest(unittest.TestCase):
             writer(root)
             self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o600)
 
-    def test_codex_writer_respects_umask_and_preserves_existing_mode(self):
+    def test_generated_writer_respects_umask_and_preserves_existing_mode(self):
         self._assert_mode(
-            lambda root: codex._write_outputs(root, [("example.md", "content\n")]),
-            "example.md",
-        )
-
-    def test_pi_writer_respects_umask_and_preserves_existing_mode(self):
-        self._assert_mode(
-            lambda root: pi._write_outputs(root, [("example.md", "content\n")]),
+            lambda root: write_outputs(root, [("example.md", "content\n")]),
             "example.md",
         )
 

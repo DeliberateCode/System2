@@ -265,11 +265,6 @@ class RegenInducedDivergenceTest(unittest.TestCase):
             dest = os.path.join(repo, art.dest_rel)
             art.builder(dest, ctx)
             committed_root = os.path.join(dest, art.content_rel)
-            if art.name == "codex":
-                mirror = os.path.join(compiler_root, regen_all._PACKAGED_USER_HOOKS_REL)
-                shutil.rmtree(mirror, ignore_errors=True)
-                shutil.copytree(os.path.join(dest, "user-hooks"), mirror)
-
             rc, _out, _err = self._run_check(art, ctx)
             self.assertEqual(rc, 0, f"freshly emitted {art.name} must check GREEN")
 

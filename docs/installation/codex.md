@@ -1,30 +1,52 @@
-# Codex pre-release status
+# Installation and Updating (Codex)
 
-The Codex channel is **not yet an accepted installation channel**. A compiler-generated
-base-workflow projection exists, but native Codex acceptance is still pending. Do not treat
-the generated distribution as released or rely on it for enforcement.
+System2 is available as a Codex plugin. It installs the `$system2` orchestrator, `$system2-doctor`, and 13 specialist role skills.
 
-## Current scope
-
-The projection lowers the orchestrator and 13 roles to skills with in-session role
-switching. It does not provide native subagent isolation or the Claude Code overlay/profile
-commands. Its capability report distinguishes adapted and advisory behavior; those labels
-are not claims of mechanism parity with Claude Code or Pi.
-
-## Source-build review
-
-Release reviewers working from an authorized source checkout can confirm that the committed
-candidate matches its canonical sources:
+## Install
 
 ```sh
-python3 compiler/tools/regen_all.py --check --only codex
+codex plugin marketplace add DeliberateCode/System2
+codex plugin add system2@system2-marketplace
 ```
 
-Native harness behavior must then be evaluated against the installed Codex CLI using the
-[pre-release acceptance runbook](../runbooks/codex-smoke.md). Native CLI requirements will
-be set only from recorded acceptance evidence.
+Restart Codex. No separate System2 configuration is required; continue using Codex's normal sandbox, approval, and tool settings.
 
-## Updating and removal
+Verify the installation with:
 
-There is no supported update or removal procedure until native acceptance is recorded and
-the channel is released.
+```sh
+codex plugin list --json
+```
+
+## Run
+
+Open your project and invoke `$system2` with your task. For an existing System2 project, ask it to read the current `spec/` files and diff, then continue the next unfinished task.
+
+Use `$system2-doctor` for a read-only summary of the current workflow state.
+
+## Runtime boundary
+
+Codex applies System2 specialist role skills in the current session rather than isolated subagents. System2 does not install hooks or modify Codex configuration; Codex's sandbox, approval policy, and tool permissions remain authoritative.
+
+Pause any other agent before allowing Codex to edit the same checkout.
+
+## Update
+
+```sh
+codex plugin marketplace upgrade system2-marketplace
+codex plugin remove system2@system2-marketplace
+codex plugin add system2@system2-marketplace
+```
+
+## Remove
+
+```sh
+codex plugin remove system2@system2-marketplace
+```
+
+To remove the marketplace as well:
+
+```sh
+codex plugin marketplace remove system2-marketplace
+```
+
+Existing project specs remain project files and are not deleted automatically.

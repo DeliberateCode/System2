@@ -12,11 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Consolidated the compiler subtree into this repository under `compiler/`.
 - Moved the plugin version from 1.1.1 to 1.2.0.
 - Updated copyright notices to Deliberate Code.
-- Added a Codex base-workflow projection; it remains pre-release pending native acceptance.
-- Added a Pi base-workflow projection; it remains pre-release pending npm publication.
-- Added a shared human communication policy for natural explanations without weakening structured evidence, verification, approvals, or permission boundaries. Claude projections retain it in project instructions; Pi injects one generated policy into both parent and specialist contexts.
+- Added Codex plugin support with an orchestrator, workflow doctor, and 13 role skills. Removed the experimental hook installer and control-plane prototypes in favor of Codex's native plugin, sandbox, and approval surfaces.
+- Added Pi package support with `/system2`, `/system2-doctor`, and 13 in-session role skills, installable directly from GitHub.
+- Added a shared human communication policy for natural explanations without weakening structured evidence, verification, approvals, or permission boundaries. Claude retains it in project instructions; Codex and Pi include it in their orchestrator guidance and role skills.
 - Replaced mandatory visible thinking blocks and conversational status templates with decision-relevant explanations and auditable decision summaries. Added communication scenarios, manual-review guidance, and prompt-assembly/runtime regression coverage.
-- Kept Pi 0.85.1 as a reproducible CI acceptance pin while allowing runtime and local acceptance to use the user's installed Pi version.
+- Simplified Codex and Pi to guidance-only packages that rely on each harness's native tool, trust, sandbox, and approval controls instead of shipping custom enforcement runtimes.
+- Reframed the main documentation around one shared workflow with Claude Code, Codex, and Pi presented as equally viable harnesses; harness-specific mechanics now live in parallel installation guides.
 
 ## [1.1.1] - 2026-06-26
 

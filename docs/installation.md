@@ -1,17 +1,19 @@
 # Installation and Updating
 
-System2 has three distinct harness channels. Claude Code is the current reference channel;
-Codex and Pi are compiler-generated base-workflow projections with separate release gates.
+System2 supports Claude Code, Codex, and Pi as equally viable ways to run the same spec-driven workflow.
 
-| Channel | Status | Guide |
-|---------|--------|-------|
-| **Claude Code** | Available | [Installation and Updating (Claude Code)](installation/claude-code.md) |
-| **Codex** | Pre-release — native acceptance pending | [Codex pre-release status](installation/codex.md) |
-| **Pi** | Pre-release — CI acceptance pinned to Pi 0.85.1; user-provided Pi runtime; npm publication pending | [Pi publication status](installation/pi.md) |
+| Harness | Install | Start | Role execution |
+|---------|---------|-------|----------------|
+| **Claude Code** | Add the marketplace and install `system2@system2-marketplace` | `/system2:init` | Native subagents |
+| **Codex** | Add the marketplace and install `system2@system2-marketplace` | `$system2` | In-session role skills |
+| **Pi** | `pi install git:github.com/DeliberateCode/System2` | `/system2 <task>` | In-session role skills |
 
-The shared workflow does not imply mechanism parity. Claude Code uses native isolated
-subagents and provides the end-user overlay/profile commands. Codex and Pi currently expose
-only compiler-generated base-workflow projections.
+Choose the harness that matches your existing environment:
 
-For workflow concepts, see the [README](../README.md). For overlays and profiles, see
-[Overlays (optional extensions)](overlays.md).
+- [Claude Code](installation/claude-code.md)
+- [Codex](installation/codex.md)
+- [Pi](installation/pi.md)
+
+All three provide the same gates, role contracts, spec artifacts, and verification workflow. Their host-specific execution and permission mechanisms differ.
+
+For workflow concepts, see the [README](../README.md). For optional overlays and profiles, see [Overlays and profiles](overlays.md).

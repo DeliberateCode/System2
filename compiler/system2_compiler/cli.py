@@ -14,7 +14,6 @@ from system2_compiler.ir.graph import System2Graph
 from system2_compiler.backends.base import Backend, DoctorReport, UninstallResult
 from system2_compiler.backends.claude_code import ClaudeCodeBackend
 from system2_compiler.backends.pi import PiBackend
-from system2_compiler.backends import codex as codex_ops
 from system2_compiler.backends.codex import CodexBackend
 
 __all__ = ["main"]
@@ -943,71 +942,6 @@ def _do_profile(argv: List[str]) -> int:
     return _do_profile_mutation(args, op, args.name)
 
 
-# codex (user-scope enforcement install; harness-specific, no --target/--base)
-
-def _do_codex(argv: List[str]) -> int:
-    """Dispatch ``system2 codex {init|uninstall}`` (single global user-scope install)."""
-    parser = argparse.ArgumentParser(
-        prog="system2 codex",
-        description="Install/uninstall the user-scope Codex enforcement hooks.",
-    )
-    parser.add_argument("op", choices=["init", "uninstall"], help="Codex operation.")
-    parser.add_argument(
-        "--codex-home", dest="codex_home", default="",
-        help="Target Codex home (default: $CODEX_HOME or ~/.codex).",
-    )
-    parser.add_argument(
-        "--reference", default="",
-        help="Committed user-hooks reference (default: repo distributions/codex/user-hooks).",
-    )
-    parser.add_argument(
-        "--force", action="store_true",
-        help="Back up + overwrite a pre-existing non-System2 ~/.codex/hooks.json.",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Show would-write set; write nothing.")
-    parser.add_argument("--format", choices=["text", "json"], default="text")
-    args = parser.parse_args(argv)
-    fmt = args.format
-
-    if args.op == "init":
-        try:
-            result = codex_ops.codex_init(
-                codex_home=args.codex_home or None,
-                reference_dir=args.reference or None,
-                force=args.force,
-                dry_run=args.dry_run,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            # a missing/invalid --reference is a clean CLI error, not a traceback.
-            sys.stderr.write(f"error: {exc}\n")
-            return 2
-    else:
-        result = codex_ops.codex_uninstall(
-            codex_home=args.codex_home or None, dry_run=args.dry_run,
-        )
-
-    for w in result.get("warnings", []):
-        sys.stderr.write(f"  WARNING: {w}\n")
-
-    if fmt == "json":
-        sys.stdout.write(json.dumps(result, indent=2) + "\n")
-    elif args.op == "init" and result["status"] != "refused":
-        sys.stdout.write(f"{result['message']}\n")
-        for fp in result.get("hook_files", []):
-            sys.stdout.write(f"  hook: {fp}\n")
-        sys.stdout.write(f"  config: {result['hooks_json']}\n")
-    elif args.op == "uninstall":
-        sys.stdout.write(f"Codex uninstall: {result['status']}.\n")
-        for fp in result.get("removed", []):
-            sys.stdout.write(f"  removed: {fp}\n")
-        if result.get("restored_backup"):
-            sys.stdout.write(f"  restored backup: {result['restored_backup']}\n")
-
-    if result.get("status") == "refused":
-        return 3
-    return 0
-
-
 # Argument parsing for the write/lifecycle verbs
 
 def _add_common(parser: argparse.ArgumentParser, *, require_base: bool = True) -> None:
@@ -1047,11 +981,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Dispatch a ``system2`` subcommand."""
     if argv is None:
         argv = sys.argv[1:]
-
-    # Harness-specific user-scope install (no --target/--base). Additive; the
-    # existing verb/target surface is untouched.
-    if argv and argv[0] == "codex":
-        return _do_codex(argv[1:])
 
     # Back-compat: a leading flag (or empty argv) means the implicit `compile`.
     if not argv or argv[0].startswith("-"):

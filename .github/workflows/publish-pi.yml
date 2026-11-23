@@ -54,7 +54,7 @@ jobs:
 
       # Publish the committed, guard-verified package verbatim. Provenance is
       # attested via OIDC; --access public makes the scoped package public.
-      - name: Publish (or dry-run) @deliberatecode/pi-system2
+      - name: Publish (or dry-run) @deliberatecode/system2
         working-directory: distributions/pi
         run: |
           set -euxo pipefail

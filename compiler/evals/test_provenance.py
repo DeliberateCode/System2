@@ -163,7 +163,7 @@ class SourceDigestTest(unittest.TestCase):
             "base/plugin_metadata", "base/init_template",
             "base/schema/overlay", "base/schema/anchor_map",
             "lowering/ir", "lowering/system2_compiler_init", "backend/base",
-            "backend/degradation", "backend/enforcement", "backend/yaml",
+            "backend/degradation", "backend/generated", "backend/yaml",
             "generator/regen_all", "generator/provenance",
             "generator/build_bundle_helpers", "metadata/channel_version",
             "metadata/compiler_project",

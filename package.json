@@ -1,0 +1,21 @@
+{
+  "name": "@deliberatecode/system2",
+  "version": "0.2.3",
+  "private": true,
+  "description": "Deliberate, spec-driven engineering workflows for Pi.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "system2",
+    "coding-agent",
+    "workflow"
+  ],
+  "license": "MIT",
+  "files": [
+    "distributions/pi"
+  ],
+  "pi": {
+    "skills": ["./distributions/pi/skills"],
+    "prompts": ["./distributions/pi/prompts/*.md"]
+  }
+}

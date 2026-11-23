@@ -199,8 +199,8 @@ def _distribution_inputs(channel: str, ctx: _Context):
         ("backend/degradation", os.path.join(
             backend_root, "_degradation.py"
         ), ctx.compiler_root),
-        ("backend/enforcement", os.path.join(
-            backend_root, "_enforcement.py"
+        ("backend/generated", os.path.join(
+            backend_root, "_generated.py"
         ), ctx.compiler_root),
         ("backend/yaml", os.path.join(backend_root, "_yaml.py"), ctx.compiler_root),
         ("generator/regen_all", os.path.join(
@@ -286,39 +286,8 @@ def _build_codex(dest_abs: str, ctx: _Context) -> None:
         channel_version=emitted_version,
         compiler_root=ctx.compiler_root,
     )
-    # Mirror package data only during real regeneration; --check must stay read-only.
-
-
-_PACKAGED_USER_HOOKS_REL = os.path.join(
-    "system2_compiler", "_packaged_data", "codex_user_hooks"
-)
-
-
-def _mirror_user_hooks_into_package(codex_dest_abs: str, compiler_root: str) -> None:
-    src = os.path.join(codex_dest_abs, "user-hooks")
-    dst = os.path.join(compiler_root, _PACKAGED_USER_HOOKS_REL)
-    if os.path.isdir(dst):
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
-
-
-def _package_data_matches_current_codex_emission(ctx: _Context) -> bool:
-    """Whether bundleable hook package-data matches the current Codex emission."""
-    mirror = os.path.join(ctx.compiler_root, _PACKAGED_USER_HOOKS_REL)
-    with tempfile.TemporaryDirectory(prefix="system2-codex-package-data-") as tmp:
-        _build_codex(tmp, ctx)
-        return _is_regular_directory(
-            mirror, trusted_root=ctx.compiler_root
-        ) and _trees_match(
-            os.path.join(tmp, "user-hooks"),
-            mirror,
-            committed_trusted_root=tmp,
-            regen_trusted_root=ctx.compiler_root,
-        )
-
-
 def _build_pi(dest_abs: str, ctx: _Context) -> None:
-    """Regenerate the @deliberatecode/pi-system2 npm package + PROVENANCE.json."""
+    """Regenerate the lightweight Pi package + PROVENANCE.json."""
     with tempfile.TemporaryDirectory(prefix="pi-emit-") as staging:
         result = ir.compose(ctx.plugin_root, [], staging)
         if result.graph is None:
@@ -350,7 +319,6 @@ class _Artifact:
     bundle_oracle: bool = False
 
 
-# Build the bundle last because Codex regeneration refreshes packaged hook data.
 REGISTRY: List[_Artifact] = [
     _Artifact("codex", os.path.join("distributions", "codex"), "",
               _build_codex),
@@ -537,21 +505,9 @@ def _trees_match(
 # Drivers
 
 def _regen(selected: List[_Artifact], ctx: _Context) -> int:
-    selected_names = {art.name for art in selected}
-    if "bundle" in selected_names and "codex" not in selected_names:
-        if not _package_data_matches_current_codex_emission(ctx):
-            sys.stderr.write(
-                "bundle depends on Codex's packaged user-hooks, which are stale: "
-                "run `python3 compiler/tools/regen_all.py --only codex` first, "
-                "then rerun with --only bundle (or run the default full regen).\n"
-            )
-            return 1
     for art in selected:
         dest_abs = os.path.join(ctx.repo_root, art.dest_rel)
         art.builder(dest_abs, ctx)
-        if art.name == "codex":
-            # Mirror emitted hooks into package data only during real regeneration.
-            _mirror_user_hooks_into_package(dest_abs, ctx.compiler_root)
         sys.stdout.write(f"regenerated {art.name} -> {art.dest_rel}\n")
     return 0
 
@@ -609,27 +565,6 @@ def _check(selected: List[_Artifact], ctx: _Context, explicit: bool) -> int:
                 )
             ):
                 sys.stderr.write(stale_message(art.name) + "\n")
-                return 1
-        if art.name == "codex":
-            # Verify the independently committed package-data mirror too.
-            mirror_root = os.path.join(
-                ctx.compiler_root, _PACKAGED_USER_HOOKS_REL
-            )
-            user_hooks_committed = os.path.join(committed_root, "user-hooks")
-            if not _is_regular_directory(
-                mirror_root, trusted_root=ctx.compiler_root
-            ) or not _trees_match(
-                user_hooks_committed,
-                mirror_root,
-                committed_trusted_root=ctx.repo_root,
-                regen_trusted_root=ctx.compiler_root,
-            ):
-                sys.stderr.write(
-                    "codex: package-data mirror "
-                    f"({os.path.relpath(mirror_root, ctx.repo_root)}) is out of "
-                    "sync with distributions/codex/user-hooks/: "
-                    f"regenerate via {_REGEN_COMMAND}\n"
-                )
                 return 1
         sys.stdout.write(f"{art.name}: fresh\n")
     return 0

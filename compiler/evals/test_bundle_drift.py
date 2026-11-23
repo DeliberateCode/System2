@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -101,8 +102,6 @@ class BundleDriftTest(unittest.TestCase):
             {
                 "__init__.py", "ir", "backends", "plugin_adapter.py", "cli.py",
                 "channel_version.py",
-                # # the Codex user-hooks reference is now real package-data (pyproject.toml), so it's vendored along with the rest of the package -- intentional, not drift.
-                "_packaged_data",
             },
             "unexpected product-package file set inside the bundle",
         )
@@ -335,8 +334,10 @@ class BundleDriftTest(unittest.TestCase):
         pyproject = os.path.join(newer_root, "pyproject.toml")
         with open(pyproject, encoding="utf-8") as fh:
             content = fh.read()
+        content, changed = re.subn(r'^version = "[^"]+"$', 'version = "999.0.0"', content, flags=re.MULTILINE)
+        self.assertEqual(changed, 1)
         with open(pyproject, "w", encoding="utf-8") as fh:
-            fh.write(content.replace('version = "0.1.0"', 'version = "0.1.1"', 1))
+            fh.write(content)
         self.assertNotEqual(
             check_bundle_fresh.check_bundle_fresh(newer_root, dest), 0,
             "changing the compiler version source MUST stale the bundle",

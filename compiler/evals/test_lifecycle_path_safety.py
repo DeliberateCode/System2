@@ -244,7 +244,7 @@ class FirstEmitSymlinkContainmentTest(unittest.TestCase):
     # Already-passing control: a dangling planned output is refused safely.
     def test_pi_emit_refuses_dangling_planned_output(self):
         self._assert_dangling_emit_refused(
-            PiBackend, os.path.join(".pi", "SYSTEM.md")
+            PiBackend, os.path.join(".pi", "prompts", "system2.md")
         )
 
     # Already-passing control: a dangling Pi prompts parent is refused safely.
@@ -258,7 +258,7 @@ class OwnedArtifactSymlinkContainmentTest(unittest.TestCase):
     # Expected failures: digest-matching symlinks are not regular owned files.
     _CASES = (
         (CodexBackend, os.path.join(".codex-plugin", "plugin.json")),
-        (PiBackend, os.path.join(".pi", "SYSTEM.md")),
+        (PiBackend, os.path.join(".pi", "prompts", "system2.md")),
     )
 
     def test_recompose_refuses_matching_external_owned_artifact_symlink(self):
