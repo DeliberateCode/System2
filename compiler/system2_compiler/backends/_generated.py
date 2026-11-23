@@ -12,8 +12,10 @@ from system2_compiler.ir.graph import System2Graph
 from .base import (
     DoctorReport,
     UninstallResult,
+    build_artifact_ownership,
     lock_sources_outside_project,
     preflight_artifact_write,
+    validate_artifact_ownership,
     validate_project_target,
     verify_owned_artifacts,
 )
@@ -35,8 +37,25 @@ def validated_overlay_sources(lock_data: object) -> List[str]:
     return list(sources)
 
 
-def overlay_name(source_path: str) -> str:
-    return os.path.basename(os.path.normpath(source_path))
+def _overlay_records(lock_data: dict) -> List[dict]:
+    sources = validated_overlay_sources(lock_data)
+    records = lock_data.get("overlays")
+    if records is None:  # Locks from the first generated distributions used basenames.
+        return [{"name": os.path.basename(os.path.normpath(source)), "source_path": source}
+                for source in sources]
+    if (not isinstance(records, list) or len(records) != len(sources)
+            or any(not isinstance(record, dict) or record.get("source_path") != source
+                   or not isinstance(record.get("name"), str) or not _KEBAB_RE.fullmatch(record["name"])
+                   for record, source in zip(records, sources))):
+        raise ValueError("Lock file is malformed: invalid overlay inventory")
+    if len({record['name'] for record in records}) != len(records):
+        raise ValueError("Lock file is malformed: duplicate overlay names")
+    return records
+
+
+def _graph_overlays(ir: System2Graph) -> List[dict]:
+    return [{"name": item.manifest["name"], "version": item.manifest["version"],
+             "source_path": item.source_path} for item in ir.overlay_inputs]
 
 
 def _makedirs_tracked(dir_path: str, dirs_created: List[str]) -> None:
@@ -173,13 +192,24 @@ class GeneratedArtifactBackend:
         base_path: Optional[str] = None,
         compose_fn: Optional[Callable[..., object]] = None,
         overlay_sources: Optional[List[str]] = None,
+        *,
+        workspace: bool = False,
     ) -> None:
         self._base_path = base_path
         self._compose_fn = compose_fn
         self._overlay_sources = list(overlay_sources) if overlay_sources else None
+        self._prefix = f".system2/{self.name}/" if workspace else ""
+        self.lock_name = self._prefix + self.lock_name
 
     def _planned_files(self, ir: System2Graph) -> List[Tuple[str, str]]:
         raise NotImplementedError
+
+    def _lock_details(self, ir: System2Graph) -> dict:
+        raise NotImplementedError
+
+    def _artifacts(self, ir: System2Graph) -> List[Tuple[str, str]]:
+        return [(self._prefix + path.replace(os.sep, "/"), text)
+                for path, text in self._planned_files(ir)]
 
     def _validate_legacy_overlay_sources(self, ir: System2Graph) -> None:
         if (
@@ -215,7 +245,12 @@ class GeneratedArtifactBackend:
         recompose: bool = False,
     ) -> List[str]:
         self._validate_legacy_overlay_sources(ir)
-        planned = self._planned_files(ir)
+        planned = self._artifacts(ir)
+        lock = self._lock_details(ir)
+        lock["ownership"] = build_artifact_ownership(planned, self.lock_name)
+        lock["overlay_sources"] = list(ir.overlay_sources)
+        lock["overlays"] = _graph_overlays(ir)
+        planned.append((self.lock_name, json.dumps(lock, indent=2) + "\n"))
         planned_paths, stale_paths = preflight_artifact_write(
             project_path, planned, self.lock_name, recompose=recompose
         )
@@ -226,12 +261,15 @@ class GeneratedArtifactBackend:
     def lock_path(self, project_path: str) -> str:
         return os.path.join(project_path, self.lock_name)
 
-    def read_lock_overlay_sources(self, project_path: str) -> List[str]:
+    def read_lock_overlays(self, project_path: str) -> List[dict]:
         lock_path = validate_project_target(project_path, self.lock_name)
         if not os.path.isfile(lock_path):
             raise FileNotFoundError(lock_path)
         with open(lock_path, "r", encoding="utf-8") as stream:
-            return validated_overlay_sources(json.load(stream))
+            return _overlay_records(json.load(stream))
+
+    def read_lock_overlay_sources(self, project_path: str) -> List[str]:
+        return [record["source_path"] for record in self.read_lock_overlays(project_path)]
 
     def recompose_from_lock(
         self, ir: System2Graph, project_path: str, *, dry_run: bool = False
@@ -245,6 +283,7 @@ class GeneratedArtifactBackend:
         *,
         dry_run: bool = False,
         allow_newer_schema: bool = False,
+        allow_injection: bool = False,
     ) -> UninstallResult:
         def error_result(errors: List[str]) -> UninstallResult:
             return UninstallResult(
@@ -279,26 +318,22 @@ class GeneratedArtifactBackend:
             return error_result([f"Cannot read lock file: {exc}"])
 
         try:
-            sources = validated_overlay_sources(lock_data)
+            records = _overlay_records(lock_data)
             owned_artifacts = verify_owned_artifacts(
                 project_path, lock_data, self.lock_name, require_all=False
             )
         except ValueError as exc:
             return error_result([str(exc)])
 
-        installed = [overlay_name(source) for source in sources]
+        installed = [record["name"] for record in records]
         if overlay_name_to_remove not in installed:
             return error_result([
                 f"Overlay {overlay_name_to_remove!r} is not installed. "
                 f"Installed: {installed}"
             ])
 
-        remaining_sources = [
-            source
-            for source in sources
-            if overlay_name(source) != overlay_name_to_remove
-        ]
-        remaining = [{"name": overlay_name(source)} for source in remaining_sources]
+        remaining = [record for record in records if record["name"] != overlay_name_to_remove]
+        remaining_sources = [record["source_path"] for record in remaining]
         if not remaining_sources:
             return self._uninstall_last_overlay(
                 project_path,
@@ -332,24 +367,25 @@ class GeneratedArtifactBackend:
                 errors=errors,
             )
 
+        report = result.report or {}
+        warnings = list(report.get("injection_warnings", []))
         try:
             files_written = self._emit_graph(
                 result.graph,
                 project_path,
-                dry_run=dry_run,
+                dry_run=dry_run or (bool(warnings) and not allow_injection),
                 recompose=True,
             )
         except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
             return error_result([f"Cannot safely recompose owned artifacts: {exc}"])
 
-        report = getattr(result, "report", {}) or {}
         return UninstallResult(
             removed={"name": overlay_name_to_remove},
             remaining=remaining,
             artifacts_removed=[],
             files_written=files_written,
             is_last_overlay=False,
-            injection_warnings=list(report.get("injection_warnings", [])),
+            injection_warnings=warnings,
             preview="",
             errors=[],
         )
@@ -458,13 +494,14 @@ class GeneratedArtifactBackend:
         if not isinstance(lock_data, dict):
             return self._broken_report("Lock file is malformed: expected a JSON object.")
         try:
-            sources = validated_overlay_sources(lock_data)
+            records = _overlay_records(lock_data)
         except ValueError as exc:
             return self._broken_report(str(exc), locked=lock_data.get(self.version_key, ""))
 
+        sources = [record["source_path"] for record in records]
         overlays = [
-            {"name": overlay_name(source), "source_present": os.path.isdir(source)}
-            for source in sources
+            {"name": record["name"], "source_present": os.path.isdir(record["source_path"])}
+            for record in records
         ]
         status = "ok"
         for source in sources:
@@ -485,6 +522,14 @@ class GeneratedArtifactBackend:
                 "message": f"Generated {self.name} artifact integrity failure: {exc}",
             })
 
+        if status == "ok" and self._prefix:
+            if lock_data.get(self.version_key) != self.version:
+                status = "stale_base"
+                details.append({"kind": status, "message": "The composed workflow uses a different channel version."})
+            elif not self._workspace_is_current(project_path, sources, lock_data):
+                status = "stale_overlay"
+                details.append({"kind": status, "message": "Current inputs no longer reproduce this composition. Preview and refresh it from the lock."})
+
         details.append({"kind": "runtime_boundary", "message": self.runtime_boundary})
         details.extend(lock_sources_outside_project(sources, project_path))
         return DoctorReport(
@@ -499,6 +544,20 @@ class GeneratedArtifactBackend:
             exit_code=0 if status == "ok" else 1,
             validator_available=True,
         )
+
+    def _workspace_is_current(self, project_path: str, sources: List[str], lock: dict) -> bool:
+        try:
+            result = self._require_compose_fn("doctor")(
+                self._require_base_path("doctor"), sources, project_path, dry_run=True,
+            )
+            if result.graph is None or _graph_overlays(result.graph) != lock.get("overlays"):
+                return False
+            expected = build_artifact_ownership(self._artifacts(result.graph), self.lock_name)
+            return dict(validate_artifact_ownership({"ownership": expected}, self.lock_name)) == dict(
+                validate_artifact_ownership(lock, self.lock_name)
+            )
+        except (OSError, ValueError):
+            return False
 
     def _broken_report(self, message: str, locked: str = "") -> DoctorReport:
         return DoctorReport(

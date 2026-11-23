@@ -36,22 +36,27 @@ class PiPackageTest(unittest.TestCase):
         _build(self.root)
         self.package = json.loads(Path(self.root, "package.json").read_text())
 
-    def test_package_contains_only_guidance_resources(self):
+    def test_package_exposes_only_the_setup_extension_entrypoint(self):
         self.assertEqual(
             set(os.listdir(self.root)),
-            {"LICENSE", "README.md", "package.json", "prompts", "skills"},
+            {"LICENSE", "README.md", "package.json", "prompts", "skills", "subagents"},
         )
         self.assertEqual(
             self.package["pi"],
-            {"skills": ["./skills"], "prompts": ["./prompts/*.md"]},
+            {
+                "extensions": ["./subagents/index.ts"],
+                "skills": ["./skills"],
+                "prompts": ["./prompts/*.md"],
+            },
         )
-        for key in ("extensions", "scripts", "dependencies", "peerDependencies"):
+        for key in ("extensions", "scripts", "dependencies"):
             self.assertNotIn(key, self.package)
+        self.assertIn("compiler", self.package["files"])
 
     def test_package_has_the_simple_command_surface(self):
         self.assertEqual(
             set(os.listdir(os.path.join(self.root, "prompts"))),
-            {"system2.md", "system2-doctor.md"},
+            {"system2.md", "system2-doctor.md", "system2-compose.md", "system2-profile.md"},
         )
         skills = os.listdir(os.path.join(self.root, "skills"))
         self.assertEqual(len(skills), 13)
@@ -64,7 +69,8 @@ class PiPackageTest(unittest.TestCase):
         self.assertIn("/system2 <your task>", readme)
         self.assertIn(f"pi update {source}", readme)
         self.assertIn(f"pi remove {source}", readme)
-        self.assertIn("does not install an extension", readme)
+        self.assertIn("/system2-setup", readme)
+        self.assertIn("bundled official Pi example", readme)
 
     def test_repository_root_is_installable_from_git(self):
         root_manifest = json.loads(Path(
@@ -73,6 +79,7 @@ class PiPackageTest(unittest.TestCase):
         self.assertEqual(
             root_manifest["pi"],
             {
+                "extensions": ["./distributions/pi/subagents/index.ts"],
                 "skills": ["./distributions/pi/skills"],
                 "prompts": ["./distributions/pi/prompts/*.md"],
             },
@@ -80,6 +87,8 @@ class PiPackageTest(unittest.TestCase):
         self.assertIn("pi-package", root_manifest["keywords"])
         self.assertEqual(root_manifest["files"], ["distributions/pi"])
         self.assertEqual(root_manifest["name"], self.package["name"])
+        self.assertEqual(root_manifest["version"], self.package["version"])
+        self.assertEqual(root_manifest["peerDependencies"], self.package["peerDependencies"])
 
 
 if __name__ == "__main__":

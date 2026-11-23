@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "backend": "claude-code",
+  "capabilities": {
+    "enforce-lease": {
+      "status": "native",
+      "mechanism": "write-lease lifecycle + validate-file-paths.py against per-agent .regex path allowlists (orchestrator-lifecycle + PreToolUse(Edit|Write))"
+    },
+    "block-dangerous": {
+      "status": "native",
+      "mechanism": "dangerous-command-blocker.py (PreToolUse(Bash))"
+    },
+    "protect-sensitive": {
+      "status": "native",
+      "mechanism": "sensitive-file-protector.py + boundary-check.py (PreToolUse(Read|Edit|Write|Bash))"
+    },
+    "format": {
+      "status": "native",
+      "mechanism": "auto-formatter.py (PostToolUse(Edit|Write))"
+    },
+    "typecheck": {
+      "status": "native",
+      "mechanism": "type-checker.py (PostToolUse(Edit|Write))"
+    },
+    "budget": {
+      "status": "native",
+      "mechanism": "change-budget-reporter.py (SubagentStop)"
+    }
+  }
+}

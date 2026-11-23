@@ -1,9 +1,10 @@
 {
   "backend": "codex",
-  "codex_plugin_version": "0.2.3",
+  "codex_plugin_version": "0.2.5",
   "enforcement": "host-managed",
-  "subagent_isolation": "unsupported",
-  "FIDELITY": "System2 supplies workflow and role guidance through Codex skills. Codex's own sandbox, approval policy, and tool permissions remain authoritative. System2's role scopes, dangerous-command guidance, sensitive-path guidance, formatting, type-checking, and budget reporting are advisory.",
+  "subagent_isolation": "separate-thread-context",
+  "delegation_mode": "native-subagents",
+  "FIDELITY": "System2 supplies workflow and role guidance through Codex skills and delegates through Codex's native subagent tools. Codex's sandbox, approval policy, and tool permissions remain authoritative. A separate agent thread is not a separate permission boundary. System2's role scopes, dangerous-command guidance, sensitive-path guidance, formatting, type-checking, and budget reporting are advisory.",
   "capabilities": {
     "enforce-lease": {
       "status": "advisory",
@@ -46,73 +47,82 @@
     "schema_version": 1,
     "artifacts": [
       {
-        "path": ".codex-plugin/plugin.json",
-        "sha256": "32c77ddf85fb69b5bed85ec5459358d71570f2123ab84db07670e6b1bb7aa941"
+        "path": "skills/system2/SKILL.md",
+        "sha256": "31c476e565087e8a413227e5ed14aa166f7ff7c61dc72dec4cff2a19818f5566"
       },
       {
-        "path": "skills/system2/SKILL.md",
-        "sha256": "a7b82fa193fb4bba9cb133cbd1d8f860822a3338f3e9f097ad8db33164cbbe94"
+        "path": ".codex-plugin/plugin.json",
+        "sha256": "0061ef785be5877d0769839878b741ec1501b5dfdfe4c0cf915db021abc5caec"
       },
       {
         "path": "skills/system2-doctor/SKILL.md",
-        "sha256": "bdd4f5d0a72cd46e19e0e722e72a32f9cd4fb83d13ec8aa8662797547291cffa"
+        "sha256": "66da01c1e258978f7368c36ea87bab2a52dcf0e2320f80ed48795b01470c5727"
+      },
+      {
+        "path": "skills/system2-compose/SKILL.md",
+        "sha256": "3bec199e4e10b472c90ef9dc4ffd9df37ae78525f90fa48c48236babbfce2ecb"
+      },
+      {
+        "path": "skills/system2-profile/SKILL.md",
+        "sha256": "df5c3c52f8b955d1fa9a4aca56247c4956c726656cc038d34df7998eefec020d"
       },
       {
         "path": "skills/system2-role-repo-governor/SKILL.md",
-        "sha256": "42dd658ecadaad69ee1b455a50f06131745e0690b8d32b25168ebdeaacefc8db"
+        "sha256": "81209f8d510ed6b108732a5a2e6ae6bb6d002b88a6f6f1cd678e7238cfb73adb"
       },
       {
         "path": "skills/system2-role-spec-coordinator/SKILL.md",
-        "sha256": "0d9de6abdadcbde9d2b29ce49eea8f2a5f675399dc76eec1069b121fa9a780ab"
+        "sha256": "caf7655c7cf4d0ca484023e14057f99291c91e8e2477bc29fd48ceaf6ac14479"
       },
       {
         "path": "skills/system2-role-requirements-engineer/SKILL.md",
-        "sha256": "afd387e046926ff63241b3f27c5ee1758d86a89d302746ece5795a3cc04d73fc"
+        "sha256": "d23ab4b051eb444afc90e71c102dd31314fec730bad600b0437b6bba9f0dcf27"
       },
       {
         "path": "skills/system2-role-design-architect/SKILL.md",
-        "sha256": "1ad1a42fcef95abfc9e1238d1e86e8422054e2201588b886c1902a051e669cc6"
+        "sha256": "0036dd97af885cde2c8352565ea52d1bae53bb4db1abbca3ca3bca2a5635c6ad"
       },
       {
         "path": "skills/system2-role-task-planner/SKILL.md",
-        "sha256": "0b2c54b25c65f37e6b87dd54b38e167f1d145eb3b8f98121c460a018ae7f0f90"
+        "sha256": "cdfa0aac559a2847e0aaeaf9faefde7d0c9f9545b6254cc19746c705fd0835c5"
       },
       {
         "path": "skills/system2-role-executor/SKILL.md",
-        "sha256": "492c7fa15a37a2ee4a4ed540d8c70f30c369109d54000184eb35b956a635509b"
+        "sha256": "bff36bf96c9b36af96b5944e1f6514d214f51315f93fd84ef69fdb377dae1fea"
       },
       {
         "path": "skills/system2-role-test-engineer/SKILL.md",
-        "sha256": "d1ac62df44fe15f9e63ce2b31369f63d0aeca0870b8a523664f3328747f13be4"
+        "sha256": "9827cb549228c4046107494fe9e6dfd0c695d64e23407bf4a4c9b16c634b87db"
       },
       {
         "path": "skills/system2-role-security-sentinel/SKILL.md",
-        "sha256": "c5b83cb5e96a5935f23e9244acaceff41b970f3991b703cbb950b821951f8126"
+        "sha256": "caf2f76387dd4dc35cd366398728c6ab6515da39eb60488d2f9ad0a2922ee9f9"
       },
       {
         "path": "skills/system2-role-eval-engineer/SKILL.md",
-        "sha256": "6548b90b2a4e468754eed32251242300b9cc59e1b279c5f369606c6c8037bd86"
+        "sha256": "fa82500b28451639181add07c586a2e7bf57420a71878e3b19feacebbdb90e5b"
       },
       {
         "path": "skills/system2-role-docs-release/SKILL.md",
-        "sha256": "b92cacd86851234f779277210ed416ed8a0d24d0de0193253052d7eefcaf757c"
+        "sha256": "5c055bef38d36a65c4e87bcbc36d12a2b60be65a739d53a1c93511a06ca51bd2"
       },
       {
         "path": "skills/system2-role-code-reviewer/SKILL.md",
-        "sha256": "4b8bda5f390adc9f7a42bc2e004630214cffb16188ef3ee906d52d55b4dbfd97"
+        "sha256": "839b44c5b2acad4798c62d12e11f41249965999f67bf85718e501ff17a2e6695"
       },
       {
         "path": "skills/system2-role-postmortem-scribe/SKILL.md",
-        "sha256": "c98fb30884c39c187051538e9ce5112f5afd788c1ab8735beba78854228e00db"
+        "sha256": "212ddf30867fde3e9a69ee661daad71eabe8360432aeada7bfe5e3df024f84f0"
       },
       {
         "path": "skills/system2-role-mcp-toolsmith/SKILL.md",
-        "sha256": "911e56b9a2f8491edf6b3734a2bbf7650252edfca34a436acd72e0814706ff4e"
+        "sha256": "612dcf910a5e4107cdcf42609392d848916522b6145aca0742fca2a622f4765c"
       },
       {
         "path": "system2.codex.lock.json"
       }
     ]
   },
-  "overlay_sources": []
+  "overlay_sources": [],
+  "overlays": []
 }

@@ -10,13 +10,23 @@
     "workflow"
   ],
   "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
   "pi": {
+    "extensions": ["./subagents/index.ts"],
     "skills": ["./skills"],
     "prompts": ["./prompts/*.md"]
   },
   "files": [
     "skills",
     "prompts",
+    "subagents",
+    "compiler",
     "README.md",
     "LICENSE",
     "PROVENANCE.json"

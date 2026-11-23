@@ -9,10 +9,14 @@ from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation, _yaml
 from ._generated import GeneratedArtifactBackend
-from .base import (
-    build_artifact_ownership,
-    render_human_communication_policy,
-    render_workflow_contract,
+from ._guidance import (
+    overlay_commands,
+    overlay_doctor_guidance,
+    render_orchestrator_guidance,
+    render_role_guidance,
+    role_contracts,
+    use_workspace_overlay,
+    workflow_status,
 )
 
 __all__ = ["PiBackend"]
@@ -25,8 +29,21 @@ _PI_LOCK = "system2.pi.lock.json"
 
 _RUNTIME_BOUNDARY = (
     "System2 supplies workflow and role guidance through Pi prompt templates and "
-    "skills. Pi's active tools, project trust, and user configuration remain "
-    "authoritative."
+    "skills, and delegates through Pi's official example `subagent` tool. The "
+    "child runs in a separate Pi process with fresh context, not a new permission "
+    "sandbox. Pi's tools, project trust, and user configuration remain authoritative."
+)
+_DISPATCH = (
+    "For each specialist step, use the exact role skill path listed below when "
+    "present. Otherwise resolve the skill from the active inventory; for a direct "
+    "project build prefer its `.pi/skills` role over the base package copy. Call "
+    "`subagent` in single mode with `agent: \"system2-specialist\"`, "
+    "`agentScope: \"user\"`, and `task` containing the absolute role `SKILL.md` "
+    "path and the handoff below. Keep the project working directory. Instruct the "
+    "child to read that skill before acting and wait for its returned summary; "
+    "do not use chain mode across approval gates. If the tool or agent is "
+    "unavailable after automatic setup, ask the user to check it with `/system2-setup`; do not do the work in "
+    "the parent."
 )
 
 
@@ -35,74 +52,35 @@ def _load_descriptor() -> dict:
         return json.load(stream)
 
 
-def _gate_order(gate_graph) -> List[int]:
-    numbers = [gate.number for gate in gate_graph.gates]
-    if not gate_graph.edges:
-        return sorted(numbers)
-    successors = {source: target for source, target in gate_graph.edges}
-    targets = {target for _source, target in gate_graph.edges}
-    starts = [number for number in numbers if number not in targets]
-    current = min(starts) if starts else min(numbers)
-    order: List[int] = []
-    seen = set()
-    while current not in seen:
-        order.append(current)
-        seen.add(current)
-        if current not in successors:
-            break
-        current = successors[current]
-    order.extend(number for number in sorted(numbers) if number not in seen)
-    return order
-
-
 def _frontmatter(fields: dict) -> List[str]:
     yaml = _yaml.dump(fields).rstrip("\n")
     return ["---", *yaml.splitlines(), "---", ""]
 
 
-def _build_orchestrator_prompt(ir: System2Graph) -> str:
+def _build_orchestrator_prompt(ir: System2Graph, workspace: bool) -> str:
     lines = _frontmatter({
         "description": "Start the System2 engineering workflow.",
         "argument-hint": "<task>",
     })
+    lines.extend(["# System2 orchestrator (Pi)", ""])
+    if not workspace:
+        lines.extend(["## Request", "", "$ARGUMENTS", ""])
     lines.extend([
-        "# System2 orchestrator (Pi)",
-        "",
-        "## Request",
-        "",
-        "$ARGUMENTS",
-        "",
         "## Runtime boundary",
         "",
         _RUNTIME_BOUNDARY,
-        "System2 does not install an extension, hooks, or a permission layer.",
-        "Role switching is in-session skill adoption, not isolated subagent execution.",
+        "System2 adds no custom enforcement or permission layer.",
         "",
     ])
-    lines.extend(render_human_communication_policy(ir))
-    lines.extend(["", "## Gate graph (advance 0 -> 5)"])
-    gates = {gate.number: gate for gate in ir.gate_graph.gates}
-    for number in _gate_order(ir.gate_graph):
-        gate = gates[number]
-        lines.append(f"- Gate {gate.number} ({gate.name}): {gate.checklist_text}")
-    if ir.gate_graph.approval_rule:
-        lines.append(f"- Approval rule: {ir.gate_graph.approval_rule}")
-
-    lines.extend([
-        "",
-        "## Roles (same-session skill adoption)",
-        "Use the matching `system2-role-*` skill when specialist guidance is useful, "
-        "then return to the orchestrator perspective. Skills do not create separate "
-        "processes or permission boundaries.",
-        "",
-        "Available roles (listed in workflow order; use only when relevant):",
-    ])
-    for index, role_name in enumerate(ir.delegation_contract.preferred_order, 1):
-        lines.append(f"{index}. `system2-role-{role_name}`")
-    lines.extend(["", "Give each role:"])
-    lines.extend(f"- {field}" for field in ir.delegation_contract.required_fields)
-    lines.append("")
-    lines.extend(render_workflow_contract(ir))
+    if workspace:
+        role_ref = lambda name: f"`.system2/pi/.pi/skills/system2-role-{name}/SKILL.md`"
+    else:
+        lines.extend(use_workspace_overlay(
+            "pi", f".system2/pi/{_PI_LOCK}", ".system2/pi/.pi/prompts/system2.md",
+            "`/system2-compose`",
+        ))
+        role_ref = lambda name: f"`system2-role-{name}`"
+    lines.extend(render_orchestrator_guidance(ir, role_ref, _DISPATCH))
     lines.extend([
         "",
         "Use `/system2-doctor` for a read-only summary of project workflow state.",
@@ -117,32 +95,25 @@ def _build_doctor_prompt() -> str:
     lines.extend([
         "# System2 doctor (Pi)",
         "",
-        "Inspect the current project without editing it:",
-        "",
-        "1. Check `spec/context.md`, `spec/requirements.md`, `spec/design.md`, and `spec/tasks.md`.",
-        "2. Check the current diff and note unfinished work.",
-        "3. Report the next gate or implementation step and any blocker.",
-        "",
-        _RUNTIME_BOUNDARY,
+        *workflow_status(), "",
+        *overlay_doctor_guidance("pi", f".system2/pi/{_PI_LOCK}"), _RUNTIME_BOUNDARY,
     ])
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _build_role_skill(role) -> str:
+def _build_role_skill(ir: System2Graph, name: str, contract: str) -> str:
     lines = _frontmatter({
-        "name": f"system2-role-{role.name}",
-        "description": f"Use the System2 {role.name} role in Pi.",
+        "name": f"system2-role-{name}",
+        "description": f"Use the System2 {name} role in Pi.",
     })
     lines.extend([
-        f"# System2 role: {role.name} (Pi)",
+        f"# System2 role: {name} (Pi)",
         "",
-        f"You are the System2 {role.name} specialist. Follow the contract below in "
+        f"You are the System2 {name} specialist. Follow the contract below in "
         "the current session. This skill supplies guidance only; Pi controls active "
         "tools and project trust.",
         "",
-        "## Role contract",
-        "",
-        *role.contract_text.splitlines(),
+        *render_role_guidance(ir, name, contract),
     ])
     return "\n".join(lines).rstrip() + "\n"
 
@@ -158,8 +129,8 @@ def _build_degradation_report(ir: System2Graph) -> dict:
         "backend": "pi",
         "pi_package_version": _PI_PACKAGE_VERSION,
         "enforcement": "host-managed",
-        "subagent_isolation": "unsupported",
-        "delegation_mode": "in-session-skills",
+        "subagent_isolation": "separate-process-context",
+        "delegation_mode": "pi-subagent-example",
         "FIDELITY": (
             _RUNTIME_BOUNDARY
             + " System2's role scopes, dangerous-command guidance, sensitive-path "
@@ -169,33 +140,24 @@ def _build_degradation_report(ir: System2Graph) -> dict:
     }
 
 
-def _planned_files(ir: System2Graph) -> List[Tuple[str, str]]:
-    planned: List[Tuple[str, str]] = [
-        (
-            os.path.join(".pi", "prompts", "system2.md"),
-            _build_orchestrator_prompt(ir),
-        ),
-        (
-            os.path.join(".pi", "prompts", "system2-doctor.md"),
-            _build_doctor_prompt(),
-        ),
-    ]
-    roles = {role.name: role for role in ir.roles}
-    for role_name in ir.delegation_contract.preferred_order:
-        role = roles.get(role_name)
-        if role is not None:
-            planned.append((
-                os.path.join(
-                    ".pi", "skills", f"system2-role-{role_name}", "SKILL.md"
-                ),
-                _build_role_skill(role),
-            ))
+def _planned_files(ir: System2Graph, workspace: bool) -> List[Tuple[str, str]]:
+    planned = [(".pi/prompts/system2.md", _build_orchestrator_prompt(ir, workspace))]
+    if not workspace:
+        planned.append((".pi/prompts/system2-doctor.md", _build_doctor_prompt()))
+        for name, description, profiles in (
+            ("system2-compose", "Preview and manage System2 project overlays and profiles.", False),
+            ("system2-profile", "List or inspect saved System2 overlay profiles.", True),
+        ):
+            lines = _frontmatter({"description": description})
+            lines.extend([f"# {description}", "", *overlay_commands("pi", profiles=profiles),
+                          "", "## User request", "", "$ARGUMENTS"])
+            planned.append((f".pi/prompts/{name}.md", "\n".join(lines).rstrip() + "\n"))
+    for name, contract in role_contracts(ir):
+        planned.append((
+            os.path.join(".pi", "skills", f"system2-role-{name}", "SKILL.md"),
+            _build_role_skill(ir, name, contract),
+        ))
 
-    ownership = build_artifact_ownership(planned, _PI_LOCK)
-    lock = _build_degradation_report(ir)
-    lock["ownership"] = ownership
-    lock["overlay_sources"] = list(ir.overlay_sources)
-    planned.append((_PI_LOCK, json.dumps(lock, indent=2) + "\n"))
     return planned
 
 
@@ -209,4 +171,7 @@ class PiBackend(GeneratedArtifactBackend):
     runtime_boundary = _RUNTIME_BOUNDARY
 
     def _planned_files(self, ir: System2Graph) -> List[Tuple[str, str]]:
-        return _planned_files(ir)
+        return _planned_files(ir, bool(self._prefix))
+
+    def _lock_details(self, ir: System2Graph) -> dict:
+        return _build_degradation_report(ir)

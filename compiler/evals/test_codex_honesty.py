@@ -40,7 +40,11 @@ class CodexHonestyTest(unittest.TestCase):
         text = Path(path).read_text(encoding="utf-8")
         self.assertIn(codex._RUNTIME_BOUNDARY, text)
         self.assertIn("does not install hooks or modify Codex configuration", text)
-        self.assertIn("not isolated subagent execution", text)
+        self.assertIn("native `spawn_agent` tool to start a fresh subagent thread", text)
+        self.assertIn("Do not fork the parent conversation", text)
+        self.assertIn("resolved role `SKILL.md` path", text)
+        self.assertIn("Wait for the result", text)
+        self.assertIn("do not emulate them in the parent", text)
         self.assertNotIn("pending native acceptance", text.lower())
         self.assertNotIn("system2 codex init", text)
 

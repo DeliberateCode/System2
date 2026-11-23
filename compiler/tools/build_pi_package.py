@@ -32,6 +32,8 @@ def build(staging_emission, dest, package_version=PACKAGE_VERSION):
             raise FileNotFoundError(f"Pi emission is missing {source}")
         shutil.copytree(source, os.path.join(dest, resource))
 
+    shutil.copytree(os.path.join(_TEMPLATES_DIR, "pi_subagents"), os.path.join(dest, "subagents"))
+
     package = json.loads(_read_template("pi_package.json"))
     package["version"] = package_version
     with open(os.path.join(dest, "package.json"), "w", encoding="utf-8") as stream:

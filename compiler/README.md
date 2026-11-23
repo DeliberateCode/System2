@@ -7,10 +7,10 @@ The compiler turns the canonical System2 workflow and optional overlays into har
 | Target | Output |
 |--------|--------|
 | `claude-code` | Claude Code plugin artifacts, project instructions, and native subagent configuration |
-| `codex` | Codex plugin with `$system2`, `$system2-doctor`, and 13 role skills |
-| `pi` | Pi package with `/system2`, `/system2-doctor`, and 13 role skills |
+| `codex` | Codex plugin with `$system2:system2`, `$system2:system2-doctor`, and 13 role skills |
+| `pi` | Pi prompt templates and role skills; the packaged distribution adds automatic setup for the official subagent tool |
 
-All targets preserve the same workflow, gates, and role contracts. Claude Code uses native subagents and plugin hooks; Codex and Pi apply role guidance in the current session. Each host remains responsible for its own permissions, tools, sandboxing, trust, and approvals.
+The targets share workflow, gates, and role contracts. Claude Code uses native subagents and plugin hooks. Codex delegates to native subagent threads; Pi delegates via the official example extension. Neither adds System2 runtime enforcement. Each host remains responsible for its own permissions, tools, sandboxing, trust, and approvals.
 
 ## Source usage
 
@@ -26,7 +26,9 @@ python3 -m system2_compiler.cli compile \
 
 Replace `TARGET` with `claude-code`, `codex`, or `pi`. The CLI also provides `uninstall`, `doctor`, `from-lock`, and `profile`; run `python3 -m system2_compiler.cli --help` for details.
 
-End users normally install the relevant plugin or package. The compiler is primarily for maintainers and source-level overlay composition.
+The Codex and Pi installations include the compiler. The source CLI can also apply project overlays for either target. Use `--workspace` on `compile`, `from-lock`, `uninstall`, and `doctor` to use `.system2/<target>/` without replacing installed commands. Pass `--project` as the actual project root, not the output directory. Preview writes with `--dry-run` first. `profile save NAME --target TARGET --workspace --project /path/to/project` saves those applied overlay sources to the shared profile store.
+
+The Codex and Pi backends emit supported contributions as guidance and report unsupported host configuration contributions as deferred. See the [overlay workflow](../docs/overlays/codex-pi.md).
 
 ## Generated artifacts
 
@@ -62,12 +64,14 @@ python3 -m evals.run_goldens --driver compiler
 python3 -m evals.run_goldens --driver oracle
 ```
 
+CI also runs `bash compiler/evals/channel_upgrade_smoke.sh` from the repository root with `PI_PKG_ENTRY` set to Pi 1.6.0's `dist/index.js`. It checks real Pi resource discovery, setup with and without an existing subagent extension, a subprocess handoff with a deterministic child, and both preview transitions.
+
 ## Invariants
 
-- Backends consume the structured IR rather than reading overlay sources directly.
+- Backends consume the IR's validated, ordered contributions and read referenced Markdown when needed.
 - Generated writes stay under the requested project path.
 - Missing capability mappings fail loudly.
 - Capability locks describe host-specific enforcement honestly rather than implying identical runtime mechanisms.
 - The Claude Code bundle remains dependency-free.
-- The Codex distribution remains a skills-only plugin.
-- The Pi distribution remains a prompts-and-skills package without a runtime extension.
+- The Codex plugin delegates through Codex's native tools. Its bundled compiler runs only on demand; it does not install hooks.
+- The Pi package reuses a configured `subagent` tool or loads the unchanged official example. It does not implement its own child runner. Source-emitted Pi projects use the installed package's setup; they do not install a second extension.

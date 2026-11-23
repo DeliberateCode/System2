@@ -49,16 +49,39 @@ _ROLE_EXCERPTS = {
 
 _ORCHESTRATOR_EXCERPTS = (
     "Pause for explicit user approval at each gate unless the user says to skip gates.",
-    "Execution order: test-engineer, code-reviewer (simplification), security-sentinel, "
-    "eval-engineer, docs-release, code-reviewer",
-    "Run test-engineer (always)",
-    "Run security-sentinel (when changed path/content matches security patterns)",
-    "Blocker policy: user-gate",
-    "Blocker options: delegate-fix, override, abort",
-    "Boomerang cap: 3",
-    "Corrective-cycle cap: 3",
-    "Classification: Local, Non-local",
-    "Regression ledger fields:",
+    "existence alone is not evidence of approval",
+    "start at the earliest gate that lacks approval",
+    "if an artifact changed since approval",
+    "the user's decision and the approved scope or artifact version",
+    "only after Gate 4 approval or an explicit user override",
+    "A completed tool call or closed thread alone does not prove success.",
+    "If executor status is not success, do not trigger post-execution",
+    "test-engineer: Always trigger",
+    "security-sentinel: Trigger if any changed file path or content matches security patterns",
+    "ask user to choose:",
+    "Explain the proposed verification and review plan",
+    "Wait for user approval or override",
+    "test-engineer -> simplification (code-reviewer in simplification mode) -> "
+    "security-sentinel -> eval-engineer -> docs-release -> code-reviewer",
+    "Append completion summary to `spec/post-execution-log.md`",
+    "write approved entries to `.claude/slop-catalog.md`",
+    "Delegate fixes to executor, then re-run this agent",
+    "Override and proceed to next agent",
+    "Abort the workflow",
+    "Track boomerang count per agent; if count reaches 3, halt and escalate",
+    "Read `spec/post-execution-log.md` to aggregate completion summaries",
+    "agents run, agents skipped, user overrides, boomerang cycles, timing",
+    "Do not proceed to merge or deploy without approval",
+    "**Local**: regression is confined to file(s) currently being edited",
+    "**Non-local**: regression is in files not touched by the current task",
+    "Record a regression ledger in `spec/regression-ledger.md`",
+    "in corrective mode to produce a bounded corrective requirement packet",
+    "**Amendment**: corrective requirements refine existing design decisions",
+    "**Invalidation**: corrective requirements contradict or obsolete existing design decisions",
+    "refresh `spec/design.md` and `spec/tasks.md`",
+    "Re-enter executor only after the corrective packet is approved",
+    "After **3** corrective cycles without convergence",
+    "Do not reset the counter unless the user explicitly approves a scope change or the verification suite passes cleanly",
     "previously passing tests now failing",
     "changed-file summary (files modified since last green run)",
 )
@@ -77,7 +100,6 @@ _CLAUDE_ROLE_REFERENCES = (
     "CLAUDE.md",
     ".claude/settings.json",
     ".claude/rules",
-    ".claude/slop-catalog.md",
     "executor.regex",
     "Claude Code",
 )
@@ -113,7 +135,7 @@ class CanonicalRoleContractTest(unittest.TestCase):
             "codex": tempfile.mkdtemp(prefix="role-contract-codex-"),
             "pi": tempfile.mkdtemp(prefix="role-contract-pi-"),
         }
-        result = ir.compose(_BASE, [_TEST_OVERLAY], cls.projects["codex"])
+        result = ir.compose(_BASE, [], cls.projects["codex"])
         if result.graph is None:
             raise AssertionError(f"compose refused role-contract cell: {result.errors!r}")
         cls.graph = result.graph
@@ -182,6 +204,7 @@ class CanonicalRoleContractTest(unittest.TestCase):
                     artifact = _read(self.projects[target], path_for(name))
                     self.assertEqual([], _missing(artifact, excerpts))
                     self.assertIn("final completion response", artifact)
+                    self.assertIn("Do not spawn another subagent, approve gates", artifact)
 
     def test_emitted_role_inventories_are_exactly_thirteen(self):
         expected = set(self.graph.delegation_contract.preferred_order)
@@ -276,19 +299,75 @@ class CanonicalRoleContractTest(unittest.TestCase):
         for target, artifact in artifacts.items():
             with self.subTest(target=target):
                 self.assertEqual([], _missing(artifact, _ORCHESTRATOR_EXCERPTS))
-                for trigger in self.graph.post_execution.trigger_rules:
-                    when = "always" if trigger.always else f"when {trigger.condition}"
-                    self.assertIn(f"Run {trigger.agent} ({when})", artifact)
-                for option in self.graph.post_execution.blocker_policy["options"]:
-                    self.assertIn(option, artifact)
+                self.assertIn("Keep gate decisions and user communication in the parent session", artifact)
+                self.assertIn("before dispatching the next dependent role", artifact)
+                self.assertLess(artifact.index("Wait for user approval or override"),
+                                artifact.index("Execute triggered agents sequentially"))
                 for field in self.graph.maintenance_loop.regression_ledger_fields:
                     self.assertIn(field, artifact)
+                # Codex qualifies plugin skills with its own namespace, not the
+                # unqualified Claude subagent references in the source template.
+                body = artifact.replace("$system2:system2", "$system2")
                 for forbidden in _FORBIDDEN_NEUTRAL_MECHANICS:
-                    self.assertNotIn(forbidden, artifact)
+                    self.assertNotIn(forbidden, body)
                 self.assertEqual(1, artifact.count("# System2 orchestrator"))
         self.assertIn("## Runtime boundary", artifacts["codex"])
         self.assertIn("## Runtime boundary", artifacts["pi"])
-        self.assertIn("does not install an extension", artifacts["pi"])
+        self.assertIn("System2 adds no custom enforcement or permission layer", artifacts["pi"])
+
+    def test_gate_responsibilities_and_full_handoff_match_the_canonical_template(self):
+        canonical = self.graph.base_template.text
+        contract = canonical[canonical.index("## Delegation contract"):canonical.index("## Post-Execution Workflow")].strip()
+        for target, prompt, prefix, role_ref in (
+            ("codex", "skills/system2/SKILL.md", "skills", "$system2:system2-role-"),
+            ("pi", ".pi/prompts/system2.md", ".pi/skills", "system2-role-"),
+        ):
+            with self.subTest(target=target):
+                artifact = _read(self.projects[target], prompt)
+                self.assertIn(contract, artifact)
+                for gate, spec, role in (
+                    (1, "context", "spec-coordinator"),
+                    (2, "requirements", "requirements-engineer"),
+                    (3, "design", "design-architect"),
+                    (4, "tasks", "task-planner"),
+                ):
+                    path = f"spec/{spec}.md"
+                    self.assertIn(
+                        f"- Gate {gate} ({spec}): approve {path}\n"
+                        f"  - Delegate drafting or revision of `{path}` to `{role_ref}{role}`; "
+                        "the parent reviews it before requesting approval.", artifact,
+                    )
+                self.assertIn("`: final review", artifact[artifact.index("Available role skills"):])
+                executor = _read(self.projects[target], f"{prefix}/system2-role-executor/SKILL.md")
+                for field in ("status: success", "status: blockers", "status: failure",
+                              "files_changed", "tests_added", "test_outcomes"):
+                    self.assertIn(f"`{field}`", executor)
+                scope = next(role.write_scope for role in self.graph.roles if role.name == "executor")
+                self.assertTrue(scope)
+                self.assertIn(f"```regex\n{scope}\n```", executor)
+                for role in ("code-reviewer", "executor"):
+                    skill = _read(self.projects[target], f"{prefix}/system2-role-{role}/SKILL.md")
+                    self.assertIn("`.claude/slop-catalog.md`", skill)
+                self.assertLess(artifact.index("Before dispatching an approved task"),
+                                artifact.index("## Post-Execution Workflow"))
+                self.assertIn("check the actual changes against the delegated scope", artifact)
+                self.assertIn("do not revert caller changes", artifact)
+
+    def test_doctors_check_approval_and_verification_evidence_without_mutation(self):
+        for target, prompt in (
+            ("codex", "skills/system2-doctor/SKILL.md"),
+            ("pi", ".pi/prompts/system2-doctor.md"),
+        ):
+            with self.subTest(target=target):
+                artifact = _read(self.projects[target], prompt)
+                for excerpt in (
+                    "without editing it or starting a specialist",
+                    "approved in their current form",
+                    "spec/post-execution-log.md",
+                    "spec/regression-ledger.md",
+                    "Do not infer missing approvals",
+                ):
+                    self.assertIn(excerpt, artifact)
 
 
 class InvalidRoleContractTest(unittest.TestCase):

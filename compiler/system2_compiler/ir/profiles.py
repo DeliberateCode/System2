@@ -272,9 +272,9 @@ def inspect_profile(name: str, store_path: str = DEFAULT_STORE_PATH) -> dict:
     return {"name": name, "overlays": overlays}
 
 
-def _lock_source_paths(project_path: str) -> Set[str]:
+def _lock_source_paths(project_path: str, lock_file: Optional[str] = None) -> Set[str]:
     """Return the set of ``source_path`` values in a project's composition lock."""
-    lock_file = os.path.join(project_path, "spec", "overlay-manifest.lock")
+    lock_file = lock_file or os.path.join(project_path, "spec", "overlay-manifest.lock")
     try:
         with open(lock_file, "r", encoding="utf-8") as fh:
             lock = json.load(fh)
@@ -296,6 +296,8 @@ def active_profile_for_lock(
     project_path: str,
     name: str,
     store_path: str = DEFAULT_STORE_PATH,
+    *,
+    lock_file: Optional[str] = None,
 ) -> bool:
     """Return True iff *name* is the active profile for the project's lock."""
     resolved = resolve_profile(name, store_path)
@@ -303,7 +305,7 @@ def active_profile_for_lock(
         return False
     if resolved.stale:
         return False
-    lock_sources = _lock_source_paths(project_path)
+    lock_sources = _lock_source_paths(project_path, lock_file)
     if not lock_sources:
         return False
     return set(resolved.ordered_paths) == lock_sources
@@ -507,6 +509,8 @@ def save_profile_from_lock(
     project_path: str,
     force: bool = False,
     store_path: str = DEFAULT_STORE_PATH,
+    *,
+    lock_file: Optional[str] = None,
 ) -> dict:
     """Capture a project's current composition (from its lock) as a profile."""
     if not isinstance(name, str) or not _PROFILE_NAME_RE.match(name):
@@ -516,7 +520,7 @@ def save_profile_from_lock(
             exit_code=1,
         )
 
-    lock_file = os.path.join(project_path, "spec", "overlay-manifest.lock")
+    lock_file = lock_file or os.path.join(project_path, "spec", "overlay-manifest.lock")
     try:
         with open(lock_file, "r", encoding="utf-8") as fh:
             lock = json.load(fh)

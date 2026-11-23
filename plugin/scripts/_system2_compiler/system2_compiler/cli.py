@@ -11,7 +11,8 @@ from typing import List, Optional, Tuple
 from system2_compiler import ir
 from system2_compiler.ir import profiles as ir_profiles
 from system2_compiler.ir.graph import System2Graph
-from system2_compiler.backends.base import Backend, DoctorReport, UninstallResult
+from system2_compiler.backends._guidance import supports_overlay_scope
+from system2_compiler.backends.base import Backend, DoctorReport, UninstallResult, validate_project_target
 from system2_compiler.backends.claude_code import ClaudeCodeBackend
 from system2_compiler.backends.pi import PiBackend
 from system2_compiler.backends.codex import CodexBackend
@@ -25,24 +26,32 @@ _VERBS = ("compile", "uninstall", "doctor", "from-lock", "profile")
 _DEFERRED_SUFFIXES = (".tools", ".hooks")
 
 
-def _backend_for(target: str, base_path: str) -> Backend:
+def _backend_for(target: str, base_path: str, *, workspace: bool = False) -> Backend:
     """Construct the active backend, injecting ``base_path``/``compose_fn``."""
     if target == "claude-code":
+        if workspace:
+            raise ValueError("--workspace is only available for Codex and Pi")
         return ClaudeCodeBackend(base_path=base_path, compose_fn=ir.compose)
     if target == "pi":
-        return PiBackend(base_path=base_path, compose_fn=ir.compose)
+        return PiBackend(base_path=base_path, compose_fn=ir.compose, workspace=workspace)
     if target == "codex":
-        return CodexBackend(base_path=base_path, compose_fn=ir.compose)
+        return CodexBackend(base_path=base_path, compose_fn=ir.compose, workspace=workspace)
     raise ValueError(f"unknown target {target!r}")
 
 
 # Oracle-shaped report reconstruction (byte-parity with composer.py)
 
-def _contributions_applied(graph: System2Graph) -> dict:
-    """Reconstruct ``report.contributions_applied`` from the IR ordered scopes."""
+def _scope_applied(scope: str, target: str) -> bool:
+    if target != "claude-code":
+        return supports_overlay_scope(scope)
+    return not scope.endswith(_DEFERRED_SUFFIXES)
+
+
+def _contributions_applied(graph: System2Graph, target: str) -> dict:
+    """Report only contributions lowered by the selected backend."""
     applied: dict = {}
     for (type_path, _target), records in graph.contributions.scopes.items():
-        if any(type_path.endswith(s) for s in _DEFERRED_SUFFIXES):
+        if not _scope_applied(type_path, target):
             continue
         ids = []
         for rec in records:
@@ -56,15 +65,18 @@ def _contributions_applied(graph: System2Graph) -> dict:
             if cid:
                 ids.append(cid)
         if ids:
-            applied[type_path] = ids
+            if target == "claude-code":
+                applied[type_path] = ids  # Preserve the frozen oracle's report shape.
+            else:
+                applied.setdefault(type_path, []).extend(ids)
     return applied
 
 
-def _deferred(graph: System2Graph) -> dict:
+def _deferred(graph: System2Graph, target: str) -> dict:
     """Reconstruct ``report.deferred`` (per deferred scope, contribution count)."""
     deferred: dict = {}
     for (type_path, _target), records in graph.contributions.scopes.items():
-        if any(type_path.endswith(s) for s in _DEFERRED_SUFFIXES):
+        if not _scope_applied(type_path, target):
             deferred[type_path] = deferred.get(type_path, 0) + len(records)
     return deferred
 
@@ -87,8 +99,8 @@ def _build_compose_report(
             {"name": ov["name"], "version": ov["version"]}
             for ov in result.report.get("overlays", [])
         ],
-        "contributions_applied": _contributions_applied(graph),
-        "deferred": _deferred(graph),
+        "contributions_applied": _contributions_applied(graph, target),
+        "deferred": _deferred(graph, target),
         "injection_warnings": list(result.warnings.injection),
         "validation_warnings": list(result.warnings.validation),
         "conflicts": result.report.get("conflicts", {}),
@@ -98,6 +110,11 @@ def _build_compose_report(
         report["composed_lines"] = composed_lines
     else:
         report["target"] = target
+        if report["deferred"]:
+            report["validation_warnings"].append(
+                f"{target} does not apply these overlay contributions: "
+                + ", ".join(sorted(report["deferred"]))
+            )
     report["files_to_write"] = list(
         result.files_to_write if files_to_write is None else files_to_write
     )
@@ -181,10 +198,11 @@ def _emit_refusal(errors: List[str], report: dict, fmt: str) -> int:
 def _resolve_overlay_paths(
     target: str, base_path: str, project_path: str,
     overlays: str, from_lock: bool, profile: Optional[str], fmt: str,
+    workspace: bool = False,
 ) -> Tuple[Optional[List[str]], Optional[int]]:
     """Resolve the overlay source set for a write verb."""
     if from_lock:
-        backend = _backend_for(target, base_path)
+        backend = _backend_for(target, base_path, workspace=workspace)
         try:
             paths = backend.read_lock_overlay_sources(project_path)
         except FileNotFoundError:
@@ -209,16 +227,33 @@ def _resolve_overlay_paths(
         return paths, None
 
     if overlays:
-        return [
-            os.path.abspath(p.strip())
-            for p in overlays.split(",")
-            if p.strip()
-        ], None
+        paths = [os.path.abspath(p.strip()) for p in overlays.split(",") if p.strip()]
+        if workspace and not paths:
+            _emit_error("Provide at least one overlay path", fmt)
+            return None, 1
+        return paths, None
 
     if profile:
         # Profile activation resolves its own paths inside ir.compose.
         return [], None
 
+    if workspace:
+        try:
+            config = validate_project_target(project_path, ".system2/overlays.json")
+            if os.path.lexists(config):
+                if not os.path.isfile(config):
+                    raise ValueError("expected a regular file")
+                with open(config, encoding="utf-8") as stream:
+                    data = json.load(stream)
+                paths = data.get("overlays") if isinstance(data, dict) else None
+                if not isinstance(paths, list) or not paths or any(
+                    not isinstance(path, str) or not path.strip() for path in paths
+                ):
+                    raise ValueError("expected a non-empty 'overlays' array of path strings")
+                return [os.path.abspath(os.path.join(project_path, path)) for path in paths], None
+        except (OSError, ValueError) as exc:
+            _emit_error(f"Cannot read .system2/overlays.json: {exc}", fmt)
+            return None, 1
     _emit_error("Either --overlays or --from-lock is required", fmt)
     return None, 1
 
@@ -233,7 +268,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
 
     overlay_paths, refusal = _resolve_overlay_paths(
         target, base_path, project_path,
-        getattr(args, "overlays", ""), from_lock, profile, fmt,
+        getattr(args, "overlays", ""), from_lock, profile, fmt, args.workspace,
     )
     if refusal is not None:
         return refusal
@@ -263,7 +298,7 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
             return report["exit_code"]
         return _emit_refusal(result.errors, report, fmt)
 
-    backend = _backend_for(target, base_path)
+    backend = _backend_for(target, base_path, workspace=args.workspace)
 
     # Profile activation note (text mode), then the report.
     if profile is not None and fmt == "text":
@@ -388,6 +423,9 @@ def _do_compose(args, target: str, from_lock_verb: bool = False) -> int:
 
 def _remaining_source_paths(backend: Backend, project_path: str, target_name: str):
     """Read the lock's overlay source paths for the overlays OTHER than *target_name*."""
+    if backend.name != "claude-code":
+        return [record["source_path"] for record in backend.read_lock_overlays(project_path)
+                if record["name"] != target_name]
     try:
         lp = backend.lock_path(project_path)
         with open(lp, "r", encoding="utf-8") as fh:
@@ -460,11 +498,12 @@ def _do_uninstall(args, target: str) -> int:
     project_path = os.path.abspath(args.project)
     fmt = args.format
 
-    backend = _backend_for(target, base_path)
+    backend = _backend_for(target, base_path, workspace=args.workspace)
+    options = {"allow_injection": args.allow_injection} if target != "claude-code" else {}
     try:
         result = backend.uninstall(
             project_path, args.name, dry_run=args.dry_run,
-            allow_newer_schema=args.allow_newer_schema,
+            allow_newer_schema=args.allow_newer_schema, **options,
         )
     except OSError as exc:
         _emit_error(f"I/O error during uninstall: {exc}", fmt)
@@ -679,7 +718,7 @@ def _do_doctor(args, target: str) -> int:
     project_path = os.path.abspath(args.project)
     fmt = args.format
 
-    backend = _backend_for(target, base_path)
+    backend = _backend_for(target, base_path, workspace=args.workspace)
     rpt = backend.doctor(project_path)
 
     if target == "claude-code":
@@ -738,18 +777,18 @@ def _reject_inapplicable_subflags(args, mode: str, offenders, fmt: str) -> Optio
 
 def _run_profile_mutation(
     project_path: str, op: str, name: str,
-    paths=None, adds=None, removes=None, force=False,
+    paths=None, adds=None, removes=None, force=False, lock_file=None,
 ) -> dict:
     """Dispatch a profile mutation to ``ir.profiles`` (ports ``composer._run_profile_mutation``)."""
     base_cwd = os.getcwd()
     try:
         was_active = (
             False if op == "delete"
-            else ir_profiles.active_profile_for_lock(project_path, name)
+            else ir_profiles.active_profile_for_lock(project_path, name, lock_file=lock_file)
         )
         if op == "save":
             summary = ir_profiles.save_profile_from_lock(
-                name, project_path, force=force,
+                name, project_path, force=force, lock_file=lock_file,
             )
         elif op == "create":
             summary = ir_profiles.create_profile(
@@ -791,11 +830,21 @@ def _do_profile_mutation(args, op: str, name: str) -> int:
         )
         return 1
 
+    lock_file = None
+    if args.target != "claude-code":
+        try:
+            backend = _backend_for(args.target, "", workspace=args.workspace)
+            lock_file = validate_project_target(project_path, backend.lock_name)
+            if os.path.lexists(lock_file) and not os.path.isfile(lock_file):
+                raise ValueError("target lock is not a regular file")
+        except ValueError as exc:
+            _emit_error(str(exc), fmt)
+            return 1
     paths = [p.strip() for p in (args.paths or "").split(",") if p.strip()]
     result = _run_profile_mutation(
         project_path, op, name,
         paths=paths, adds=args.add or [], removes=args.remove or [],
-        force=args.force,
+        force=args.force, lock_file=lock_file,
     )
 
     if result["errors"]:
@@ -895,13 +944,17 @@ def _do_profile(argv: List[str]) -> int:
     parser.add_argument("--add", action="append", default=None, help="Overlay path to add (edit); repeatable.")
     parser.add_argument("--remove", action="append", default=None, help="Overlay NAME to remove (edit); repeatable.")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing profile (save/create).")
-    parser.add_argument("--project", default="", help="Project root for the active_in_project signal.")
+    parser.add_argument("--project", default="", help="Project root for save/active composition.")
+    parser.add_argument("--target", choices=_TARGETS, default="claude-code", help="Composition lock to use for profile capture and active status.")
+    parser.add_argument("--workspace", action="store_true", help="Use the project-local Codex or Pi composition.")
     parser.add_argument("--dry-run", action="store_true", help="Rejected for mutations.")
     parser.add_argument("--format", choices=["text", "json"], default="text")
     args = parser.parse_args(argv)
 
     op = args.op
     fmt = args.format
+    if args.workspace and args.target == "claude-code":
+        parser.error("--workspace is only available for Codex and Pi")
 
     if op == "list":
         return _do_profile_list(args)
@@ -955,6 +1008,7 @@ def _add_common(parser: argparse.ArgumentParser, *, require_base: bool = True) -
     parser.add_argument(
         "--project", required=True, help="Path to the target project root.",
     )
+    parser.add_argument("--workspace", action="store_true", help="Store project-local guidance under .system2/<target>/ (Codex and Pi).")
     parser.add_argument(
         "--format", choices=["text", "json"], default="text",
         help="Output format (default: text).",
@@ -975,6 +1029,13 @@ def _build_compile_parser(prog: str) -> argparse.ArgumentParser:
     parser.add_argument("--allow-newer-schema", action="store_true", help="Accept overlays with an unsupported schema_version.")
     parser.add_argument("--allow-injection", action="store_true", help="Proceed despite prompt-injection warnings.")
     return parser
+
+
+def _parse_target_args(parser: argparse.ArgumentParser, argv: List[str]):
+    args = parser.parse_args(argv)
+    if args.workspace and args.target == "claude-code":
+        parser.error("--workspace is only available for Codex and Pi")
+    return args
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -999,7 +1060,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if verb == "compile":
         parser = _build_compile_parser("system2 compile")
-        args = parser.parse_args(rest)
+        args = _parse_target_args(parser, rest)
         return _do_compose(args, args.target)
 
     if verb == "from-lock":
@@ -1011,7 +1072,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.add_argument("--dry-run", action="store_true")
         parser.add_argument("--allow-newer-schema", action="store_true")
         parser.add_argument("--allow-injection", action="store_true")
-        args = parser.parse_args(rest)
+        args = _parse_target_args(parser, rest)
         args.overlays = ""
         args.profile = ""
         args.from_lock = True
@@ -1027,7 +1088,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.add_argument("--dry-run", action="store_true")
         parser.add_argument("--allow-newer-schema", action="store_true")
         parser.add_argument("--allow-injection", action="store_true")
-        args = parser.parse_args(rest)
+        args = _parse_target_args(parser, rest)
         return _do_uninstall(args, args.target)
 
     if verb == "doctor":
@@ -1036,7 +1097,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             description="Read-only drift/status check.",
         )
         _add_common(parser)
-        args = parser.parse_args(rest)
+        args = _parse_target_args(parser, rest)
         return _do_doctor(args, args.target)
 
     raise AssertionError(f"unreachable verb {verb!r}")

@@ -50,8 +50,6 @@ _ROLE_CONTRACT_REPLACEMENTS = (
         "CLAUDE.md / .claude/rules/ / tests / evals",
         "repository instructions / repository rules / tests / evals",
     ),
-    ("`.claude/slop-catalog.md`", "the repository slop-pattern catalog"),
-    (".claude/slop-catalog.md", "the repository slop-pattern catalog"),
     (".claude/settings.json", "harness settings"),
     (".claude/rules/*.md", "repository rule files"),
     (".claude/rules/", "repository rules/"),

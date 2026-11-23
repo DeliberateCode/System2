@@ -186,11 +186,38 @@ def _overlay_graph_inputs(index: int, overlay_path: str, ctx: _Context):
     return inputs
 
 
+def _channel_compiler_template(ctx: _Context) -> str:
+    return os.path.join(ctx.compiler_root, "tools", "templates", "channel_compiler.py.template")
+
+
+def _bundle_channel_compiler(dest: str, channel: str, ctx: _Context) -> None:
+    """Ship the same compiler and base inputs the source CLI already uses."""
+    root = os.path.join(dest, "compiler")
+    build_bundle._copy_subtree(ctx.compiler_root, root)
+    for _label, source, _trusted_root in _plugin_graph_inputs(ctx):
+        _require_file(source, "bundled workflow input", trusted_root=ctx.plugin_root)
+        path = os.path.join(root, "base", os.path.relpath(source, ctx.plugin_root))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.copyfile(source, path)
+    template = _channel_compiler_template(ctx)
+    _require_file(template, "bundled compiler entry point", trusted_root=ctx.compiler_root)
+    with open(template, encoding="utf-8") as stream:
+        entrypoint = stream.read().replace("__CHANNEL__", channel)
+    with open(os.path.join(root, "run.py"), "w", encoding="utf-8") as stream:
+        stream.write(entrypoint)
+    license_path = os.path.join(_REPO_ROOT, "LICENSE")
+    _require_file(license_path, "bundled compiler license", trusted_root=_REPO_ROOT)
+    shutil.copyfile(license_path, os.path.join(root, "LICENSE"))
+
+
 def _distribution_inputs(channel: str, ctx: _Context):
     """Return stable labels for every effective producer input of *channel*."""
     package_root = os.path.join(ctx.compiler_root, "system2_compiler")
     backend_root = os.path.join(package_root, "backends")
     inputs = _plugin_graph_inputs(ctx) + [
+        ("package/compiler", package_root, ctx.compiler_root),
+        ("package/entrypoint", _channel_compiler_template(ctx), ctx.compiler_root),
+        ("metadata/license", os.path.join(_REPO_ROOT, "LICENSE"), _REPO_ROOT),
         ("lowering/ir", os.path.join(package_root, "ir"), ctx.compiler_root),
         ("lowering/system2_compiler_init", os.path.join(
             package_root, "__init__.py"
@@ -201,6 +228,9 @@ def _distribution_inputs(channel: str, ctx: _Context):
         ), ctx.compiler_root),
         ("backend/generated", os.path.join(
             backend_root, "_generated.py"
+        ), ctx.compiler_root),
+        ("backend/guidance", os.path.join(
+            backend_root, "_guidance.py"
         ), ctx.compiler_root),
         ("backend/yaml", os.path.join(backend_root, "_yaml.py"), ctx.compiler_root),
         ("generator/regen_all", os.path.join(
@@ -244,9 +274,6 @@ def _distribution_inputs(channel: str, ctx: _Context):
             ("package/pi_templates", os.path.join(
                 ctx.compiler_root, "tools", "templates"
             ), ctx.compiler_root),
-            ("metadata/license", os.path.join(
-                build_pi_package._REPO_ROOT, "LICENSE"
-            ), build_pi_package._REPO_ROOT),
         ])
     else:
         raise ValueError(f"unknown distribution channel: {channel!r}")
@@ -272,6 +299,7 @@ def _build_codex(dest_abs: str, ctx: _Context) -> None:
     if result.graph is None:
         raise RuntimeError(f"codex compose refused: {result.errors!r}")
     CodexBackend(overlay_sources=list(ctx.codex_overlays)).emit(result.graph, dest_abs)
+    _bundle_channel_compiler(dest_abs, "codex", ctx)
 
     manifest = _read_json(
         os.path.join(dest_abs, ".codex-plugin", "plugin.json"),
@@ -287,13 +315,14 @@ def _build_codex(dest_abs: str, ctx: _Context) -> None:
         compiler_root=ctx.compiler_root,
     )
 def _build_pi(dest_abs: str, ctx: _Context) -> None:
-    """Regenerate the lightweight Pi package + PROVENANCE.json."""
+    """Regenerate the Pi package + PROVENANCE.json."""
     with tempfile.TemporaryDirectory(prefix="pi-emit-") as staging:
         result = ir.compose(ctx.plugin_root, [], staging)
         if result.graph is None:
             raise RuntimeError(f"pi compose refused: {result.errors!r}")
         PiBackend(overlay_sources=[]).emit(result.graph, staging)
         build_pi_package.build(staging, dest_abs, build_pi_package.PACKAGE_VERSION)
+    _bundle_channel_compiler(dest_abs, "pi", ctx)
 
     package = _read_json(
         os.path.join(dest_abs, "package.json"), trusted_root=dest_abs

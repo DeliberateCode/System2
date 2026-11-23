@@ -9,10 +9,14 @@ from system2_compiler.ir.graph import System2Graph
 
 from . import _degradation, _yaml
 from ._generated import GeneratedArtifactBackend
-from .base import (
-    build_artifact_ownership,
-    render_human_communication_policy,
-    render_workflow_contract,
+from ._guidance import (
+    overlay_commands,
+    overlay_doctor_guidance,
+    render_orchestrator_guidance,
+    render_role_guidance,
+    role_contracts,
+    use_workspace_overlay,
+    workflow_status,
 )
 
 __all__ = ["CodexBackend"]
@@ -24,8 +28,21 @@ _CODEX_PLUGIN_VERSION = CHANNEL_VERSION
 _CODEX_LOCK = "system2.codex.lock.json"
 
 _RUNTIME_BOUNDARY = (
-    "System2 supplies workflow and role guidance through Codex skills. Codex's own "
-    "sandbox, approval policy, and tool permissions remain authoritative."
+    "System2 supplies workflow and role guidance through Codex skills and delegates "
+    "through Codex's native subagent tools. Codex's sandbox, approval policy, and "
+    "tool permissions remain authoritative. A separate agent thread is not a "
+    "separate permission boundary."
+)
+_DISPATCH = (
+    "For each specialist step, resolve the matching System2 role skill and use "
+    "Codex's native `spawn_agent` tool to start a fresh subagent thread. Do not "
+    "fork the parent conversation. Pass the handoff as a text item and attach the "
+    "resolved role `SKILL.md` path as a skill item when the tool accepts `items`; "
+    "otherwise give the path and instruct the child to read the skill before acting. "
+    "If the child cannot read the path, include the full role guidance in the handoff. "
+    "Wait for the result and close the completed thread once its evidence is collected. "
+    "If the tools are unavailable, ask the user to enable subagents (`agents.enabled`) and start "
+    "a new session; do not emulate them in the parent."
 )
 
 
@@ -48,32 +65,12 @@ def _build_manifest() -> dict:
     }
 
 
-def _gate_order(gate_graph) -> List[int]:
-    numbers = [gate.number for gate in gate_graph.gates]
-    if not gate_graph.edges:
-        return sorted(numbers)
-    successors = {source: target for source, target in gate_graph.edges}
-    targets = {target for _source, target in gate_graph.edges}
-    starts = [number for number in numbers if number not in targets]
-    current = min(starts) if starts else min(numbers)
-    order: List[int] = []
-    seen = set()
-    while current not in seen:
-        order.append(current)
-        seen.add(current)
-        if current not in successors:
-            break
-        current = successors[current]
-    order.extend(number for number in sorted(numbers) if number not in seen)
-    return order
-
-
 def _frontmatter(name: str, description: str) -> List[str]:
     yaml = _yaml.dump({"name": name, "description": description}).rstrip("\n")
     return ["---", *yaml.splitlines(), "---", ""]
 
 
-def _build_orchestrator_skill(ir: System2Graph) -> str:
+def _build_orchestrator_skill(ir: System2Graph, workspace: bool) -> str:
     lines = _frontmatter(
         "system2", "Run the System2 gate workflow and role contracts in Codex."
     )
@@ -84,35 +81,29 @@ def _build_orchestrator_skill(ir: System2Graph) -> str:
         "",
         _RUNTIME_BOUNDARY,
         "System2 does not install hooks or modify Codex configuration.",
-        "Role switching is in-session skill adoption, not isolated subagent execution.",
         "",
     ])
-    lines.extend(render_human_communication_policy(ir))
-    lines.extend(["", "## Gate graph (advance 0 -> 5)"])
-    gates = {gate.number: gate for gate in ir.gate_graph.gates}
-    for number in _gate_order(ir.gate_graph):
-        gate = gates[number]
-        lines.append(f"- Gate {gate.number} ({gate.name}): {gate.checklist_text}")
-    if ir.gate_graph.approval_rule:
-        lines.append(f"- Approval rule: {ir.gate_graph.approval_rule}")
-
+    if workspace:
+        lines.extend(render_orchestrator_guidance(
+            ir, lambda name: f"`.system2/codex/skills/system2-role-{name}/SKILL.md`",
+            "Delegate using Codex's native `spawn_agent` with fresh context. "
+            "Use the exact composed role file below, not the installed base skill. "
+            "Read it and pass its full guidance and the task handoff in the spawn message; "
+            "these project files are not registered Codex skills. Wait for the result "
+            "and close the completed thread after collecting evidence. If delegation "
+            "is unavailable, report it and stop.",
+        ))
+    else:
+        lines.extend(use_workspace_overlay(
+            "codex", f".system2/codex/{_CODEX_LOCK}", ".system2/codex/skills/system2/SKILL.md",
+            "`$system2:system2-compose`",
+        ))
+        lines.extend(render_orchestrator_guidance(
+            ir, lambda name: f"`$system2:system2-role-{name}`", _DISPATCH
+        ))
     lines.extend([
         "",
-        "## Roles (same-session skill adoption)",
-        "Invoke the target role skill in the current session. This changes the active "
-        "role guidance; it does not create an isolated subagent.",
-        "",
-        "Available roles (listed in workflow order; use only when relevant):",
-    ])
-    for index, role_name in enumerate(ir.delegation_contract.preferred_order, 1):
-        lines.append(f"{index}. `$system2-role-{role_name}`")
-    lines.extend(["", "Give each role:"])
-    lines.extend(f"- {field}" for field in ir.delegation_contract.required_fields)
-    lines.append("")
-    lines.extend(render_workflow_contract(ir))
-    lines.extend([
-        "",
-        "Use `$system2-doctor` for a read-only summary of project workflow state.",
+        "Use `$system2:system2-doctor` for a read-only summary of project workflow state.",
     ])
     return "\n".join(lines).rstrip() + "\n"
 
@@ -124,31 +115,22 @@ def _build_doctor_skill() -> str:
     lines.extend([
         "# System2 doctor (Codex)",
         "",
-        "Inspect the current project without editing it:",
-        "",
-        "1. Check `spec/context.md`, `spec/requirements.md`, `spec/design.md`, and `spec/tasks.md`.",
-        "2. Check the current diff and note unfinished work.",
-        "3. Report the next gate or implementation step and any blocker.",
-        "",
-        _RUNTIME_BOUNDARY,
+        *workflow_status(), "",
+        *overlay_doctor_guidance("codex", f".system2/codex/{_CODEX_LOCK}"), _RUNTIME_BOUNDARY,
     ])
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _build_role_skill(role) -> str:
-    lines = _frontmatter(
-        f"system2-role-{role.name}", f"Use the System2 {role.name} role in Codex."
-    )
+def _build_role_skill(ir: System2Graph, name: str, contract: str) -> str:
+    lines = _frontmatter(f"system2-role-{name}", f"Use the System2 {name} role in Codex.")
     lines.extend([
-        f"# System2 role: {role.name} (Codex)",
+        f"# System2 role: {name} (Codex)",
         "",
-        f"You are the System2 {role.name} specialist. Follow the contract below in "
+        f"You are the System2 {name} specialist. Follow the contract below in "
         "the current session. This skill supplies guidance only; Codex controls "
         "permissions and approvals.",
         "",
-        "## Role contract",
-        "",
-        *role.contract_text.splitlines(),
+        *render_role_guidance(ir, name, contract),
     ])
     return "\n".join(lines).rstrip() + "\n"
 
@@ -164,7 +146,8 @@ def _build_degradation_report(ir: System2Graph) -> dict:
         "backend": "codex",
         "codex_plugin_version": _CODEX_PLUGIN_VERSION,
         "enforcement": "host-managed",
-        "subagent_isolation": "unsupported",
+        "subagent_isolation": "separate-thread-context",
+        "delegation_mode": "native-subagents",
         "FIDELITY": (
             _RUNTIME_BOUNDARY
             + " System2's role scopes, dangerous-command guidance, sensitive-path "
@@ -174,35 +157,26 @@ def _build_degradation_report(ir: System2Graph) -> dict:
     }
 
 
-def _planned_files(ir: System2Graph) -> List[Tuple[str, str]]:
-    planned: List[Tuple[str, str]] = [
-        (
-            os.path.join(".codex-plugin", "plugin.json"),
-            json.dumps(_build_manifest(), indent=2) + "\n",
-        ),
-        (
-            os.path.join("skills", "system2", "SKILL.md"),
-            _build_orchestrator_skill(ir),
-        ),
-        (
-            os.path.join("skills", "system2-doctor", "SKILL.md"),
-            _build_doctor_skill(),
-        ),
-    ]
-    roles = {role.name: role for role in ir.roles}
-    for role_name in ir.delegation_contract.preferred_order:
-        role = roles.get(role_name)
-        if role is not None:
-            planned.append((
-                os.path.join("skills", f"system2-role-{role_name}", "SKILL.md"),
-                _build_role_skill(role),
-            ))
+def _planned_files(ir: System2Graph, workspace: bool) -> List[Tuple[str, str]]:
+    planned = [("skills/system2/SKILL.md", _build_orchestrator_skill(ir, workspace))]
+    if not workspace:
+        planned.extend([
+            (".codex-plugin/plugin.json", json.dumps(_build_manifest(), indent=2) + "\n"),
+            ("skills/system2-doctor/SKILL.md", _build_doctor_skill()),
+        ])
+        for name, description, profiles in (
+            ("system2-compose", "Preview and manage System2 project overlays and profiles.", False),
+            ("system2-profile", "List or inspect saved System2 overlay profiles.", True),
+        ):
+            lines = _frontmatter(name, description)
+            lines.extend([f"# {description}", "", *overlay_commands("codex", profiles=profiles)])
+            planned.append((f"skills/{name}/SKILL.md", "\n".join(lines).rstrip() + "\n"))
+    for name, contract in role_contracts(ir):
+        planned.append((
+            os.path.join("skills", f"system2-role-{name}", "SKILL.md"),
+            _build_role_skill(ir, name, contract),
+        ))
 
-    ownership = build_artifact_ownership(planned, _CODEX_LOCK)
-    lock = _build_degradation_report(ir)
-    lock["ownership"] = ownership
-    lock["overlay_sources"] = list(ir.overlay_sources)
-    planned.append((_CODEX_LOCK, json.dumps(lock, indent=2) + "\n"))
     return planned
 
 
@@ -216,4 +190,7 @@ class CodexBackend(GeneratedArtifactBackend):
     runtime_boundary = _RUNTIME_BOUNDARY
 
     def _planned_files(self, ir: System2Graph) -> List[Tuple[str, str]]:
-        return _planned_files(ir)
+        return _planned_files(ir, bool(self._prefix))
+
+    def _lock_details(self, ir: System2Graph) -> dict:
+        return _build_degradation_report(ir)

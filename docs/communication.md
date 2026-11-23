@@ -15,8 +15,8 @@ This is not a fixed response template. Technical detail is welcome when it helps
 | Harness | Policy delivery |
 |---------|-----------------|
 | **Claude Code** | Project orchestrator instructions and native specialist subagent prompts |
-| **Codex** | The `$system2` orchestrator and in-session role skills |
-| **Pi** | The `/system2` orchestrator and in-session role skills |
+| **Codex** | The `$system2:system2` orchestrator and role skills handed to native subagents |
+| **Pi** | The `/system2` orchestrator and role skills handed to Pi subprocesses |
 
 Role execution differs by harness, but communication expectations do not. Every channel preserves the same requirements for clarity, evidence, uncertainty, approvals, and honest completion reporting.
 

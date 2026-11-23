@@ -18,6 +18,7 @@ import unittest
 from evals import capture, matrix, oracle
 from system2_compiler import cli, ir
 from system2_compiler.backends.claude_code import ClaudeCodeBackend
+from system2_compiler.backends.codex import CodexBackend
 from system2_compiler.backends.pi import PiBackend
 from system2_compiler.ir.build import _load_base_template, _section_text
 
@@ -81,34 +82,23 @@ class HumanCommunicationPolicyTest(unittest.TestCase):
                 if self.policy:
                     self.assertNotIn(self.policy, text)
 
-    def test_pi_orchestrator_and_role_skills_share_the_policy(self):
-        with tempfile.TemporaryDirectory() as project:
-            result = ir.compose(oracle.PLUGIN_ROOT, [matrix.TEST_OVERLAY], project)
-            self.assertIsNotNone(result.graph, result.errors)
-            PiBackend().emit(result.graph, project)
-            root = Path(project)
-            parent = (root / ".pi/prompts/system2.md").read_text()
-            self.assertPolicy(parent)
-            for role in result.graph.roles:
-                with self.subTest(role=role.name):
-                    child = (
-                        root / ".pi" / "skills" / f"system2-role-{role.name}" / "SKILL.md"
-                    ).read_text()
-                    self.assertNotIn("## Human communication policy", child)
-                    self.assertIn("shared Human communication policy", child)
-                    self.assertNotIn("<thinking>", child)
-            self.assertIn(
-                "## TDD Verification Loop",
-                (root / ".pi/skills/system2-role-executor/SKILL.md").read_text(),
-            )
-            self.assertIn(
-                "Use EARS-style statements",
-                (root / ".pi/skills/system2-role-requirements-engineer/SKILL.md").read_text(),
-            )
-            self.assertIn(
-                "spec/interfaces.json",
-                (root / ".pi/skills/system2-role-design-architect/SKILL.md").read_text(),
-            )
+    def test_guidance_roles_have_the_policy_even_without_the_orchestrator(self):
+        for backend, prompt_path, skills_path in (
+            (CodexBackend(), "skills/system2/SKILL.md", "skills"),
+            (PiBackend(), ".pi/prompts/system2.md", ".pi/skills"),
+        ):
+            with self.subTest(target=backend.name), tempfile.TemporaryDirectory() as project:
+                result = ir.compose(oracle.PLUGIN_ROOT, [matrix.TEST_OVERLAY], project)
+                self.assertIsNotNone(result.graph, result.errors)
+                backend.emit(result.graph, project)
+                root = Path(project)
+                self.assertPolicy((root / prompt_path).read_text())
+                names = [role.name for role in result.graph.roles] + ["test-scout"]
+                for name in names:
+                    with self.subTest(role=name):
+                        child = (root / skills_path / f"system2-role-{name}/SKILL.md").read_text()
+                        self.assertPolicy(child)
+                        self.assertNotIn("<thinking>", child)
 
     def test_lock_recomposition_and_overlay_removal_preserve_policy(self):
         removable = str(Path(__file__).parent / "fixtures/lifecycle-removable")

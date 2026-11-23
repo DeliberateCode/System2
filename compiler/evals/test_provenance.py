@@ -63,6 +63,7 @@ def _emit_channel(channel, dest, ctx):
         regen_all.CodexBackend(
             overlay_sources=list(ctx.codex_overlays)
         ).emit(result.graph, dest)
+        regen_all._bundle_channel_compiler(dest, channel, ctx)
         return
     with tempfile.TemporaryDirectory(prefix="provenance-pi-emit-") as staging:
         result = regen_all.ir.compose(ctx.plugin_root, [], staging)
@@ -72,6 +73,7 @@ def _emit_channel(channel, dest, ctx):
         regen_all.build_pi_package.build(
             staging, dest, regen_all.build_pi_package.PACKAGE_VERSION
         )
+    regen_all._bundle_channel_compiler(dest, channel, ctx)
 
 
 def _write_overlay(root):
@@ -166,7 +168,7 @@ class SourceDigestTest(unittest.TestCase):
             "backend/degradation", "backend/generated", "backend/yaml",
             "generator/regen_all", "generator/provenance",
             "generator/build_bundle_helpers", "metadata/channel_version",
-            "metadata/compiler_project",
+            "metadata/compiler_project", "package/compiler", "package/entrypoint",
         }
         self.assertLessEqual(common, codex_labels)
         self.assertLessEqual(common, pi_labels)
@@ -662,12 +664,12 @@ class ArtifactDigestTest(unittest.TestCase):
 
 
 class ChannelVersionTest(unittest.TestCase):
-    def test_codex_and_pi_consume_one_authoritative_0_2_3_version(self):
+    def test_codex_and_pi_consume_one_authoritative_version(self):
         from system2_compiler.channel_version import CHANNEL_VERSION
         from system2_compiler.backends import codex
         import build_pi_package
 
-        self.assertEqual(CHANNEL_VERSION, "0.2.3")
+        self.assertEqual(CHANNEL_VERSION, "0.2.5")
         self.assertEqual(codex._CODEX_PLUGIN_VERSION, CHANNEL_VERSION)
         self.assertEqual(build_pi_package.PACKAGE_VERSION, CHANNEL_VERSION)
 
@@ -675,10 +677,10 @@ class ChannelVersionTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "version mismatch"):
             regen_all._require_channel_version("codex", "0.2.2")
         with self.assertRaisesRegex(RuntimeError, "version mismatch"):
-            regen_all._require_channel_version("pi", "0.2.4")
+            regen_all._require_channel_version("pi", "0.0.0")
         import build_pi_package
         with self.assertRaisesRegex(ValueError, "version mismatch"):
-            build_pi_package.build(self.id(), self.id(), "0.2.4")
+            build_pi_package.build(self.id(), self.id(), "0.0.0")
 
     def test_swapped_channel_generator_inputs_are_detectable(self):
         ctx = regen_all._context()

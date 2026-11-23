@@ -1,19 +1,15 @@
 # Installation and Updating
 
-System2 supports Claude Code, Codex, and Pi as equally viable ways to run the same spec-driven workflow.
+System2 supports Claude Code, Codex, and Pi for its spec-driven workflow.
 
-| Harness | Install | Start | Role execution |
-|---------|---------|-------|----------------|
-| **Claude Code** | Add the marketplace and install `system2@system2-marketplace` | `/system2:init` | Native subagents |
-| **Codex** | Add the marketplace and install `system2@system2-marketplace` | `$system2` | In-session role skills |
-| **Pi** | `pi install git:github.com/DeliberateCode/System2` | `/system2 <task>` | In-session role skills |
+| Harness | After installing | Start work |
+|---------|------------------|------------|
+| **[Claude Code](installation/claude-code.md)** | Restart, run `/system2:init` once in each project, then restart to load the project instructions. | Describe your task in Claude Code. |
+| **[Codex](installation/codex.md)** | Restart Codex. No separate System2 setup. | `$system2:system2` with your task. |
+| **[Pi](installation/pi.md)** | Restart Pi or run `/reload`. The package sets up its specialist automatically. | `/system2 <task>` |
 
-Choose the harness that matches your existing environment:
+Codex and Pi include the overlay and profile tools in the normal install. These commands need Python 3.11 or newer (`python3`); no separate compiler install or environment setting is required. The per-harness guides also cover cleanup for older preview installs.
 
-- [Claude Code](installation/claude-code.md)
-- [Codex](installation/codex.md)
-- [Pi](installation/pi.md)
-
-All three provide the same gates, role contracts, spec artifacts, and verification workflow. Their host-specific execution and permission mechanisms differ.
+All three share gates, role contracts, spec artifacts, and verification guidance. Claude Code uses native subagents and plugin hooks. Codex uses native subagent threads; Pi uses the official subagent extension. On Codex and Pi, the host remains responsible for permissions and enforcement.
 
 For workflow concepts, see the [README](../README.md). For optional overlays and profiles, see [Overlays and profiles](overlays.md).

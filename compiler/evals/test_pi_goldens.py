@@ -29,7 +29,7 @@ _EXPECTED_ROLES = {
 
 
 def _emit(project):
-    result = ir.compose(oracle.PLUGIN_ROOT, [matrix.TEST_OVERLAY], project)
+    result = ir.compose(oracle.PLUGIN_ROOT, [], project)
     if result.graph is None:
         raise AssertionError(result.errors)
     PiBackend().emit(result.graph, project)
@@ -43,9 +43,9 @@ class PiProjectionTest(unittest.TestCase):
         self.root = self.temp.name
         self.graph = _emit(self.root)
 
-    def test_emits_two_prompts_and_thirteen_role_skills(self):
+    def test_emits_workflow_overlay_prompts_and_thirteen_role_skills(self):
         prompts = set(os.listdir(os.path.join(self.root, ".pi", "prompts")))
-        self.assertEqual(prompts, {"system2.md", "system2-doctor.md"})
+        self.assertEqual(prompts, {"system2.md", "system2-doctor.md", "system2-compose.md", "system2-profile.md"})
 
         skills_root = os.path.join(self.root, ".pi", "skills")
         roles = {
@@ -58,10 +58,13 @@ class PiProjectionTest(unittest.TestCase):
         text = Path(self.root, ".pi", "prompts", "system2.md").read_text()
         self.assertIn("$ARGUMENTS", text)
         self.assertIn(_RUNTIME_BOUNDARY, text)
-        self.assertIn("does not install an extension, hooks, or a permission layer", text)
-        self.assertIn("same-session skill adoption", text)
+        self.assertIn('`subagent` in single mode with `agent: "system2-specialist"`', text)
+        self.assertIn('`agentScope: "user"`', text)
+        self.assertIn("absolute role `SKILL.md` path", text)
+        self.assertIn("do not use chain mode across approval gates", text)
+        self.assertIn("unavailable after automatic setup", text)
+        self.assertIn("`system2_compiler_path`", text)
         self.assertNotIn("system2_delegate", text)
-        self.assertNotIn("subprocess", text.lower())
 
     def test_role_skill_preserves_the_canonical_contract(self):
         text = Path(
@@ -76,8 +79,8 @@ class PiProjectionTest(unittest.TestCase):
         lock = json.loads(Path(self.root, "system2.pi.lock.json").read_text())
         self.assertEqual(lock["backend"], "pi")
         self.assertEqual(lock["enforcement"], "host-managed")
-        self.assertEqual(lock["subagent_isolation"], "unsupported")
-        self.assertEqual(lock["delegation_mode"], "in-session-skills")
+        self.assertEqual(lock["subagent_isolation"], "separate-process-context")
+        self.assertEqual(lock["delegation_mode"], "pi-subagent-example")
         for capability in lock["capabilities"].values():
             self.assertEqual(capability["status"], "advisory")
             self.assertFalse(capability["enforced"])

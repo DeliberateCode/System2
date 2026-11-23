@@ -4,6 +4,8 @@ System2 is available as a Claude Code plugin. It installs the orchestrator, 13 s
 
 ## Install
 
+Have `python3` available for System2's hooks and overlay commands. In Claude Code, run:
+
 ```text
 /plugin marketplace add DeliberateCode/System2
 /plugin install system2@system2-marketplace

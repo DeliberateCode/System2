@@ -61,7 +61,7 @@ def test_maintained_documentation_balances_harnesses_and_current_contracts():
     ).read_text(encoding="utf-8")
 
     assert "all three support the same gates, roles, and project artifacts" in readme
-    assert "equally viable" in installation_index
+    assert "Codex uses native subagent threads; Pi uses the official subagent extension" in installation_index
     for harness, guide in installation_guides.items():
         for heading in ("## Install", "## Run", "## Runtime boundary", "## Update", "## Remove"):
             assert heading in guide, f"{harness} guide is missing {heading}"
@@ -76,15 +76,25 @@ def test_maintained_documentation_balances_harnesses_and_current_contracts():
         "primary harness",
     ):
         assert unequal_claim not in combined_user_docs
+    assert "once in each project" in installation_index
+    assert "No separate System2 setup" in installation_index
+    assert "sets up its specialist automatically" in installation_index
+    assert "No separate System2 configuration" in installation_guides["Codex"]
+    assert "$system2:system2-compose" in installation_guides["Codex"]
     assert "pi install git:github.com/DeliberateCode/System2" in pi_install
     assert "/system2 <your task>" in pi_install
-    assert "does not install an extension, hooks, or a permission layer" in pi_install
-    assert "0.85.1" not in pi_install
-    assert "PI_CI_VERSION" not in ci_workflow
+    assert "sets up its specialist automatically" in pi_install
+    assert "`/system2-setup` is only for checking or retrying" in pi_install
+    assert "/system2-compose" in pi_install
+    for guide in (installation_guides["Codex"], pi_install):
+        assert "Python 3.11 or newer" in guide
+        assert "export SYSTEM2_SOURCE" not in guide
+    assert "System2 does not add hooks or a permission layer" in pi_install
+    assert "bash compiler/evals/channel_upgrade_smoke.sh" in ci_workflow
     assert "python -m unittest discover" in ci_workflow
     for target in ("claude-code", "codex", "pi"):
         assert f"`{target}`" in compiler_readme
-    assert "All targets preserve the same workflow, gates, and role contracts" in compiler_readme
+    assert "Neither adds System2 runtime enforcement" in compiler_readme
     assert "--base ../plugin" in compiler_readme
     assert "--overlays" in compiler_readme
     assert "optional `.system2/overlays.json` input list" in overlay_guide

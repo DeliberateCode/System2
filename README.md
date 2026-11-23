@@ -12,7 +12,7 @@ Scope → Context → Requirements → Design → Tasks → Implementation → V
 
 The name comes from Daniel Kahneman's dual-process theory: System 1 is fast and intuitive, while System 2 is slow and deliberate. This workflow emphasizes analysis, explicit decisions, verification, and risk awareness.
 
-An orchestrator drives the workflow and adopts or delegates specialist roles as needed. Each harness integrates those roles differently, but the engineering contract is the same.
+An orchestrator drives the workflow and delegates specialist work to subagents. The harnesses share the workflow and role contracts, but differ in how they launch subagents and enforce constraints.
 
 ## Core workflow
 
@@ -71,20 +71,21 @@ All three harnesses are supported ways to run System2. Choose the one that fits 
 | Harness | Start command | Role execution | Host authority |
 |---------|---------------|----------------|----------------|
 | **Claude Code** | `/system2:init` | Native subagents | Claude Code permissions and plugin hooks |
-| **Codex** | `$system2` | Role skills in the current session | Codex sandbox, approvals, and tools |
-| **Pi** | `/system2 <task>` | Role skills in the current session | Pi tools, project trust, and configuration |
+| **Codex** | `$system2:system2` | Native subagent threads | Codex sandbox, approvals, and tools |
+| **Pi** | `/system2 <task>` | Separate Pi processes via the official subagent extension | Pi tools, project trust, and configuration |
 
-The workflow is equivalent; process isolation and enforcement mechanisms are harness-specific.
+Codex and Pi give specialists separate context, but System2's workflow and approval rules are instructions, not programmatic checks.
 
 ### Claude Code
+
+In Claude Code, install the plugin:
 
 ```text
 /plugin marketplace add DeliberateCode/System2
 /plugin install system2@system2-marketplace
-/system2:init
 ```
 
-See [Claude Code installation](docs/installation/claude-code.md).
+Restart Claude Code, open your project, and run `/system2:init` once for that project. Restart again to load the instructions, then describe your task. Have `python3` available for hooks and overlay commands. See [Claude Code installation](docs/installation/claude-code.md).
 
 ### Codex
 
@@ -93,7 +94,7 @@ codex plugin marketplace add DeliberateCode/System2
 codex plugin add system2@system2-marketplace
 ```
 
-Restart Codex, then invoke `$system2` with your task. See [Codex installation](docs/installation/codex.md).
+Restart Codex, then invoke `$system2:system2` with your task. No separate System2 setup is required. The plugin includes the compiler for overlays and profiles. See [Codex installation](docs/installation/codex.md).
 
 ### Pi
 
@@ -101,9 +102,9 @@ Restart Codex, then invoke `$system2` with your task. See [Codex installation](d
 pi install git:github.com/DeliberateCode/System2
 ```
 
-Restart Pi or run `/reload`, then invoke `/system2 <your task>`. See [Pi installation](docs/installation/pi.md).
+Use Pi 1.6.0 or newer. Restart Pi or run `/reload`, then invoke `/system2 <your task>`. The package sets up its specialist automatically and includes the compiler for overlays and profiles. See [Pi installation](docs/installation/pi.md).
 
-No separate System2 configuration is required for Codex or Pi. Continue using the harness's normal model, permission, tool, and trust settings.
+If you used the earlier branch previews, follow the migration steps for [Codex hooks](docs/installation/codex.md#migrating-from-the-hook-based-preview) or [Pi project files](docs/installation/pi.md#migrating-projects-initialized-with-the-pi-preview) before updating.
 
 ## Using System2
 
@@ -113,7 +114,9 @@ Start with a concrete engineering request:
 Build email-and-password authentication with account lockout and audit logging.
 ```
 
-The orchestrator checks existing `spec/` artifacts, clarifies scope, and proposes the next gate. For an existing System2 project, ask it to read the current specs and diff, then continue the next unfinished task.
+The orchestrator checks existing `spec/` artifacts, clarifies scope, and proposes the next gate. The parent reviews each specialist's output and asks for approval before advancing; the executor starts only after the task plan is approved (or you explicitly waive that gate).
+
+To continue an existing System2 project, including when switching harnesses, use the same checkout. Start that harness's orchestrator and ask it to resume from the current specs, recorded approvals, and diff. If approval for the current version of an artifact can't be established, confirm it again. The post-execution log and regression ledger carry verification and corrective-work evidence across sessions.
 
 You can also request a specialist role directly:
 
@@ -140,7 +143,7 @@ Use the harness-specific doctor command for a read-only status summary:
 | Harness | Doctor |
 |---------|--------|
 | Claude Code | `/system2:doctor` |
-| Codex | `$system2-doctor` |
+| Codex | `$system2:system2-doctor` |
 | Pi | `/system2-doctor` |
 
 ## Harness boundaries
@@ -148,15 +151,15 @@ Use the harness-specific doctor command for a read-only status summary:
 System2 supplies workflow and role guidance. The active harness remains authoritative for models, tools, filesystem access, command execution, sandboxing, trust, and approvals.
 
 - Claude Code can execute roles as isolated subagents and supports plugin hooks.
-- Codex and Pi apply role guidance inside the current conversation.
+- Codex and Pi delegate roles in separate contexts. This does not add a permission sandbox.
 - Role instructions do not override host permissions or configuration.
 - Do not allow multiple agents to edit the same checkout concurrently.
 
-These differences affect execution mechanics, not whether a harness can complete the System2 workflow.
+Use the harness's normal settings for permissions and trust. Workflow instructions do not add enforcement that the host does not provide.
 
 ## Optional overlays and profiles
 
-The base workflow is available on all three harnesses. Optional overlay and profile management commands are currently available through the Claude Code integration. Source-compiler users can also project composed workflows for Codex and Pi.
+All three harnesses can preview and apply extra project rules (overlays) and switch between saved sets (profiles). Codex and Pi include the compiler in the normal install; overlay and profile commands need Python 3.11 or newer.
 
 See [Overlays and profiles](docs/overlays.md).
 
@@ -205,7 +208,7 @@ See the [compiler README](compiler/README.md) for compiler usage and focused ver
 | Codex | `codex plugin list --json` | Restart Codex |
 | Pi | `pi list` | Run `/reload` or restart Pi |
 
-If a System2 command is missing, first verify installation and reload the harness. For channel-specific update and removal commands, see [Installation and Updating](docs/installation.md).
+If a System2 command is missing, verify installation and reload the harness. If Pi reports a specialist setup problem, use `/system2-setup` to check or retry; it is not an installation step. For channel-specific update and removal commands, see [Installation and Updating](docs/installation.md).
 
 ## Principles
 
